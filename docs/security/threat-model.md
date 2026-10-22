@@ -163,7 +163,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | E-03 | Sensitive operation without recent authentication | Re-auth guard (A-07) on email change, password change, export, deletion | `security/reauth.test.ts` (fresh login OK; after 10 min + 1 s → 403; after `reauth` OK) |
 | E-04 | Client-controlled status/XP/ownership | see T-02 | `security/mass-assignment.test.ts` |
 | E-05 | App role bypasses RLS or alters schema | `NOBYPASSRLS`, `FORCE ROW LEVEL SECURITY`, DML-only grants | `security/rls.test.ts`, `security/db-roles.test.ts` |
-| E-06 | Container breakout / privilege escalation on the host | Non-root UID, read-only root FS, no shell in distroless image, dropped capabilities, Trivy | `e2e/container.test.ts` (uid ≠ 0, write to `/` fails), `ci` |
+| E-06 | Container breakout / privilege escalation on the host | Non-root UID, read-only root FS, no shell in distroless image, dropped capabilities, Trivy | `e2e/smoke.test.ts` (uid ≠ 0, write to `/app` fails, no shell, no package manager), `ci` |
 | E-07 | Secrets committed or baked into images | gitleaks (CI + pre-commit), `.dockerignore`, env-only config | `ci`, `unit/config.test.ts` |
 | E-08 | Service starts with weak/missing secrets or dev crypto in production | Startup validation (R-SUP-04) | `unit/config.test.ts` (each missing/weak variable → refuses to start; `KEK_SOURCE=env` in production → refuses, R-SUP-04) |
 | E-09 | Worker code path used for cross-user access from the API | Worker role credentials only in the worker process; dependency-cruiser forbids API modules importing retention code | `ci` (dependency-cruiser), `security/db-roles.test.ts` |

@@ -177,7 +177,7 @@ settlement exactly-once under concurrency.
 .
 ├── .github/workflows/ci.yml           # every gate on each push + nightly (test-strategy §7)
 ├── docker/
-│   ├── Dockerfile                     # multi-stage, distroless/alpine, non-root, read-only FS
+│   ├── Dockerfile                     # multi-stage; distroless Node 26 runtime (no shell), non-root, read-only FS
 │   └── compose.yml                    # local dev: postgres + api + worker
 ├── docs/                              # see README documentation map
 ├── openapi/openapi.yaml               # contract (source of truth)

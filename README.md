@@ -47,7 +47,7 @@ pre-commit secret scan (Windows: `winget install Gitleaks.Gitleaks`).
 | `npm test` | Unit, integration, contract and security tests (Docker required); fails if an OpenAPI operation is neither tested nor listed in `test/contract/not-yet-implemented.ts` |
 | `npm run test:coverage` | Same with coverage thresholds (85 % overall, 95 % branches in `src/domain`) |
 | `npm run mutation` | Stryker mutation testing of `src/domain` and `src/platform/crypto` (breaks below 80 %) |
-| `npm run test:e2e` | Builds the image and checks the running Compose stack (non-root, read-only, no secrets in logs) |
+| `npm run test:e2e` | Builds the image and checks the running Compose stack (non-root, read-only, no shell or package manager, no secrets in logs) |
 | `docker compose -f docker/compose.yml up --build` | Local stack (copy `docker/.env.example` to `docker/.env` first); API on `127.0.0.1:3000` |
 
 For a partial test run (single files), set `CONTRACT_COVERAGE=off` so the spec-coverage gate does not fail.

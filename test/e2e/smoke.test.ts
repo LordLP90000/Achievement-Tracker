@@ -35,6 +35,8 @@ describe('container smoke test', () => {
 
   const compose = (...args: string[]) => run('docker', [...COMPOSE, ...args], { env, maxBuffer: MAX_BUFFER });
   const inApi = (...command: string[]) => compose('exec', '-T', 'api', ...command);
+  // The distroless runtime contains no shell or coreutils; Node.js is the only executable.
+  const inApiNode = (script: string) => inApi('/nodejs/bin/node', '-e', script);
 
   beforeAll(async () => {
     env['API_PORT'] = String(await freePort());
@@ -55,15 +57,20 @@ describe('container smoke test', () => {
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
-  it('runs the API as a non-root user', async () => {
-    const { stdout } = await inApi('id', '-u');
+  it('runs the API as a non-root user [E-06]', async () => {
+    const { stdout } = await inApiNode('process.stdout.write(String(process.getuid()))');
 
-    expect(stdout.trim()).not.toBe('0');
+    expect(stdout.trim()).toMatch(/^[1-9]\d*$/);
   });
 
-  it('has a read-only root filesystem, a writable /tmp and no package manager', async () => {
-    await expect(inApi('touch', '/app/intruder')).rejects.toThrow();
-    await expect(inApi('touch', '/tmp/allowed')).resolves.toBeDefined();
+  it('has a read-only root filesystem and a writable /tmp [E-06, R-SUP-03]', async () => {
+    await expect(inApiNode("require('node:fs').writeFileSync('/app/intruder', 'x')")).rejects.toThrow();
+    await expect(inApiNode("require('node:fs').writeFileSync('/tmp/allowed', 'x')")).resolves.toBeDefined();
+  });
+
+  it('contains no shell and no package manager [E-06]', async () => {
+    await expect(inApi('/bin/sh', '-c', 'true')).rejects.toThrow();
+    await expect(inApi('sh', '-c', 'true')).rejects.toThrow();
     await expect(inApi('npm', '--version')).rejects.toThrow();
   });
 

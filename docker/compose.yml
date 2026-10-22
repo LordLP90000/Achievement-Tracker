@@ -40,7 +40,7 @@ services:
 
   db-init:
     <<: *app
-    command: ['node', 'dist/bootstrap-db.js']
+    command: ['dist/bootstrap-db.js']
     environment:
       APP_ENV: development
       DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_ADMIN_PASSWORD}@db:5432/postgres
@@ -55,7 +55,7 @@ services:
 
   migrate:
     <<: *app
-    command: ['node', 'dist/migrate.js']
+    command: ['dist/migrate.js']
     environment:
       APP_ENV: development
       DATABASE_URL_MIGRATOR: postgres://questline_migrator:${DB_PASSWORD_MIGRATOR}@db:5432/questline
@@ -66,7 +66,7 @@ services:
 
   api:
     <<: *app
-    command: ['node', 'dist/server.js']
+    command: ['dist/server.js']
     environment:
       APP_ENV: development
       HOST: 0.0.0.0
@@ -75,7 +75,12 @@ services:
     ports:
       - 127.0.0.1:${API_PORT:-3000}:3000
     healthcheck:
-      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/health/ready']
+      # No shell or wget in the distroless image: Node.js itself probes readiness.
+      test:
+        - CMD
+        - /nodejs/bin/node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
       interval: 3s
       timeout: 3s
       retries: 20
@@ -85,7 +90,7 @@ services:
 
   worker:
     <<: *app
-    command: ['node', 'dist/worker.js']
+    command: ['dist/worker.js']
     environment:
       APP_ENV: development
       DATABASE_URL_WORKER: postgres://questline_worker:${DB_PASSWORD_WORKER}@db:5432/questline
