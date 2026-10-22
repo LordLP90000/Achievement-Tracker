@@ -32,7 +32,7 @@ one automated test, deterministic tests only.
 | Security | Authz/BOLA for every endpoint (generated from the spec), deny-by-default, auth flows and abuse cases, rate limiting, headers, RLS, DB roles, log leakage, config hardening, mass assignment, injection, prototype pollution | Vitest + Testcontainers | `test/security/**` | s |
 | Privacy | Data-inventory guard, export completeness, deletion completeness (every table), consent gating and withdrawal effects, retention | Vitest + Testcontainers | `test/privacy/**` | s |
 | E2E smoke | Built container image + PostgreSQL via Docker Compose: register → verify → login → consent → achievement → quest → check-in → gamble → stats → export → delete (`202`); container hardening checks (uid ≠ 0, read-only FS) | Vitest over HTTP, Docker | `test/e2e/**` | min |
-| Mutation | Stryker on `src/domain/**` and `src/platform/crypto/**` | `@stryker-mutator/core` + Vitest runner | `stryker.config.mjs` | min (PR: changed files; nightly: full) |
+| Mutation | Stryker on `src/domain/**` and `src/platform/crypto/**` | `@stryker-mutator/core` + Vitest runner | `stryker.config.mjs` | min (every push; incremental on changed files plus a nightly full run from M3) |
 | Non-gating | Timing-uniformity check for enumeration (S-02), load/limit tests (k6), DAST (ZAP API scan with the OpenAPI spec) against staging | nightly / M6 | `test/perf/**`, CI nightly | – |
 
 ## 3. Harness design (`test/helpers`)
@@ -149,18 +149,25 @@ one automated test, deterministic tests only.
 ## 7. CI pipeline (GitHub Actions, M1)
 
 ```
-push / pull_request
- ├─ install (npm ci, engine-strict, cache)
- ├─ lint ─ typecheck ─ commitlint ─ redocly lint          (parallel, fast fail)
- ├─ unit tests + coverage (no Docker)
- ├─ integration + contract + security + privacy tests     (Docker service for Testcontainers) + coverage merge + thresholds
- ├─ mutation (Stryker incremental on changed files; full run nightly)
- ├─ semgrep ─ osv-scanner ─ gitleaks                       (parallel)
- ├─ build image → trivy → sbom (artifact)
- └─ e2e smoke against the built image
-nightly: full Stryker, timing-uniformity check, dependency refresh report
+push to master · pull_request · nightly 03:17 UTC — seven parallel jobs, all must pass
+ ├─ static     npm ci (engine-strict, no install scripts) → format → lint → typecheck → dependency-cruiser
+ │             → redocly lint → actionlint → commitlint (pushed range)
+ ├─ test       unit + integration + contract + security + privacy tests in one Vitest run (Testcontainers on the
+ │             runner's Docker) → coverage thresholds → spec-coverage gate
+ ├─ mutation   Stryker (full run on every push while the mutated set is small; incremental on changed files plus a
+ │             full nightly run once src/domain grows, M3)
+ ├─ semgrep    custom rule tests (`semgrep --test .semgrep/`) → scan with p/typescript, p/nodejs, p/owasp-top-ten
+ │             and the custom rules
+ ├─ osv        lockfile scan (accepted advisories only with reason and expiry in osv-scanner.toml)
+ ├─ gitleaks   full history (reviewed synthetic test values pinned by fingerprint in .gitleaksignore)
+ └─ image      build → Trivy (HIGH/CRITICAL incl. unfixed, secrets) → CycloneDX SBOMs for npm and the image
+               (artifact, 90 days) → e2e smoke against the Compose stack
+nightly, from M2: timing-uniformity check; dependency refresh report (planned)
 M6: ZAP API scan + k6 against staging
 ```
+
+Actions are pinned to commit SHAs and scanner images to digests; the workflow token is read-only and never
+persisted; scanners get read-only mounts and Trivy scans an exported image tarball instead of the Docker socket.
 
 Work is pushed directly to `master` (ADR-0001 as amended), so the fast gates also run locally in the lefthook `pre-push`
 hook and CI runs every gate on each push; a red pipeline is fixed or reverted before any other work. No

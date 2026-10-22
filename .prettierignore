@@ -7,3 +7,5 @@ README.md
 package-lock.json
 dist/
 coverage/
+# Semgrep rule tests keep their annotations on fixed lines.
+.semgrep/

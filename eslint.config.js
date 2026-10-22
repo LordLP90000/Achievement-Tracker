@@ -14,7 +14,18 @@ const forbiddenModules = [
 ];
 
 export default defineConfig(
-  globalIgnores(['dist/', 'coverage/', '.stryker-tmp/', 'docs/', 'openapi/', '.idea/', '.remember/']),
+  // .semgrep/ holds Semgrep rule tests with deliberate violations; they are checked by `semgrep --test` in CI.
+  globalIgnores([
+    'dist/',
+    'coverage/',
+    'reports/',
+    '.stryker-tmp/',
+    '.semgrep/',
+    'docs/',
+    'openapi/',
+    '.idea/',
+    '.remember/',
+  ]),
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,
   tseslint.configs.stylisticTypeChecked,
@@ -75,7 +86,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['**/*.js'],
+    files: ['**/*.js', '**/*.cjs', '**/*.mjs'],
     extends: [tseslint.configs.disableTypeChecked],
   },
 );

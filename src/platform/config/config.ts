@@ -117,6 +117,7 @@ function isStrongPassword(password: string, user?: string): boolean {
   return (
     password.length >= MIN_PRODUCTION_PASSWORD_LENGTH &&
     new Set(password).size > 1 &&
+    // nosemgrep: questline-timing-unsafe-secret-comparison -- one-off startup check of operator config, no oracle
     password !== user &&
     !PLACEHOLDER_FRAGMENTS.some((fragment) => lowered.includes(fragment))
   );
@@ -212,6 +213,7 @@ export function loadMigrateConfig(env: Env): MigrateConfig {
 function rolePasswordIssues(passwords: readonly (readonly [string, string])[]): string[] {
   return passwords.flatMap(([variable, password], index) => [
     ...(isStrongPassword(password) ? [] : [`${variable}: password is missing or too weak for production`]),
+    // nosemgrep: questline-timing-unsafe-secret-comparison -- one-off startup check of operator config, no oracle
     ...(passwords.slice(0, index).some(([, earlier]) => earlier === password)
       ? [`${variable}: must differ from the other role passwords`]
       : []),

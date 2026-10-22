@@ -1,0 +1,9 @@
+# Findings that gitleaks reports but that are not secrets. Each entry is one exact finding (commit:file:rule:line),
+# never a path or a rule, so a real secret elsewhere is still caught. Reviewed 2026-10-22 (M1).
+#
+# Synthetic, deliberately strong-looking passwords that the production-guard tests of the config module need.
+# They are not used anywhere else; the same lines carry `gitleaks:allow` markers from the next commit on.
+82297b7f92388afdb36be74f16068ba8119cdf0f:src/platform/config/config.test.ts:generic-api-key:4
+0417bf7d99070637a5c6624d309f55d4d9562d53:src/platform/config/config.test.ts:generic-api-key:253
+0417bf7d99070637a5c6624d309f55d4d9562d53:src/platform/config/config.test.ts:generic-api-key:254
+0417bf7d99070637a5c6624d309f55d4d9562d53:src/platform/config/config.test.ts:generic-api-key:255

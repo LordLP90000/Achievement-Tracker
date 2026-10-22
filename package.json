@@ -18,19 +18,29 @@
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "deps:check": "depcruise src test --config .dependency-cruiser.mjs",
+    "mutation": "stryker run",
+    "check": "npm run -s format:check && npm run -s lint && npm run -s typecheck && npm run -s deps:check && npm run -s lint:openapi && npm run -s test:coverage"
   },
   "devDependencies": {
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4",
+    "@cyclonedx/cyclonedx-npm": "6.0.1",
     "@eslint/js": "10.0.1",
     "@redocly/cli": "2.69.0",
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
     "@testcontainers/postgresql": "12.2.1",
     "@types/node": "26.6.5",
     "@vitest/coverage-v8": "5.0.5",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
+    "dependency-cruiser": "18.7.0",
     "drizzle-kit": "0.31.11",
     "eslint": "10.13.0",
     "eslint-plugin-regexp": "3.3.1",
+    "lefthook": "2.2.2",
     "prettier": "3.9.10",
     "testcontainers": "12.2.1",
     "typescript": "6.0.3",
@@ -48,6 +58,7 @@
   "allowScripts": {
     "esbuild": false,
     "protobufjs": false,
-    "ssh2": false
+    "ssh2": false,
+    "lefthook": false
   }
 }

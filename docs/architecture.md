@@ -175,7 +175,7 @@ settlement exactly-once under concurrency.
 
 ```
 .
-├── .github/workflows/ci.yml           # lint, typecheck, tests+coverage, semgrep, osv-scanner, gitleaks, trivy, sbom
+├── .github/workflows/ci.yml           # every gate on each push + nightly (test-strategy §7)
 ├── docker/
 │   ├── Dockerfile                     # multi-stage, distroless/alpine, non-root, read-only FS
 │   └── compose.yml                    # local dev: postgres + api + worker
@@ -215,8 +215,10 @@ settlement exactly-once under concurrency.
 │   ├── contract/                      # OpenAPI conformance & spec coverage
 │   ├── security/                      # authz/BOLA, auth flows, abuse cases, RLS, headers, log leakage
 │   └── e2e/                           # few smoke flows against the built container
+├── .semgrep/                          # custom Semgrep rules + annotated rule tests
 ├── .env.example
-├── .gitleaks.toml · .semgrep.yml · .nvmrc · eslint.config.js · stryker.config.mjs · vitest.config.ts
+├── .gitleaksignore · .semgrepignore · .nvmrc · .npmrc · lefthook.yml · commitlint.config.js · osv-scanner.toml
+├── .dependency-cruiser.mjs · eslint.config.js · stryker.config.mjs · vitest.config.ts · vitest.unit.config.ts
 ├── drizzle.config.ts · tsconfig.json · package.json · package-lock.json
 ```
 

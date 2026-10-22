@@ -1,0 +1,87 @@
+# Custom Semgrep rules for Questline (test strategy §6, threat model I-10/I-21). Rule tests: questline.ts next to this
+# file, run with `semgrep --test .semgrep/`. A finding may only be suppressed with
+# `// nosemgrep: <rule-id> -- <reason>` on the reported line; every suppression is reviewed in the milestone report.
+rules:
+  - id: questline-insecure-random
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Math.random() is predictable. Use node:crypto (randomUUID, randomBytes, randomInt) for identifiers, tokens and
+      any value an attacker could benefit from guessing.
+    pattern: Math.random()
+    paths:
+      include: ['/src/']
+
+  - id: questline-weak-hash
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      $ALG is broken for security purposes. Use SHA-256 or stronger (HMAC-SHA-256 for keyed digests, Argon2id for
+      passwords, docs/architecture.md §4.3).
+    patterns:
+      - pattern-either:
+          - pattern: $CRYPTO.createHash($ALG, ...)
+          - pattern: createHash($ALG, ...)
+          - pattern: $CRYPTO.createHmac($ALG, ...)
+          - pattern: createHmac($ALG, ...)
+          - pattern: $CRYPTO.hash($ALG, ...)
+          - pattern: hash($ALG, ...)
+      - metavariable-regex:
+          metavariable: $ALG
+          regex: (?i)^['"`](md4|md5|sha-?1|ripemd-?160|rmd160)['"`]$
+
+  - id: questline-timing-unsafe-secret-comparison
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Secrets, tokens, hashes, MACs and signatures must be compared in constant time (R-TLS-04, threat I-10): use
+      crypto.timingSafeEqual on equal-length buffers or the platform/crypto compare helper, never ===, !==, == or !=.
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $SECRET === $OTHER
+                  - pattern: $SECRET !== $OTHER
+                  - pattern: $SECRET == $OTHER
+                  - pattern: $SECRET != $OTHER
+                  - pattern: $OTHER === $SECRET
+                  - pattern: $OTHER !== $SECRET
+                  - pattern: $OTHER == $SECRET
+                  - pattern: $OTHER != $SECRET
+              # The secret side is a name whose last segment mentions a secret, optionally called. Semgrep anchors
+              # metavariable-regex at the start of the bound text.
+              - metavariable-regex:
+                  metavariable: $SECRET
+                  regex: >-
+                    ^(?:.*\.)?[\w$]*(?:[Tt]oken|TOKEN|[Ss]ecret|SECRET|[Hh]ash|HASH|[Hh]mac|HMAC|(?<![A-Za-z])mac(?![a-z])|Mac(?![a-z])|MAC(?![A-Z])|[Ss]ignature|SIGNATURE|[Dd]igest|DIGEST|[Pp]assword|PASSWORD)[\w$]*(?<!Id)(?<!Ids)(?<!Type)(?<!Kind)(?<!Count)(?<!At)(?<!Length)(?<!length)(?<!Size)(?<!size)(?<!Version)(?<!Algorithm)(?<!_id)(?<!_type)(?<!_at)(?:\([^()]*\))?$
+              # The other side is a value, not a literal, typeof check or nullish/boolean constant.
+              - metavariable-regex:
+                  metavariable: $OTHER
+                  regex: ^(?!(?:null|undefined|true|false|NaN)$)(?!typeof\b)[A-Za-z_$(\[]
+
+  - id: questline-non-constant-outbound-url
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Outbound request with a non-constant URL (SSRF, threat I-21). No feature fetches user-supplied URLs. An
+      operator-configured endpoint that is validated at startup needs
+      `// nosemgrep: questline-non-constant-outbound-url -- <reason>`.
+    patterns:
+      - pattern-either:
+          - pattern: fetch($URL, ...)
+          - pattern: globalThis.fetch($URL, ...)
+          - patterns:
+              - pattern-either:
+                  - pattern: $CLIENT.request($URL, ...)
+                  - pattern: $CLIENT.get($URL, ...)
+                  - pattern: $CLIENT.fetch($URL, ...)
+              - metavariable-regex:
+                  metavariable: $CLIENT
+                  regex: ^(?:http|https|http2|undici|got|axios|superagent|nodeFetch)$
+      - pattern-not: fetch("...", ...)
+      - pattern-not: globalThis.fetch("...", ...)
+      - pattern-not: $CLIENT.request("...", ...)
+      - pattern-not: $CLIENT.get("...", ...)
+      - pattern-not: $CLIENT.fetch("...", ...)
+    paths:
+      include: ['/src/']

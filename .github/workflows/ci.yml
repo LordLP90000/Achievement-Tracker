@@ -1,0 +1,205 @@
+# CI for every push to master (trunk-based, ADR-0001) and a nightly run against fresh vulnerability databases.
+# Gates: docs/test-strategy.md §6–§7, R-SUP-02. Actions are pinned to commit SHAs and scanner images to digests;
+# the token is read-only and never persisted; workflow values reach shell scripts only through environment variables.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every push gets its own run (a cancelled run would leave its commits without a commitlint verdict); pull request
+# runs replace their predecessors.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  ACTIONLINT_IMAGE: rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+  SEMGREP_IMAGE: semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af # 1.182.0
+  OSV_SCANNER_IMAGE: ghcr.io/google/osv-scanner@sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0 # v2.7.0
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f # v8.30.1
+  TRIVY_IMAGE: ghcr.io/aquasecurity/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c # 0.76.1
+
+jobs:
+  static:
+    name: Format, lint, types, boundaries, OpenAPI, workflows, commits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out (full history for commitlint)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js from .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install (lockfile only, no install scripts)
+        run: npm ci --no-audit
+      - name: Format
+        run: npm run -s format:check
+      - name: Lint
+        run: npm run -s lint
+      - name: Typecheck
+        run: npm run -s typecheck
+      - name: Import boundaries
+        run: npm run -s deps:check
+      - name: OpenAPI lint
+        run: npm run -s lint:openapi
+      - name: Workflow lint
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo "$ACTIONLINT_IMAGE" -color
+      - name: Commit messages (Conventional Commits)
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        env:
+          FROM_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          TO_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -z "$FROM_SHA" ] || ! git cat-file -e "$FROM_SHA^{commit}" 2>/dev/null; then
+            # New branch (zero SHA) or unknown base: check the pushed head commit.
+            npx --no-install commitlint --verbose --last
+          else
+            npx --no-install commitlint --verbose --from "$FROM_SHA" --to "$TO_SHA"
+          fi
+
+  test:
+    name: Unit, integration, contract and security tests with coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js from .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install (lockfile only, no install scripts)
+        run: npm ci --no-audit
+      - name: Tests with coverage thresholds and the spec-coverage gate (Testcontainers)
+        run: npm run -s test:coverage
+
+  mutation:
+    name: Mutation testing (Stryker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js from .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install (lockfile only, no install scripts)
+        run: npm ci --no-audit
+      - name: Stryker (break below 80 %)
+        run: npm run -s mutation
+
+  semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Custom rule tests
+        run: >-
+          docker run --rm -v "$PWD:/src:ro" -w /src "$SEMGREP_IMAGE"
+          semgrep --test --metrics off --config .semgrep/questline.yml .semgrep/questline.ts
+      - name: Scan with registry rulesets and custom rules
+        run: >-
+          docker run --rm -v "$PWD:/src:ro" -w /src
+          -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/src
+          "$SEMGREP_IMAGE" semgrep scan --metrics off --disable-version-check --error
+          --config p/typescript --config p/nodejs --config p/owasp-top-ten --config .semgrep/questline.yml
+
+  osv-scanner:
+    name: Vulnerable dependencies (osv-scanner)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Scan the lockfile (accepted advisories with expiry in osv-scanner.toml)
+        run: >-
+          docker run --rm -v "$PWD:/src:ro" -w /src "$OSV_SCANNER_IMAGE"
+          scan source --config=osv-scanner.toml --lockfile=package-lock.json
+
+  gitleaks:
+    name: Secrets in the full history (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan every commit (reviewed synthetic test values in .gitleaksignore)
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro" -w /repo
+          -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo
+          "$GITLEAKS_IMAGE" git --redact --no-banner --exit-code 1 /repo
+
+  image:
+    name: Image build, Trivy, SBOM and e2e smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node.js from .nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install (lockfile only, no install scripts)
+        run: npm ci --no-audit
+      - name: Build the image
+        run: docker build -f docker/Dockerfile -t questline-api:local .
+      - name: Export the image (the scanner gets a tarball, not the Docker socket)
+        run: |
+          mkdir -p "$RUNNER_TEMP/scan"
+          docker save questline-api:local -o "$RUNNER_TEMP/scan/image.tar"
+      - name: Trivy (HIGH/CRITICAL vulnerabilities incl. unfixed, secrets)
+        run: >-
+          docker run --rm -v "$RUNNER_TEMP/scan:/work" -e TRIVY_CACHE_DIR=/work/cache "$TRIVY_IMAGE"
+          image --input /work/image.tar --scanners vuln,secret --severity HIGH,CRITICAL
+          --exit-code 1 --no-progress --db-repository ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2
+      - name: SBOMs (CycloneDX) for the production dependencies and the whole image
+        run: |
+          mkdir -p sbom
+          npx --no-install cyclonedx-npm --omit dev --package-lock-only --output-reproducible --spec-version 1.6 \
+            --output-format JSON --output-file sbom/questline-api.npm.cdx.json
+          docker run --rm -v "$RUNNER_TEMP/scan:/work" -e TRIVY_CACHE_DIR=/work/cache "$TRIVY_IMAGE" \
+            image --input /work/image.tar --format cyclonedx --output /work/image.cdx.json --no-progress --skip-db-update
+          cp "$RUNNER_TEMP/scan/image.cdx.json" sbom/questline-api.image.cdx.json
+      - name: E2E smoke test against the Compose stack
+        run: npm run -s test:e2e
+      - name: Upload the SBOMs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom/
+          if-no-files-found: error
+          retention-days: 90

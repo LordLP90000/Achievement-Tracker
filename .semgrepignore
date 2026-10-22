@@ -1,0 +1,13 @@
+# Semgrep scan scope (CI job "semgrep"). This file replaces Semgrep's default ignore list.
+.git/
+node_modules/
+dist/
+coverage/
+reports/
+.stryker-tmp/
+.idea/
+.remember/
+graphify-out/
+docs/
+# Rule tests contain deliberate violations; they are checked by `semgrep --test` instead.
+.semgrep/

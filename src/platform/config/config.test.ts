@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadApiConfig, loadBootstrapConfig, loadMigrateConfig, loadWorkerConfig } from './config.ts';
 
-const STRONG_PASSWORD = 'Vq7mXr2pLk9sTz4wNb6c';
+const STRONG_PASSWORD = 'Vq7mXr2pLk9sTz4wNb6c'; // gitleaks:allow — synthetic test value
 const devUrl = 'postgres://questline_app:dev@localhost:5432/questline';
 const prodUrl = (user: string, password = STRONG_PASSWORD) =>
   `postgres://${user}:${password}@db.internal:5432/questline?sslmode=verify-full`;
@@ -250,9 +250,9 @@ describe('loadBootstrapConfig', () => {
     const config = loadBootstrapConfig({
       APP_ENV: 'production',
       DATABASE_ADMIN_URL: prodUrl('admin'),
-      DB_PASSWORD_MIGRATOR: 'Mg7xQ2vLp9sRt4wZ',
-      DB_PASSWORD_APP: 'Ap3kV8nWq5zTy2xB',
-      DB_PASSWORD_WORKER: 'Wk6hJ9cXr4mPs7qD',
+      DB_PASSWORD_MIGRATOR: 'Mg7xQ2vLp9sRt4wZ', // gitleaks:allow — synthetic test value
+      DB_PASSWORD_APP: 'Ap3kV8nWq5zTy2xB', // gitleaks:allow — synthetic test value
+      DB_PASSWORD_WORKER: 'Wk6hJ9cXr4mPs7qD', // gitleaks:allow — synthetic test value
     });
 
     expect(config.database).toBe('questline');

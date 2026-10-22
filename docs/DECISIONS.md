@@ -15,14 +15,18 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   proposal (one branch and one PR per milestone) was replaced by the PM after M0 ("why always merge? … straight push").
 - **Decision:** Single repository (GitHub `LordLP90000/Achievement-Tracker`, default branch `master`, kept per Q-22).
   Every commit is pushed directly to `master`: no milestone branches, no PRs (`m0-plan` was merged once as `5d41b7d`).
-  Conventional Commits (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `security`). Every commit
+  Conventional Commits (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `build`, `revert`,
+  `security`; enforced by commitlint). Every commit
   that changes behaviour contains its tests. Milestone boundaries are the commit ranges in `docs/PROGRESS.md` and the
   milestone reports.
 - **Consequences:** Faster flow, but CI can no longer block a commit *before* it lands on `master`. Mitigations: the
-  fast gates (format, lint, typecheck, unit and contract tests, OpenAPI lint) run locally in a lefthook `pre-push`
-  hook, the secret scan in `pre-commit` and commitlint in `commit-msg`; CI runs every gate on each push to `master`;
-  a red pipeline is fixed or reverted before any other work; never `--no-verify`, never force-push to `master`.
-- **Tests:** CI gate `commitlint` on the pushed range; lefthook hooks (M1).
+  local gates (`npm run check`: format, lint, typecheck, import boundaries, OpenAPI lint, and the unit, integration,
+  contract and security tests with coverage — about 25 s, Docker required) run in a lefthook `pre-push` hook, the
+  gitleaks secret scan of staged changes in `pre-commit` and commitlint in `commit-msg`; CI runs every gate on each
+  push to `master` and nightly; a red pipeline is fixed or reverted before any other work; never `--no-verify`, never
+  force-push to `master`.
+- **Tests:** CI gate `commitlint` on the pushed range; lefthook hooks (`lefthook.yml`, installed with
+  `npx lefthook install`; dependency install scripts stay disabled).
 
 ## ADR-0002 · Node.js 26 LTS as runtime target
 
