@@ -1,6 +1,6 @@
 # Test strategy
 
-Status: M0 proposal (2026-10-22). Rules from the brief are non-negotiable: Red → Green → Refactor for every
+Status: M0 proposal v2 (2026-10-22, updated for the PM decisions). Rules from the brief are non-negotiable: Red → Green → Refactor for every
 behaviour, no test is deleted, skipped or weakened to get to green, every security/privacy requirement has at least
 one automated test, deterministic tests only.
 
@@ -12,8 +12,9 @@ one automated test, deterministic tests only.
    no real network (the test environment blocks outbound connections except the Testcontainers database);
    no shared mutable state between tests (database per test file, fresh app instance per file).
 3. **Real dependencies where it matters.** Integration tests run against real PostgreSQL (Testcontainers) with
-   the real migrations, roles and RLS policies. Only the KMS and the email provider are faked, through the same
-   interfaces used in production (`KeyWrapper`, `EmailSender`).
+   the real migrations, roles and RLS policies. Only the KEK source (1Password Connect) and the SMTP relay are
+   replaced, through the same interfaces used in production (`KekSource`, `EmailSender`); the real adapters are
+   tested separately against a local Connect stub and a local SMTP test server (ADR-0013, ADR-0014).
 4. **Meaningful assertions.** Coverage is a signal; every test asserts observable behaviour (response, DB state,
    side effects), not implementation details.
 5. **Traceability.** Test titles carry the IDs they prove (`R-AUTH-04`, `S-03`, …). A traceability test parses
@@ -25,12 +26,12 @@ one automated test, deterministic tests only.
 
 | Layer | Scope | Tools | Location | Speed |
 |-------|-------|-------|----------|-------|
-| Unit | Domain engine (progress, XP, levels, streaks, transitions, effects), validation schemas, crypto wrappers, config parsing, time utilities, password policy | Vitest, `fast-check` (property tests), libsodium known-answer vectors | `src/**/*.test.ts` (colocated) | ms |
+| Unit | Domain engine (progress, habit resets, XP, duration factor, levels, execution score and ranks, gambles, streaks, transitions, effects), validation schemas, crypto wrappers, KEK source, SMTP sender, config parsing, time utilities, password policy | Vitest, `fast-check` (property tests), libsodium known-answer vectors | `src/**/*.test.ts` (colocated) | ms |
 | Integration | API + real PostgreSQL: every endpoint's happy path and error paths, idempotency, concurrency, encryption at rest, outbox, retention jobs, audit | Vitest, Testcontainers (`postgres:17-alpine` pinned by digest), `fastify.inject` (no sockets) | `test/integration/**` | s |
 | Contract | Every integration response validated against `openapi/openapi.yaml` (status, headers, body); spec coverage (every `operationId` exercised); Zod ↔ OpenAPI drift | Ajv 2020-12 + `ajv-formats`, `yaml`, `@redocly/cli lint` | harness hook + `test/contract/**` | s |
 | Security | Authz/BOLA for every endpoint (generated from the spec), deny-by-default, auth flows and abuse cases, rate limiting, headers, RLS, DB roles, log leakage, config hardening, mass assignment, injection, prototype pollution | Vitest + Testcontainers | `test/security/**` | s |
 | Privacy | Data-inventory guard, export completeness, deletion completeness (every table), consent gating and withdrawal effects, retention | Vitest + Testcontainers | `test/privacy/**` | s |
-| E2E smoke | Built container image + PostgreSQL via Docker Compose: register → verify → login → consent → achievement → quest → check-in → stats → export → delete; container hardening checks (uid ≠ 0, read-only FS) | Vitest over HTTP, Docker | `test/e2e/**` | min |
+| E2E smoke | Built container image + PostgreSQL via Docker Compose: register → verify → login → consent → achievement → quest → check-in → gamble → stats → export → delete (`202`); container hardening checks (uid ≠ 0, read-only FS) | Vitest over HTTP, Docker | `test/e2e/**` | min |
 | Mutation | Stryker on `src/domain/**` and `src/platform/crypto/**` | `@stryker-mutator/core` + Vitest runner | `stryker.config.mjs` | min (PR: changed files; nightly: full) |
 | Non-gating | Timing-uniformity check for enumeration (S-02), load/limit tests (k6), DAST (ZAP API scan with the OpenAPI spec) against staging | nightly / M6 | `test/perf/**`, CI nightly | – |
 
@@ -43,7 +44,7 @@ one automated test, deterministic tests only.
   `LocalKeyWrapper` with a test KEK, `FakeEmailSender` (captures messages so tests can extract verification/reset
   links), `FakeRandom` where determinism is needed (never for token generation tests, which assert on entropy),
   `LogCapture` (collects every log line of API + worker in memory).
-- **Factories** — `aUser()`, `anAchievement()`, `aQuest({type})`, `aCheckIn()` produce synthetic data with
+- **Factories** — `aUser()`, `anAchievement()`, `aQuest({type})`, `aCheckIn()`, `aGamble()` produce synthetic data with
   sentinel markers (`SEED-<kind>-<n>`) that are registered in a **sensitive-values registry** used by the log-leak
   test (R-LOG-02) and the encryption-at-rest test (I-01): both scan raw outputs for every registered value.
 - **`asUser(app, user)`** — helper returning a client bound to a logged-in session (handles tokens, `If-Match`,
@@ -51,32 +52,44 @@ one automated test, deterministic tests only.
 - **Contract hook** — `app.inject` is wrapped so every response is validated against the spec and recorded for the
   spec-coverage report. Routes not in the spec fail the test.
 - **Two-instance mode** — `buildTestApp({instances: 2})` for multi-instance tests (rate limiting, advisory locks).
+- **Connect stub and SMTP test server** — a local HTTP stub of the 1Password Connect API (`kek-source.test.ts`) and an
+  in-process SMTP server with a test certificate (`smtp-sender.test.ts`); no test ever reaches a real 1Password or
+  SMTP service.
 
 ## 4. Domain engine test plan (≥ 95 % branch, Stryker ≥ 80 %)
 
 | Area | Example cases |
 |------|---------------|
 | `targetProgress` | increasing 0→12 at 6 = 0.5; decreasing 90→80 at 85 = 0.5; overshoot clamps to 1; regression below start clamps to 0; start = target rejected; decimals; property: monotone in current for fixed direction |
-| `habitProgress` | 5×/week × 8 weeks with 6 check-ins in a week counts 5; empty = 0; exactly N·K = 1; open-ended periods (Q-04 b) — a missed week delays completion; property: never exceeds 1 |
-| `achievementProgress` | XP weighting (S=10, M=25, L=50); bonus quests excluded; no required quests → 0 (A-17) |
-| Unlock/relock `effects` | all required complete → unlock + badge + bonus; undo → relock, −bonus; bonus quests never block; completion of a bonus quest after unlock does not re-trigger bonus; idempotent when state unchanged |
-| XP ledger | award once per completion transition; undo → exact negative; complete-undo-complete → net one award; deletion revokes (Q-12) |
-| Levels | thresholds at boundaries (99/100 XP), monotone, `xpToNextLevel` |
-| Streaks | daily and weekly; current open period does not break; gap breaks; pause intervals frozen (periods inside a pause skipped); DST vectors **Europe/Zurich 2026-03-29 and 2026-10-25** (check-ins at 00:30/01:30/02:30/03:30 local, and 23:30 → next-day boundaries); Pacific/Auckland and America/Sao_Paulo as second opinions; week boundary Sunday→Monday; year boundary ISO week 53 |
+| `habitProgress` | 5×/week × 8 weeks with 6 check-ins in a week counts that week as met (not 6/5); empty = 0; K consecutive met periods = 1; progress = consecutive met periods since the run's `start_date` / K; only counting check-ins of the current attempt and run count (back-dated and earlier ones ignored); property: never exceeds 1 |
+| Habit reset (`habit-reset.ts`, R-QST-04) | a closed period with < N counting check-ins → progress 0, `needs_restart`, `reset_count + 1`, exactly once per missed period; the open period never triggers a reset; detection on read/write equals detection by the daily job (property: same state for any evaluation schedule, A-21); restart with `start_date` ≥ today clears `needs_restart`, a past `start_date` is rejected (A-28); a reset settles a pending gamble as lost |
+| Periods (`periods.ts`, R-QST-09) | week periods for `week_start` = monday, sunday, saturday; day periods; a `week_start` change applies only to periods that start after it (A-23); year boundary incl. ISO week 53 for Monday weeks |
+| Duration factor (`duration.ts`, R-XP-02) | table-driven boundaries — daily K = 28 → ×1, 29 → ×1.5, 56 → ×1.5, 57 → ×2, 112 → ×2, 113 → ×3; weekly K = 4 (28 d) → ×1, 5 (35 d) → ×1.5, 8 (56 d) → ×1.5, 9 (63 d) → ×2, 16 (112 d) → ×2, 17 (119 d) → ×3; one_time and target → ×1; `round(25 × 1.5) = 38` (half up); derived from the quest structure only, never from client input |
+| `achievementProgress` | weighting by effective XP (base S=10, M=25, L=50 × duration factor); bonus quests excluded; no required quests → 0 (A-17) |
+| Execution score and rank (`rank.ts`, R-RANK-01…03) | habit term `100 / (1 + resets)` XP-weighted, one_time and target = 100; lateness factor `max(0, 1 − days_late / 30)` at 0, 1, 15, 30 and 31 days late, an unlock on the target date itself is on time (A-20); −10 per gamble lost on the achievement in any attempt; clamp 0–100; `rankForScore` boundaries 54.99 → unranked, 55 → Bronze, 65, 75, 85, 92, 99.99 → Emerald, 100 → Diamond; Champion only with 100 + attempt 1 + no reset + no lost gamble + all bonus quests completed + on time; `rankBonus` = round(Σ required xp × multiplier) for ×0.5 … ×365, unranked → 0; property: adding a reset, lateness or a lost gamble never raises score or rank |
+| Gambles (`gamble.ts`, R-GMB-01…04) | placement guards: achievement `active`, `target_date` after today, no pending gamble, no loss in the current attempt (A-27), stake > 0; stake = XP above the current level's threshold; win on unlock on/before `target_date` → +stake; loss when `target_date` has passed (evaluated after local midnight, A-20), on habit reset, pause or deletion → −stake (floor per O-06); undo of the winning unlock → pending again; each gamble settles exactly once (state-machine property test); injected-clock vectors with the target date on **Europe/Zurich 2026-03-29 and 2026-10-25** and settlement checks at 23:30, 00:30, 01:30, 02:30 and 03:30 local; Pacific/Auckland as a second opinion |
+| Unlock/relock `effects` | all required complete → unlock + score + rank + `achievement_rank` badge + rank bonus + gamble won; undo → relock, −bonus, badge and rank removed, gamble back to pending (R-ACH-05, R-RANK-04); bonus quests never block; completing a bonus quest after unlock does not re-trigger the bonus; pause → attempt XP revoked, pending gamble lost, attempt + 1 (R-ACH-06); idempotent when state unchanged |
+| XP ledger | award once per completion transition; undo → exact negative; complete-undo-complete → net one award; deletion revokes (Q-12); back-dated check-ins never award (R-CHK-04); N pause/resume loops yield the XP of one honest run (T-16); totals stay within 0 … 2^53 − 1 (R-XP-04) |
+| Levels (`xp.ts`, R-XP-03) | `100 × 3^(L−2)`: L1 at 0, L2 100, L3 300, L4 900, L5 2 700, L10 656 100; boundaries 99/100 and 299/300; monotone; `xpToNextLevel`; a lost gamble never lowers the level (rule pending O-06) |
+| Counting check-ins (R-CHK-04) | `countsForProgress(local_date, now, tz)`: today → true; 1–7 days back → stored with false; 8 days back or future → rejected; instants around local midnight and on both Zurich DST dates |
+| Streaks | daily and weekly; current open period does not break; streak = met periods of the current attempt (a pause starts a new attempt, R-ACH-06), best streak across attempts; DST vectors **Europe/Zurich 2026-03-29 and 2026-10-25** (check-ins at 00:30/01:30/02:30/03:30 local, and 23:30 → next-day boundaries); Pacific/Auckland and America/Sao_Paulo as second opinions |
 | `tz` | `localDate` for instants around midnight and DST; invalid timezone rejected; property: `localDate(instant, tz)` changes at most once per 24 h window |
-| Transitions | every allowed/forbidden status transition (R-ACH-07); lock state with prerequisites; cycle detection |
+| Transitions | `active ↔ paused` only, `completed` system-only, read-only and not deletable (R-ACH-07); quest states `locked`, `available`, `needs_restart`, `completed`; lock state with prerequisites; cycle detection |
 
-## 5. Security and privacy test catalogue (each requirement → test)
+## 5. Requirement and threat → test catalogue (security, privacy, gamification integrity)
 
 | Requirement | Test(s) |
 |-------------|---------|
-| R-AUTH-02 | `password-policy.test.ts`: 11 chars → 422, 12 OK, 128 OK, 129 → 400, top-100 breached → 422, no composition rules, Unicode NFKC, no truncation |
+| R-AUTH-02 | `password-policy.test.ts`: 11 chars → 400, 12 OK, 128 OK, 129 → 400 (schema limits), top-100 breached → 422, no composition rules, Unicode NFKC, no truncation |
 | R-AUTH-03 | `one-time-tokens.test.ts`: single use, 30 min + 1 s → 401, superseded → 401, stored as hash only (DB assertion) |
 | R-AUTH-04 | `refresh-rotation.test.ts`, `token-ttl.test.ts` |
 | R-AUTH-05 | `sessions.test.ts`, `password-change.test.ts` (other sessions revoked, current kept), `password-reset.test.ts` (all revoked) |
 | R-AUTH-06 | `reauth.test.ts` (each sensitive endpoint without recent re-auth → 403) |
 | R-AUTH-07 | `enumeration.test.ts` (byte-identical bodies/status/headers minus request_id; hasher spy; same emails sent count) |
 | R-AUTH-08 | `rate-limit.test.ts` (per IP, per account, backoff progression, Retry-After, two instances share state) |
+| R-AUTH-09 | `login-unverified.test.ts` (correct password on an unverified account → 403, wrong password → identical 401), `retention.test.ts` (unverified accounts purged after 7 d) |
+| R-AUTH-10 | `token-ttl.test.ts` with injected clock: access token at 15 min + 1 s → 401; refresh after 30 d without use → 401, each use slides the window; a session older than 180 d → 401 even with a fresh refresh token |
+| R-AUTH-11 | `register.test.ts`: missing or `false` `age_confirmed` → 400 with no account and no email; `true` → 202 and the flag stored; schema introspection proves no date-of-birth column exists |
 | R-AUTHZ-01 | `deny-by-default.test.ts` (spec-driven) |
 | R-AUTHZ-02/03 | `ownership.test.ts` (spec-driven: every operation with an ID, user A vs user B → 404, no side effects) ; `rls.test.ts` |
 | R-AUTHZ-04 | `mass-assignment.test.ts` |
@@ -87,14 +100,34 @@ one automated test, deterministic tests only.
 | R-TLS-01…04 | `headers.test.ts` (each header on each route class; no CORS header even with `Origin`), `config.test.ts`, `compare.test.ts` |
 | R-ENC-01/02 | `encryption-at-rest.test.ts`, `aead.test.ts`, `envelope.test.ts`, `blind-index.test.ts` (normalisation, uniqueness) |
 | R-ENC-03 | `db-roles.test.ts` (app role: `CREATE TABLE` fails, `ALTER` fails, `TRUNCATE` fails) |
+| R-ENC-05 | `kek-source.test.ts` against a local Connect stub (happy path; 401, 404, timeout, malformed or < 32-byte item → startup refused; Connect token and KEK never logged), `config.test.ts` (production refuses an env-provided KEK), `key-service.test.ts` (KEK held in guarded memory, zeroed on shutdown) |
 | R-LOG-01/02 | `log-leakage.test.ts` (global, after all tests), `request-id.test.ts` |
 | R-LOG-03 | `audit.test.ts` |
 | R-SUP-04 | `config.test.ts` (missing/weak/duplicate secrets, production guards) |
 | R-PRIV-04 | `consent.test.ts` (create content without consent → 403; withdrawal deletes content; versions recorded) |
 | R-PRIV-05 | `export.test.ts` (completeness vs seeded data; re-auth; 3rd export in 24 h → 429; audit event) |
-| R-PRIV-06 | `account-deletion.test.ts` (every table empty for the user; DEK gone; tokens invalid; tombstone written; re-registration with the same email works) |
-| R-PRIV-07 | `retention.test.ts` (clock-driven: unverified 7 d, audit 90 d, idempotency 24 h, tokens, tombstones 35 d) |
+| R-PRIV-06 | `account-deletion.test.ts` with injected clock: `DELETE /me` → 202 with `deletion_scheduled_for` = now + 30 d, every session and token revoked, other endpoints unusable, no further email; password login within 30 d reactivates (audited), a wrong password stays an identical 401; at 30 d + 1 s the job hard-deletes (every table empty for the user, wrapped DEK gone, tombstone written); re-registration with the same email works afterwards |
+| R-PRIV-07 | `retention.test.ts` (clock-driven: unverified 7 d, deactivated accounts 30 d, audit 90 d, idempotency 24 h, hashed-IP rate-limit rows 24 h, tokens, tombstones 35 d) |
 | R-PRIV-08 | `data-inventory-guard.test.ts` (§6 of the data inventory) |
+| R-XP-02 | `duration.test.ts` (factor table at every boundary for daily and weekly spans, rounding, one_time/target ×1), `quests.test.ts` (client cannot set `xp` or `duration_factor` → 400) |
+| R-XP-03 | `xp.test.ts` (level thresholds and boundaries; level never drops through a lost gamble — rule pending O-06) |
+| R-QST-04 | `habit-reset.test.ts` (domain) + `integration/habit-reset.test.ts` (reset detected lazily on read and by the daily job; `needs_restart` blocks check-ins → 409; restart via `PATCH` with `start_date` ≥ today; history kept and not counted) |
+| R-QST-09 | `periods.test.ts` (monday/sunday/saturday boundaries; change applies to later periods only, A-23), `me.test.ts` (`PATCH /me` `week_start`) |
+| R-CHK-04 | `check-ins.test.ts` with injected clock: today counts; 1–7 days back stored with `counts_for_progress = false` and no effect on progress, XP, streak, reset or rank; 8 days back and future → 422; around local midnight and on both Zurich DST dates |
+| R-RANK-01/02 | `rank.test.ts` (score formula, rank thresholds, Champion conditions; property tests) |
+| R-RANK-03 | `rank.test.ts` (multipliers and rounding), `integration/unlock.test.ts` (exactly one `rank_bonus` event and one `achievement_rank` badge per unlock) |
+| R-RANK-04 | `integration/effects-undo.test.ts` (undo of the unlocking check-in removes rank, score, badge and bonus; a gamble won by it is pending again) |
+| R-RANK-05 | `xp-ledger.test.ts` (rank bonuses are a distinct ledger kind per unlock, so a later currency can be derived without migrating history) |
+| R-GMB-01 | `integration/gamble.test.ts` (each placement guard → 409/422; stake computed server-side; client fields → 400; `Idempotency-Key` replay; 10 parallel placements → one 201) |
+| R-GMB-02/03 | `integration/gamble-settlement.test.ts` (win on/before the target date incl. the date itself; loss by the daily job after the date with injected clock across both Zurich DST dates, and on habit reset, pause and deletion; exactly one settlement; quest progress unaffected by a loss) |
+| R-GMB-04 | `integration/gamble.test.ts` (no cancel operation exists in the spec; a loss lowers the score and rules out Champion) |
+| R-GMB-05 | design constraint, checked by the spec-coverage test (no purchase or payment operation) and `dependency-allowlist.test.ts` (no payment SDK) |
+| T-16 | `integration/pause-reset.test.ts` (N pause/resume and complete/undo loops → net XP of one honest run; no new gamble after a loss in the same attempt, A-27) |
+| T-17 | `integration/gamble.test.ts` (parallel placement and settlement → exactly one; `target_date` change while a gamble is pending → 409, A-26), `security/mass-assignment.test.ts` (client `stake`, `status`, `attempt` → 400) |
+| T-18 | `rank.test.ts`, `integration/check-ins.test.ts` (back-dated check-ins never change score or rank; a timezone change re-buckets no closed period) |
+| E-11 | `kek-source.test.ts` (unreachable or unauthorised Connect server → refuse to start; token and KEK never logged); KEK rotation drill in M6 |
+| E-12 | `smtp-sender.test.ts` (plaintext SMTP refused, TLS required, auth failure → retry then dead letter), `config.test.ts` (SMTP credentials required and strength-checked), `email-abuse.test.ts` (per-account send limit) |
+| E-13 | `security/deactivation.test.ts` (after `DELETE /me`: access and refresh tokens → 401; forgot-password → uniform 202 without email; only a password login reactivates, rate-limited and audited) |
 
 ## 6. Coverage, mutation and quality gates
 
