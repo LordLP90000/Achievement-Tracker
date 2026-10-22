@@ -1,0 +1,7 @@
+# osv-scanner configuration (CI dependency gate, R-SUP-02). Every exception needs a reason and an expiry date
+# and is reported to the PM in the milestone report.
+
+[[IgnoredVulns]]
+id = "GHSA-67mh-4wv8-2f99"
+ignoreUntil = 2027-01-31
+reason = "esbuild <=0.24.2 dev-server CORS issue, reached only through drizzle-kit's dev-only @esbuild-kit loader. drizzle-kit never starts esbuild's serve mode and is not part of the container image. Re-check when drizzle-kit drops @esbuild-kit (accepted in M1, 2026-10-22)."
