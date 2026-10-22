@@ -29,6 +29,14 @@ export interface ProcessConfig {
 export type WorkerConfig = ProcessConfig;
 export type MigrateConfig = ProcessConfig;
 
+export interface BootstrapConfig {
+  readonly appEnv: AppEnv;
+  readonly logLevel: LogLevel;
+  readonly adminUrl: string;
+  readonly database: string;
+  readonly passwords: { readonly migrator: string; readonly app: string; readonly worker: string };
+}
+
 /** Raised when the environment is unusable. Issues name variables and rules, never the submitted values. */
 export class ConfigError extends Error {
   override readonly name = 'ConfigError';
@@ -83,6 +91,14 @@ const databaseUrlSchema = z.preprocess(
   blankToUndefined,
   z.string({ error: requiredOr(URL_RULE) }).refine(isPostgresUrl, { error: URL_RULE }),
 );
+const databaseNameSchema = z.preprocess(
+  blankToUndefined,
+  z
+    .string()
+    .regex(/^[a-z_][a-z\d_]{0,62}$/, { error: 'must be a lower-case PostgreSQL identifier' })
+    .default('questline'),
+);
+const requiredSecretSchema = z.preprocess(blankToUndefined, z.string({ error: 'is required' }));
 
 function isPostgresUrl(value: string): boolean {
   return URL.canParse(value) && ['postgres:', 'postgresql:'].includes(new URL(value).protocol);
@@ -96,13 +112,12 @@ function decode(component: string): string {
   }
 }
 
-function isStrongProductionPassword(url: URL): boolean {
-  const password = decode(url.password);
+function isStrongPassword(password: string, user?: string): boolean {
   const lowered = password.toLowerCase();
   return (
     password.length >= MIN_PRODUCTION_PASSWORD_LENGTH &&
     new Set(password).size > 1 &&
-    password !== decode(url.username) &&
+    password !== user &&
     !PLACEHOLDER_FRAGMENTS.some((fragment) => lowered.includes(fragment))
   );
 }
@@ -113,7 +128,7 @@ function productionDatabaseIssues(variable: string, value: string): string[] {
   if (url.searchParams.get('sslmode') !== 'verify-full') {
     issues.push(`${variable}: must use sslmode=verify-full in production`);
   }
-  if (!isStrongProductionPassword(url)) {
+  if (!isStrongPassword(decode(url.password), decode(url.username))) {
     issues.push(`${variable}: password is missing or too weak for production`);
   }
   return issues;
@@ -192,4 +207,53 @@ export function loadMigrateConfig(env: Env): MigrateConfig {
     env,
   );
   return processConfig(parsed.APP_ENV, parsed.LOG_LEVEL, 'DATABASE_URL_MIGRATOR', parsed.DATABASE_URL_MIGRATOR);
+}
+
+function rolePasswordIssues(passwords: readonly (readonly [string, string])[]): string[] {
+  return passwords.flatMap(([variable, password], index) => [
+    ...(isStrongPassword(password) ? [] : [`${variable}: password is missing or too weak for production`]),
+    ...(passwords.slice(0, index).some(([, earlier]) => earlier === password)
+      ? [`${variable}: must differ from the other role passwords`]
+      : []),
+  ]);
+}
+
+/** Configuration of the one-off database bootstrap (Compose `db-init`, operations runbook). */
+export function loadBootstrapConfig(env: Env): BootstrapConfig {
+  const parsed = parseEnv(
+    {
+      APP_ENV: appEnvSchema,
+      LOG_LEVEL: logLevelSchema,
+      DATABASE_ADMIN_URL: databaseUrlSchema,
+      DATABASE_NAME: databaseNameSchema,
+      DB_PASSWORD_MIGRATOR: requiredSecretSchema,
+      DB_PASSWORD_APP: requiredSecretSchema,
+      DB_PASSWORD_WORKER: requiredSecretSchema,
+    },
+    env,
+  );
+
+  if (parsed.APP_ENV === 'production') {
+    assertNoIssues([
+      ...logLevelIssues(parsed.LOG_LEVEL),
+      ...productionDatabaseIssues('DATABASE_ADMIN_URL', parsed.DATABASE_ADMIN_URL),
+      ...rolePasswordIssues([
+        ['DB_PASSWORD_MIGRATOR', parsed.DB_PASSWORD_MIGRATOR],
+        ['DB_PASSWORD_APP', parsed.DB_PASSWORD_APP],
+        ['DB_PASSWORD_WORKER', parsed.DB_PASSWORD_WORKER],
+      ]),
+    ]);
+  }
+
+  return Object.freeze({
+    appEnv: parsed.APP_ENV,
+    logLevel: parsed.LOG_LEVEL,
+    adminUrl: parsed.DATABASE_ADMIN_URL,
+    database: parsed.DATABASE_NAME,
+    passwords: Object.freeze({
+      migrator: parsed.DB_PASSWORD_MIGRATOR,
+      app: parsed.DB_PASSWORD_APP,
+      worker: parsed.DB_PASSWORD_WORKER,
+    }),
+  });
 }

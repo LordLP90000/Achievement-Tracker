@@ -19,7 +19,9 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts'],
+      // The four process entry files are three-line wrappers around tested src/main modules; they are exercised
+      // by the end-to-end smoke test against the built container image (test/e2e).
+      exclude: ['src/**/*.test.ts', 'src/server.ts', 'src/worker.ts', 'src/migrate.ts', 'src/bootstrap-db.ts'],
       thresholds: {
         lines: 85,
         branches: 85,

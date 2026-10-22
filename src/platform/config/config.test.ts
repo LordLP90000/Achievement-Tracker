@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadApiConfig, loadMigrateConfig, loadWorkerConfig } from './config.ts';
+import { ConfigError, loadApiConfig, loadBootstrapConfig, loadMigrateConfig, loadWorkerConfig } from './config.ts';
 
 const STRONG_PASSWORD = 'Vq7mXr2pLk9sTz4wNb6c';
 const devUrl = 'postgres://questline_app:dev@localhost:5432/questline';
@@ -193,5 +193,76 @@ describe('loadMigrateConfig', () => {
     const config = loadMigrateConfig({ APP_ENV: 'production', DATABASE_URL_MIGRATOR: prodUrl('questline_migrator') });
 
     expect(config.databaseUrl).toBe(prodUrl('questline_migrator'));
+  });
+});
+
+describe('loadBootstrapConfig', () => {
+  const developmentEnv = {
+    APP_ENV: 'development',
+    DATABASE_ADMIN_URL: 'postgres://postgres:dev@localhost:5432/postgres',
+    DB_PASSWORD_MIGRATOR: 'dev-migrator',
+    DB_PASSWORD_APP: 'dev-app',
+    DB_PASSWORD_WORKER: 'dev-worker',
+  };
+
+  it('parses the administrator URL, database name and role passwords', () => {
+    expect(loadBootstrapConfig(developmentEnv)).toEqual({
+      appEnv: 'development',
+      logLevel: 'info',
+      adminUrl: developmentEnv.DATABASE_ADMIN_URL,
+      database: 'questline',
+      passwords: { migrator: 'dev-migrator', app: 'dev-app', worker: 'dev-worker' },
+    });
+  });
+
+  it('requires every role password and rejects a database name that is not an identifier', () => {
+    const error = configErrorOf(() =>
+      loadBootstrapConfig({ APP_ENV: 'development', DATABASE_ADMIN_URL: devUrl, DATABASE_NAME: 'Quest-Line' }),
+    );
+
+    expect(error.issues).toEqual([
+      'DATABASE_NAME: must be a lower-case PostgreSQL identifier',
+      'DB_PASSWORD_MIGRATOR: is required',
+      'DB_PASSWORD_APP: is required',
+      'DB_PASSWORD_WORKER: is required',
+    ]);
+  });
+
+  it('in production requires TLS for the administrator connection and strong, distinct role passwords', () => {
+    const error = configErrorOf(() =>
+      loadBootstrapConfig({
+        APP_ENV: 'production',
+        DATABASE_ADMIN_URL: `postgres://admin:${STRONG_PASSWORD}@db.internal/postgres`,
+        DB_PASSWORD_MIGRATOR: STRONG_PASSWORD,
+        DB_PASSWORD_APP: STRONG_PASSWORD,
+        DB_PASSWORD_WORKER: 'change-me-worker-password',
+      }),
+    );
+
+    expect(error.issues).toEqual([
+      'DATABASE_ADMIN_URL: must use sslmode=verify-full in production',
+      'DB_PASSWORD_APP: must differ from the other role passwords',
+      'DB_PASSWORD_WORKER: password is missing or too weak for production',
+    ]);
+  });
+
+  it('accepts a hardened production bootstrap', () => {
+    const config = loadBootstrapConfig({
+      APP_ENV: 'production',
+      DATABASE_ADMIN_URL: prodUrl('admin'),
+      DB_PASSWORD_MIGRATOR: 'Mg7xQ2vLp9sRt4wZ',
+      DB_PASSWORD_APP: 'Ap3kV8nWq5zTy2xB',
+      DB_PASSWORD_WORKER: 'Wk6hJ9cXr4mPs7qD',
+    });
+
+    expect(config.database).toBe('questline');
+  });
+
+  it('never echoes a password in its errors', () => {
+    const error = configErrorOf(() =>
+      loadBootstrapConfig({ ...developmentEnv, APP_ENV: 'production', DB_PASSWORD_APP: 'WeakButSecretValue' }),
+    );
+
+    expect(error.message).not.toContain('WeakButSecretValue');
   });
 });
