@@ -6,7 +6,15 @@ export default defineConfig({
     restoreMocks: true,
     projects: [
       { extends: true, test: { name: 'unit', include: ['src/**/*.test.ts'] } },
-      { extends: true, test: { name: 'integration', include: ['test/**/*.test.ts'], exclude: ['test/e2e/**'] } },
+      {
+        extends: true,
+        test: {
+          name: 'integration',
+          include: ['test/**/*.test.ts'],
+          exclude: ['test/e2e/**'],
+          globalSetup: ['test/helpers/global-setup.ts'],
+        },
+      },
     ],
     coverage: {
       provider: 'v8',

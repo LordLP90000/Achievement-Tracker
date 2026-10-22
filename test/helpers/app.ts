@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../src/app.ts';
+import type { ReadinessProbe } from '../../src/modules/health/routes.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
 import type { LogCapture } from './log-capture.ts';
 
@@ -11,6 +12,8 @@ export const LEAKY_ERROR_MESSAGE = 'SELECT secret FROM users WHERE id = 1 at /sr
 export interface TestAppOptions {
   readonly trustProxyHops?: number;
   readonly logCapture?: LogCapture;
+  readonly readiness?: ReadinessProbe;
+  readonly readinessTimeoutMs?: number;
 }
 
 /** The production app plus test-only routes (`/__test/*`) that exercise body parsing and failures. */
@@ -18,7 +21,12 @@ export async function buildTestApp(options: TestAppOptions = {}): Promise<Fastif
   const logger = options.logCapture
     ? createLogger({ service: 'questline-api', level: 'info' }, options.logCapture.stream)
     : createLogger({ service: 'questline-api', level: 'silent' });
-  const app = buildApp({ http: { trustProxyHops: options.trustProxyHops ?? 0 }, logger });
+  const app = buildApp({
+    http: { trustProxyHops: options.trustProxyHops ?? 0 },
+    logger,
+    readiness: options.readiness ?? (() => Promise.resolve(true)),
+    ...(options.readinessTimeoutMs === undefined ? {} : { readinessTimeoutMs: options.readinessTimeoutMs }),
+  });
   app.get('/__test/ok', () => ({ ok: true }));
   app.get('/__test/ip', (request) => ({ ip: request.ip }));
   app.get('/__test/items/:id', () => ({ ok: true }));
