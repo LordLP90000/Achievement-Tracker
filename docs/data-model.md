@@ -31,7 +31,7 @@ erDiagram
     sessions ||--o{ session_tokens : "generations"
     users ||--o{ consents : ""
     users ||--o{ achievements : ""
-    achievements ||--o{ achievement_pauses : ""
+    achievements ||--o{ gambles : ""
     achievements ||--o{ quests : ""
     quests |o--o{ quests : "prerequisite"
     quests ||--o{ check_ins : ""
@@ -64,7 +64,10 @@ or blind index before the user is known (narrow repository API, explicit filters
 | `nickname_enc` 🔒 | bytea NULL | A-01 |
 | `timezone` | text NOT NULL | IANA, validated |
 | `locale` | text NOT NULL | allowlisted BCP 47 |
+| `week_start` | text NOT NULL DEFAULT 'monday' CHECK IN (`monday`, `sunday`, `saturday`) | Q-18 |
+| `age_confirmed` | boolean NOT NULL | self-declared ≥ 13 (Q-23); registration rejected if false |
 | `email_verified_at` | timestamptz NULL | NULL = unverified → purged after 7 days |
+| `deactivated_at` | timestamptz NULL | deletion requested (Q-11); login reactivates within 30 days, then hard delete |
 | `privacy_policy_version` | text NOT NULL | A-14 |
 | `password_changed_at` | timestamptz NOT NULL | |
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
@@ -163,27 +166,33 @@ History is kept for the lifetime of the account as proof of the lawful processin
 | `description_enc` 🔒 | bytea NULL | |
 | `motivation_enc` 🔒 | bytea NULL | |
 | `category_enc` 🔒 | bytea NULL | |
-| `target_date` | date NULL | plaintext (not listed for encryption in the brief; see DPIA R-5) |
-| `status` | text CHECK IN (`active`, `paused`, `completed`, `archived`) NOT NULL | server-managed transitions (R-ACH-07) |
+| `target_date_enc` 🔒 | bytea NULL | encrypted (Q-24); decrypted in-process for lateness and gamble settlement |
+| `status` | text CHECK IN (`active`, `paused`, `completed`) NOT NULL | client: `active ↔ paused`; `completed` system-only, read-only, not deletable (R-ACH-07) |
 | `is_private` | boolean NOT NULL DEFAULT false | display hint only |
+| `attempt` | integer NOT NULL DEFAULT 1 | incremented when resuming from `paused` (pause = reset, R-ACH-06) |
 | `completed_at` | timestamptz NULL | |
+| `execution_score` | numeric(5,2) NULL | 0–100, set on unlock (R-RANK-01) |
+| `rank` | text NULL CHECK IN (`unranked`, `bronze`, `silver`, `gold`, `platinum`, `emerald`, `diamond`, `champion`) | set on unlock (R-RANK-02) |
 | `dek_version` | integer NOT NULL | |
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
 | `version` | integer NOT NULL | |
 
 Index `(user_id, status, created_at DESC, id DESC)` for cursor pagination.
 
-#### `achievement_pauses` RLS
-
-Pause intervals in local dates, needed to freeze streaks (R-ACH-06).
+#### `gambles` RLS (R-GMB-*)
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | |
-| `achievement_id` | uuid → `achievements` CASCADE | |
-| `paused_from` | date NOT NULL | local date of pausing |
-| `resumed_on` | date NULL | local date of resuming (exclusive), NULL while paused |
+| `achievement_id` | uuid → `achievements` CASCADE | partial UNIQUE (`achievement_id`) WHERE `status = 'pending'` |
+| `attempt` | integer NOT NULL | attempt during which it was placed |
+| `stake` | bigint NOT NULL CHECK > 0 | XP above the level threshold at placement |
+| `status` | text CHECK IN (`pending`, `won`, `lost`) NOT NULL | |
+| `loss_reason` | text NULL CHECK IN (`target_date_passed`, `habit_reset`, `paused`, `deleted`) | |
+| `placed_at`, `settled_at` | timestamptz | |
+
+History of won/lost gambles is kept (counts against Champion, R-RANK-02) until the achievement or account is deleted.
 
 #### `quests` RLS
 
@@ -205,13 +214,16 @@ Pause intervals in local dates, needed to freeze streaks (R-ACH-06).
 | `habit_period` | text NULL CHECK IN (`day`, `week`) | habit only |
 | `habit_times_per_period` | integer NULL CHECK 1..50 | habit only |
 | `habit_period_count` | integer NULL CHECK 1..520 | habit only |
-| `habit_start_date` | date NULL | habit only |
+| `habit_start_date` | date NULL | habit only; start of the current attempt's period sequence (re-set on restart) |
+| `reset_count` | integer NOT NULL DEFAULT 0 | habit resets within the current achievement attempt (R-QST-04, R-RANK-01) |
+| `needs_restart` | boolean NOT NULL DEFAULT false | set by a habit reset; cleared when the user edits `habit.start_date` |
 | `completed_at` | timestamptz NULL | set/cleared by the effects engine |
 | `dek_version` | integer NOT NULL | |
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
 | `version` | integer NOT NULL | |
 
-`CHECK` constraints enforce "type-specific columns are NOT NULL iff the type matches".
+`CHECK` constraints enforce "type-specific columns are NOT NULL iff the type matches". Effective XP
+(`base × duration factor`, R-XP-02) is derived in code, not stored.
 Index `(achievement_id, position)`, `(user_id)`.
 
 #### `check_ins` RLS
@@ -221,13 +233,16 @@ Index `(achievement_id, position)`, `(user_id)`.
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | |
 | `quest_id` | uuid → `quests` CASCADE | |
-| `local_date` | date NOT NULL | user's day (A-08) |
+| `local_date` | date NOT NULL | user's day (R-CHK-04) |
+| `attempt` | integer NOT NULL | achievement attempt at creation; older attempts are history |
+| `counts_for_progress` | boolean NOT NULL | true only if `local_date` = today at creation (R-CHK-04) |
 | `value_enc` 🔒 | bytea NULL | target only |
 | `note_enc` 🔒 | bytea NULL | |
 | `dek_version` | integer NOT NULL | |
 | `created_at` | timestamptz NOT NULL | |
 
-Immutable (no `version`). Index `(quest_id, local_date, created_at)` and `(quest_id, created_at DESC, id DESC)`.
+Immutable (no `version`). Index `(quest_id, attempt, local_date) WHERE counts_for_progress` and
+`(quest_id, created_at DESC, id DESC)`.
 
 ### 3.4 Gamification
 
@@ -237,15 +252,16 @@ Immutable (no `version`). Index `(quest_id, local_date, created_at)` and `(quest
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | |
-| `kind` | text CHECK IN (`quest_completed`, `quest_uncompleted`, `achievement_unlocked`, `achievement_relocked`, `quest_deleted`, `achievement_deleted`) | |
-| `amount` | integer NOT NULL | signed; reversals are negative |
+| `kind` | text CHECK IN (`quest_completed`, `quest_uncompleted`, `rank_bonus`, `rank_bonus_revoked`, `gamble_won`, `gamble_lost`, `pause_revoked`, `quest_deleted`, `achievement_deleted`) | |
+| `amount` | bigint NOT NULL | signed; reversals are negative |
 | `quest_id` | uuid NULL → `quests` ON DELETE SET NULL | |
 | `achievement_id` | uuid NULL → `achievements` ON DELETE SET NULL | |
+| `gamble_id` | uuid NULL → `gambles` ON DELETE SET NULL | |
 | `local_date` | date NOT NULL | for "XP over time" (A-13) |
 | `created_at` | timestamptz NOT NULL | |
 
-Total XP = `SUM(amount)`; level derived in code. Exactly-once is guaranteed by the effects engine running under
-`SELECT … FOR UPDATE` on the quest/achievement rows.
+Total XP = `SUM(amount)` (never below 0 by construction, R-XP-04); level derived in code. Exactly-once is
+guaranteed by the effects engine running under `SELECT … FOR UPDATE` on the quest/achievement rows.
 
 #### `badges` RLS
 
@@ -254,7 +270,8 @@ Total XP = `SUM(amount)`; level derived in code. Exactly-once is guaranteed by t
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | |
 | `achievement_id` | uuid → `achievements` CASCADE | UNIQUE with `kind` |
-| `kind` | text CHECK IN (`achievement_unlocked`) | A-06 |
+| `kind` | text CHECK IN (`achievement_rank`) | A-06 |
+| `rank` | text NOT NULL | same enum as `achievements.rank` |
 | `awarded_at` | timestamptz NOT NULL | |
 
 Removed on re-lock (R-ACH-05) and on achievement deletion.
@@ -357,13 +374,20 @@ CREATE POLICY achievements_worker ON achievements TO questline_worker USING (tru
 `current_setting('app.user_id', true)` returns NULL when unset, so a transaction that forgot `SET LOCAL` sees
 **no rows** and can insert **nothing** — a fail-closed default.
 
-## 5. Deletion cascade (R-PRIV-06)
+## 5. Deactivation and deletion (R-PRIV-06)
 
-`DELETE FROM users WHERE id = $1` inside one transaction removes, via `ON DELETE CASCADE`: `user_keys`,
-`one_time_tokens`, `sessions` → `session_tokens`, `consents`, `achievements` → `achievement_pauses`, `quests` →
-`check_ins`, `xp_events`, `badges`, `audit_events`, `idempotency_keys`, `email_outbox`. The same transaction inserts
-the tombstone (Q-13). The data-inventory guard test asserts that **every** table with a `user_id`/`id` user relation
-is reached by this cascade and appears in the export.
+1. **Request** (`DELETE /v1/me`, re-auth): sets `users.deactivated_at`, revokes every session and token, writes
+   an audit event, sends a notice email with the reactivation deadline. No other endpoint accepts the account.
+2. **Reactivation**: a successful `POST /v1/auth/login` within 30 days clears `deactivated_at` (audited).
+3. **Hard delete** (worker job, daily): for every user with `deactivated_at < now − 30 days`,
+   `DELETE FROM users WHERE id = $1` inside one transaction removes, via `ON DELETE CASCADE`: `user_keys`
+   (crypto-shredding), `one_time_tokens`, `sessions` → `session_tokens`, `consents`, `achievements` → `gambles`,
+   `quests` → `check_ins`, `xp_events`, `badges`, `audit_events`, `idempotency_keys`, `email_outbox`. The same
+   transaction inserts the tombstone (Q-13). The data-inventory guard test asserts that **every** table with a
+   user relation is reached by this cascade and appears in the export.
+
+Consent withdrawal (Q-10) deletes only the goal-content subtree (`achievements` → `gambles`, `quests` →
+`check_ins`, plus `xp_events` and `badges`) in one transaction and leaves the account intact.
 
 ## 6. Export document (R-PRIV-05) — shape
 
@@ -372,10 +396,10 @@ is reached by this cascade and appears in the export.
   "format": "questline-export",
   "version": 1,
   "generated_at": "2026-10-22T10:00:00Z",
-  "account": { "id": "…", "email": "…", "nickname": "…", "timezone": "…", "locale": "…", "created_at": "…", "email_verified_at": "…", "privacy_policy_version": "…" },
+  "account": { "id": "…", "email": "…", "nickname": "…", "timezone": "…", "locale": "…", "week_start": "monday", "age_confirmed": true, "created_at": "…", "email_verified_at": "…", "privacy_policy_version": "…", "deactivated_at": null },
   "consents": [ { "type": "goal_content", "version": "…", "granted_at": "…", "withdrawn_at": null } ],
   "sessions": [ { "id": "…", "client": "ios", "device_label": "…", "created_at": "…", "last_used_at": "…", "revoked_at": null } ],
-  "achievements": [ { "id": "…", "title": "…", "…": "…", "pauses": [], "quests": [ { "id": "…", "…": "…", "check_ins": [ … ] } ] } ],
+  "achievements": [ { "id": "…", "title": "…", "target_date": "…", "status": "completed", "attempt": 1, "rank": "gold", "execution_score": 78.5, "gambles": [ … ], "quests": [ { "id": "…", "…": "…", "reset_count": 0, "check_ins": [ { "…": "…", "attempt": 1, "counts_for_progress": true } ] } ] } ],
   "xp_events": [ … ], "badges": [ … ], "audit_events": [ … ]
 }
 ```
