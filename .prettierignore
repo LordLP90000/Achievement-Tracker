@@ -1,0 +1,9 @@
+# Handwritten documentation and the hand-formatted OpenAPI contract are not reformatted.
+docs/
+openapi/
+README.md
+.idea/
+.remember/
+package-lock.json
+dist/
+coverage/
