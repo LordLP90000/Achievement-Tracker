@@ -225,17 +225,22 @@ settlement exactly-once under concurrency.
 Unit tests live next to the code they test (`*.test.ts`); integration/contract/security/e2e tests live under
 `test/` because they need the shared harness.
 
-## 7. Planned runtime dependencies (to be confirmed in M1 with versions)
+## 7. Runtime dependencies (allowlist)
 
-| Package | Why | Alternatives considered |
-|---------|-----|------------------------|
-| `fastify` | HTTP framework mandated by the stack; schema-driven, fast, plugin encapsulation | – |
-| `zod` | Validation mandated by the stack; also used for config and response allowlisting | – |
-| `drizzle-orm` | Type-safe, parameterized query layer (ADR-0003) | Kysely (equally good; Drizzle named in the brief) |
-| `postgres` (postgres.js) | PostgreSQL driver with zero dependencies, supported by Drizzle | `pg` (more deps) |
-| `sodium-native` | Argon2id, XChaCha20-Poly1305, constant-time compare, guarded memory (ADR-0005) | `argon2` + `libsodium-wrappers` (two deps) |
-| `pino` | Structured logging (already a Fastify dependency; used directly by the worker) | – |
-| `nodemailer` | SMTP delivery to the PM's relay with mandatory TLS (ADR-0014); mature, no runtime dependencies of its own | provider HTTP APIs/SDKs (not chosen: the PM decided on custom SMTP, Q-03) |
+This table is the allowlist: `test/supply-chain/dependency-allowlist.test.ts` fails if `package.json` has a runtime
+dependency that is not listed here (T-10, R-SUP-01), if any dependency is not pinned to an exact registry version, or
+if a payment SDK appears among the production packages (R-GMB-05). A new runtime dependency needs a row with its
+reason here and a line in the next milestone report.
+
+| Package | Version | Why | Alternatives considered |
+|---------|---------|-----|------------------------|
+| `fastify` | 5.12.7 (M1) | HTTP framework mandated by the stack; schema-driven, fast, plugin encapsulation | – |
+| `zod` | 4.6.7 (M1) | Validation mandated by the stack; also used for config and response allowlisting | – |
+| `drizzle-orm` | 0.45.4 (M1) | Type-safe, parameterized query layer (ADR-0003) | Kysely (equally good; Drizzle named in the brief) |
+| `postgres` (postgres.js) | 3.4.9 (M1) | PostgreSQL driver with zero dependencies, supported by Drizzle | `pg` (more deps) |
+| `sodium-native` | planned (M2) | Argon2id, XChaCha20-Poly1305, constant-time compare, guarded memory (ADR-0005) | `argon2` + `libsodium-wrappers` (two deps) |
+| `pino` | 10.4.0 (M1) | Structured logging (already a Fastify dependency; used directly by the worker) | – |
+| `nodemailer` | planned (M2) | SMTP delivery to the PM's relay with mandatory TLS (ADR-0014); mature, no runtime dependencies of its own | provider HTTP APIs/SDKs (not chosen: the PM decided on custom SMTP, Q-03) |
 
 No 1Password SDK: the Connect API is called with Node's built-in `fetch` (ADR-0013).
 
