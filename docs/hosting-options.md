@@ -1,5 +1,10 @@
 # Hosting options (Switzerland / EU)
 
+> **PM decision 2026-10-22 (Q-01):** the PM has their **own hosting option**, to be added later. This comparison is
+> kept as reference and as the **checklist (H-1…H-7) that the own hosting must satisfy**. Key management is decided
+> independently (1Password Connect, ADR-0013) and email goes through a custom SMTP relay (ADR-0014). Nothing in
+> M1–M5 depends on the hosting choice; M6 (staging, DAST, deployment config) does.
+
 Status: M0 proposal (2026-10-22) for decisions **Q-01 (hosting), Q-02 (KMS), Q-03 (email)**. I do not choose
 alone; this document lists options, trade-offs and my recommendation. Prices are indicative orders of magnitude
 for a small production setup (API + worker, managed PostgreSQL with HA, backups) and must be re-checked at decision

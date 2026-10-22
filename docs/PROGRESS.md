@@ -33,4 +33,6 @@ test strategy, hosting options and effort per milestone.
 | 2026-10-22 | Data inventory (md + machine-readable yaml), DPIA draft (14 risks), processors register (`docs/privacy/*`) | n/a | `499fbfc` |
 | 2026-10-22 | Test strategy: layers, harness, domain test plan incl. DST vectors, requirement→test catalogue, gates, CI pipeline (`docs/test-strategy.md`) | n/a | `2bd8cd4` |
 | 2026-10-22 | Hosting/KMS/email options with recommendation; milestone plan with effort 44–62 days (`docs/hosting-options.md`, `docs/plan.md`) | n/a | `ea5856d` |
-| 2026-10-22 | M0 status report written, branch pushed, PR requested → **waiting for PM "go"** | n/a | see report |
+| 2026-10-22 | M0 status report written, branch pushed, PR requested | n/a | `0531c4f` |
+| 2026-10-22 | PM answered all open questions Q-01…Q-24 (incl. sub-questions); requirements v2, ADR-0013…0015, data model, plan, threat model (T-16…T-18, E-11…E-13), DPIA (R-15, R-16), processors, hosting note updated | n/a | `87acdae`, `db38345`, + this commit |
+| **open** | Pending for next session (docs only, before any code): OpenAPI update (gamble endpoint, rank/score/attempt fields, status enum, `age_confirmed`, `week_start`, deletion `202`), `data-inventory.yaml` new columns/tables, test-strategy catalogue rows for new R-IDs, M0 report final. Then **PM "go" for M1**. | – | – |

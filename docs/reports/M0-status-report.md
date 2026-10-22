@@ -105,3 +105,31 @@ does not depend on the hosting choice. Q-02/Q-03 are needed when M2 starts.
 Housekeeping notes: no `gh` CLI on this machine, so the PR must be opened from the compare link I provide (the
 report above is the PR description). Your global git identity shows as `'Laurent` (leading apostrophe) — you may
 want to fix `git config --global user.name`.
+
+---
+
+## Addendum 2026-10-22 (afternoon) — PM decisions received
+
+All 24 questions were answered (see `docs/requirements.md` §6 for the full list). Changes versus the brief,
+restated as the change-request protocol requires:
+
+1. **Habit misses reset the quest** to 0 % and require the user to restart it (history kept) — replaces the
+   Σ min(…) formula and the "freeze on pause" rule.
+2. **Pause = reset** (new attempt, XP of the attempt revoked, pending gamble lost); **no manual archiving**;
+   completed achievements are the read-only, non-deletable archive.
+3. **Back-dated check-ins never count** (history only).
+4. **Ranks** Bronze→Champion from a server-computed execution score (Diamond = 100 %, Champion = 100 % + flawless
+   incl. no lost gamble), **rank bonus ×0.5 … ×365**, **level curve ×3 per level**, **duration factor** for habits
+   by span in days, **gambles** (stake = current-level XP, double or nothing, settled on target date / reset /
+   pause / delete). Reward currency/coupons → v2.
+5. **Deletion with 30-day reactivation**, **week-start setting**, **min age 13 self-declared**, **encrypted
+   target_date**, 12-char passwords, lifetimes as recommended, device label / tombstones / hashed IPs approved.
+6. **Infrastructure**: hosting = PM's own option (later); **KEK from a self-hosted 1Password Connect server**
+   (residual risk accepted: KEK in app memory); **email via custom SMTP** (`nodemailer`; relay operator to be
+   named — Google would be a US processor).
+
+**Impact**: data model + ADRs updated (committed); OpenAPI, `data-inventory.yaml` and test catalogue to be updated
+in the next session before M1 starts; effort now **51–72 days** (+7–10, mostly M3). Open items O-01…O-05 in
+`docs/requirements.md` §7 — O-05 is a recommendation to review gambling-like mechanics for 13–15-year-olds before M3.
+
+**Still needed from you**: the "go" for M1 (nothing in M1 depends on the open items).

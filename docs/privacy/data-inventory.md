@@ -94,4 +94,5 @@ the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9).
 
 | Date | Change |
 |------|--------|
-| 2026-10-22 | Initial inventory for M0. Pending PM approval: Q-09 (device label), Q-13 (tombstones), Q-14 (hashed IPs). |
+| 2026-10-22 | Initial inventory for M0. |
+| 2026-10-22 (v2) | PM decisions applied: approved Q-09 (device label), Q-13 (tombstones), Q-14 (hashed IPs). New elements: `users.week_start`, `users.age_confirmed` (C3), `users.deactivated_at` (C3; **deactivated accounts retained 30 days, then hard-deleted**, Q-11), `achievements.attempt/rank/execution_score`, `quests.reset_count/needs_restart`, `check_ins.attempt/counts_for_progress` (C6/C7), new table `gambles` (C7: stake, status, loss reason — derived gamification data, exported, cascade/consent-withdrawal), `target_date` now encrypted (C6), `achievement_pauses` removed. Processors: 1Password (Connect, holds the KEK — no personal data), SMTP relay operator (email addresses + one-time links; **Google = US jurisdiction if Gmail is used**, DPIA R-9). Hosting: PM's own option, location TBD. Minimum age 13 self-declared (Q-23). The machine-readable `data-inventory.yaml` is updated for these columns in the next session before any migration is written. |
