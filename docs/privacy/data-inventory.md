@@ -1,0 +1,97 @@
+# Data inventory
+
+Status: M0 draft (2026-10-22). Legal frameworks: Swiss FADP (nDSG/revFADP, in force 2023-09-01) and GDPR.
+Controller: Questline (PM to confirm legal entity and address for the privacy policy). This document has a
+machine-readable twin, `data-inventory.yaml`, which the **data-inventory guard test** (R-PRIV-08) reads: the test
+introspects `information_schema` and fails if any table or column holding user data is missing from the YAML or
+lacks an export/deletion classification.
+
+## 1. Principles applied
+
+- **Minimisation**: account = email + password hash + timezone/locale + optional nickname. No name, phone,
+  location, contacts, advertising IDs, device fingerprints, analytics or crash reporters (R-PRIV-01/02).
+- **Purpose limitation**: each category below has exactly one purpose set; no secondary use (no marketing, no
+  profiling, no model training).
+- **Storage limitation**: every category has a retention rule and an automated job or cascade that enforces it.
+- **Security**: content encrypted per user (envelope encryption), tokens hashed, TLS everywhere, RLS.
+- **Transparency & control**: export (`GET /v1/me/export`), deletion (`DELETE /v1/me`), consent withdrawal
+  (`DELETE /v1/me/consents/goal_content`), session list/revocation.
+
+## 2. Legal bases used
+
+| Code | GDPR | FADP | Used for |
+|------|------|------|----------|
+| LB-CONTRACT | Art. 6(1)(b) performance of a contract | Art. 31(2)(a) processing directly connected with the contract | Account, authentication, sessions, goal content processing needed to provide the service |
+| LB-CONSENT-HEALTH | Art. 9(2)(a) explicit consent (special categories) | Art. 6(7)(a) express consent for sensitive personal data | Goal content, because it **may** contain health or other sensitive data |
+| LB-LEGIT-SEC | Art. 6(1)(f) legitimate interest (security, abuse prevention) | Art. 31(1) overriding private interest (security) | Audit events, rate limiting, security notices |
+| LB-LEGAL | Art. 6(1)(c) legal obligation | Art. 31(1) | Keeping consent proof; answering access requests |
+
+## 3. Categories
+
+Retention codes: `ACCOUNT` = until account deletion (cascade), `SESSION` = until session end + 7 d,
+`TOKEN` = ≤ 30 min or until used, then purged hourly.
+
+| # | Category | Data elements | Purpose | Legal basis | Retention | Storage (tables · columns) | Protection | Export | Deletion |
+|---|----------|---------------|---------|-------------|-----------|---------------------------|------------|--------|----------|
+| C1 | Account identifier | Email address; HMAC blind index of the email | Login, uniqueness, verification/reset emails, security notices | LB-CONTRACT | ACCOUNT; unverified accounts purged after **7 days** | `users.email_enc`, `users.email_blind_index`; transient copies in `one_time_tokens.new_email_*` (TOKEN), `email_outbox.payload_enc` (until sent) | Encrypted with user DEK; blind index keyed HMAC | yes (email) ; blind index no (derived secret) | cascade |
+| C2 | Authentication secrets | Argon2id password hash; SHA-256 hashes of access/refresh/verification/reset tokens; password-changed timestamp | Authenticate the user; session continuity; single-use flows | LB-CONTRACT | Password hash: ACCOUNT. Session tokens: SESSION. One-time tokens: TOKEN | `users.password_hash`, `users.password_changed_at`, `session_tokens.*`, `one_time_tokens.*` | Hashes only; constant-time comparison | **no** (secret material, documented exception) | cascade |
+| C3 | Account settings | Timezone (IANA), locale, optional nickname, accepted privacy-policy version | Correct local dates/streaks; localised emails; display; proof of acceptance | LB-CONTRACT (LB-LEGAL for policy version) | ACCOUNT | `users.timezone`, `users.locale`, `users.nickname_enc`, `users.privacy_policy_version` | Nickname encrypted | yes | cascade |
+| C4 | Device sessions | Session ID, client platform (`ios`/`android`), optional user-chosen device label, created/last-used/re-auth timestamps, revocation reason | Let users see and revoke sessions; enforce re-auth; detect token reuse | LB-CONTRACT, LB-LEGIT-SEC | SESSION | `sessions.*` | Label encrypted | yes | cascade |
+| C5 | Consents | Type (`goal_content`), text version, granted/withdrawn timestamps | Lawful basis for storing potentially sensitive goal content; proof | LB-LEGAL | ACCOUNT (history kept while the account exists) | `consents.*` | – | yes | cascade |
+| C6 | Goal content (**potentially sensitive / health**) | Achievement title, description, motivation, category, target date, status, privacy flag; quest title, notes, type, size, required flag, order, prerequisite, habit parameters, unit, start/target values; check-in values and notes | Core service: track goals and progress | LB-CONTRACT + **LB-CONSENT-HEALTH** | ACCOUNT, or immediately on consent withdrawal (Q-10) | `achievements.*`, `achievement_pauses.*`, `quests.*`, `check_ins.*` | Free-text and numeric content encrypted with user DEK; structure plaintext (DPIA R-5) | yes | cascade / consent withdrawal |
+| C7 | Behavioural & derived data | Check-in dates, XP ledger (kind, amount, local date), badges, streaks (derived at read time) | Progress, XP, level, streak and stats features | LB-CONTRACT | ACCOUNT (follows C6) | `check_ins.local_date`, `xp_events.*`, `badges.*` | – | yes | cascade |
+| C8 | Security audit events | Event type, outcome, truncated IP (/24 or /48), client platform, session ID, reason codes | Detect/investigate account takeover; let users review security events via export | LB-LEGIT-SEC | **90 days** (worker job), or ACCOUNT if earlier | `audit_events.*` | IP truncated; no emails/tokens/content | yes | cascade |
+| C9 | Request idempotency records | Idempotency key, route, hash of request body, stored response (may contain C6) | Safe retries from mobile clients | LB-CONTRACT | **24 hours** | `idempotency_keys.*` | Response encrypted with user DEK | no (transient duplicate of C6; documented exception) | cascade / 24 h purge |
+| C10 | Email outbox | Recipient address, locale, template name, raw token/link, attempt metadata | Deliver verification, reset and security emails reliably | LB-CONTRACT, LB-LEGIT-SEC | Deleted on send; dead letters **7 days** | `email_outbox.*` | Payload encrypted with user DEK | no (transient; contents are C1 + secrets) | cascade / purge |
+| C11 | Rate-limit state | HMAC (daily key) of `scope:IP` or `scope:email-blind-index`, counters, block-until | Abuse prevention (brute force, enumeration, email bombing) | LB-LEGIT-SEC (Q-14) | **24 hours** | `rate_limit_buckets.*` | Keyed hash, not reversible without the daily key; not linkable across days | n/a (not attributable to a user) | n/a (no user relation) |
+| C12 | Deletion tombstones | Random UUID of a deleted account + deletion timestamp | Replay deletions after a backup restore (Q-13) | LB-LEGAL (effective erasure) | **35 days** | `deleted_user_tombstones.*` | Contains no identifier other than the former random ID | n/a | n/a (the record of deletion) |
+| C13 | Application logs | Request ID, method, route pattern, status, duration, error class, job metrics | Operate and debug the service | LB-LEGIT-SEC | **30 days** (provider log retention, M6) | Provider log storage (not the DB) | No PII by design (allowlist serializer, tested) | n/a | n/a |
+| C14 | Backups | Encrypted snapshots of the whole database (all categories above, ciphertext + wrapped DEKs) | Disaster recovery | LB-CONTRACT | **30 days** rolling | Provider backup storage, encrypted at rest | DEK wrapped by KMS; see ADR-0006 | n/a | expiry; tombstone replay after restore |
+| C15 | Email delivery metadata at the provider | Recipient address, send timestamps, delivery status | Email delivery | LB-CONTRACT | Provider default (to be minimised in configuration, target ≤ 30 days) | Email provider (processor, Q-03) | DPA; EU/CH hosting | n/a | provider retention |
+
+Not collected at all: real name, phone number, postal address, precise or coarse location, contacts, photos,
+advertising identifiers, device identifiers (IDFA/GAID/IMEI), push tokens (no server push in v1), analytics events,
+crash reports.
+
+## 4. Storage locations and transfers
+
+| Location | What | Country | Status |
+|----------|------|---------|--------|
+| PostgreSQL (primary + backups) | C1–C12, C14 | CH or EU — **Q-01** | pending PM decision |
+| KMS | KEK only (never user data) | same provider/region — **Q-02** | pending |
+| Email provider | C15 (+ C1 and one-time links in transit) | CH/EU — **Q-03** | pending |
+| Log storage | C13 | same as hosting | pending |
+| Developer machines / CI | synthetic data only (R-SUP-05); no production data ever | – | enforced by process |
+
+No transfers outside CH/EU are planned. If the PM chooses a US-headquartered provider's Swiss region (AWS/GCP/Azure),
+the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9).
+
+## 5. Data-subject rights — how each is fulfilled
+
+| Right | Mechanism | Latency |
+|-------|-----------|---------|
+| Access & portability (GDPR 15/20, FADP 25/28) | `GET /v1/me/export` — complete JSON, re-auth, 2/24 h, audit-logged | immediate |
+| Rectification (GDPR 16, FADP 32) | `PATCH /v1/me`, `PATCH /v1/achievements/{id}`, `PATCH /v1/quests/{id}`; check-ins are undo + re-create | immediate |
+| Erasure (GDPR 17, FADP 32) | `DELETE /v1/me` — hard delete + crypto-shredding; backups expire ≤ 30 d; tombstone replay | immediate (backups ≤ 30 d) |
+| Restriction / withdrawal of consent (GDPR 7(3), 18) | `DELETE /v1/me/consents/goal_content` — deletes goal content (Q-10) | immediate |
+| Objection (GDPR 21) | Only legitimate-interest processing is security-related (C8, C11); users may object by email to the controller; evaluated case by case | manual |
+| Information (GDPR 13/14, FADP 19) | Privacy policy in the app (PM/legal) referencing this inventory | n/a |
+
+## 6. Guard test specification (R-PRIV-08)
+
+`test/privacy/data-inventory-guard.test.ts` (M4):
+
+1. Connects to the migrated test database and lists every table/column in schema `public` (ignoring `drizzle.*`).
+2. Loads `docs/privacy/data-inventory.yaml`.
+3. Fails if a table or column is not listed, or is listed but absent from the schema (stale inventory).
+4. For every column with `personal: true`: requires `export: included | excluded-with-reason` and
+   `deletion: cascade | purge-job | consent-withdrawal | not-applicable-with-reason`.
+5. Cross-checks `deletion: cascade` columns against the actual FK graph from `users` (ON DELETE CASCADE path exists).
+6. Cross-checks `export: included` tables against the keys produced by the export service on a seeded account.
+7. Exceptions must carry `approved_by: PM` and a date.
+
+## 7. Change log
+
+| Date | Change |
+|------|--------|
+| 2026-10-22 | Initial inventory for M0. Pending PM approval: Q-09 (device label), Q-13 (tombstones), Q-14 (hashed IPs). |
