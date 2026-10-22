@@ -1,0 +1,21 @@
+# Dependencies & build output
+node_modules/
+dist/
+coverage/
+reports/
+.stryker-tmp/
+*.tsbuildinfo
+
+# Environment & secrets — never commit real secrets (see docs/architecture.md "Configuration")
+.env
+.env.*
+!.env.example
+
+# Tooling / IDE / local state
+.idea/
+.vscode/
+.remember/
+graphify-out/
+*.log
+.DS_Store
+Thumbs.db
