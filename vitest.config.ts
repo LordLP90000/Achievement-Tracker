@@ -4,7 +4,10 @@ export default defineConfig({
   test: {
     retry: 0,
     restoreMocks: true,
-    projects: [{ extends: true, test: { name: 'unit', include: ['src/**/*.test.ts'] } }],
+    projects: [
+      { extends: true, test: { name: 'unit', include: ['src/**/*.test.ts'] } },
+      { extends: true, test: { name: 'integration', include: ['test/**/*.test.ts'], exclude: ['test/e2e/**'] } },
+    ],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

@@ -32,6 +32,8 @@
     "vitest": "5.0.5"
   },
   "dependencies": {
+    "fastify": "5.12.7",
+    "pino": "10.4.0",
     "zod": "4.6.7"
   }
 }

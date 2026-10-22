@@ -1,0 +1,28 @@
+import type { FastifyError, FastifyInstance } from 'fastify';
+import { Problems, sendProblem, type ProblemDefinition } from './problem.ts';
+
+function problemFor(error: FastifyError): ProblemDefinition {
+  switch (error.statusCode) {
+    case 400:
+      return Problems.invalidBody;
+    case 413:
+      return Problems.payloadTooLarge;
+    case 415:
+      return Problems.unsupportedMediaType;
+    default:
+      return Problems.internal;
+  }
+}
+
+/** Every failure becomes an RFC 9457 problem; unknown errors become a generic 500 (ADR-0007). */
+export function registerErrorHandling(app: FastifyInstance): void {
+  app.setNotFoundHandler((request, reply) => sendProblem(request, reply, Problems.notFound));
+
+  app.setErrorHandler((error: FastifyError, request, reply) => {
+    const problem = problemFor(error);
+    if (problem.status >= 500) {
+      request.log.error({ err: { name: error.name, code: error.code } }, 'request failed');
+    }
+    return sendProblem(request, reply, problem);
+  });
+}
