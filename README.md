@@ -31,3 +31,19 @@ for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for archi
 
 TypeScript (strict) on Node.js LTS · Fastify · PostgreSQL · Zod · Drizzle (parameterized queries only) ·
 Vitest + Testcontainers · Docker · REST/JSON under `/v1` · OpenAPI 3.1.
+
+## Development
+
+Prerequisites: Node.js 26 (`.nvmrc`; `npm ci` refuses other versions) and a running Docker engine (integration
+tests start PostgreSQL with Testcontainers).
+
+| Command | Purpose |
+|---------|---------|
+| `npm ci` | Install exactly the locked dependencies (install scripts are disabled, see `allowScripts`) |
+| `npm run lint` · `npm run typecheck` · `npm run format:check` · `npm run lint:openapi` | Static checks |
+| `npm test` | Unit, integration, contract and security tests (Docker required); fails if an OpenAPI operation is neither tested nor listed in `test/contract/not-yet-implemented.ts` |
+| `npm run test:coverage` | Same with coverage thresholds (85 % overall, 95 % branches in `src/domain`) |
+| `npm run test:e2e` | Builds the image and checks the running Compose stack (non-root, read-only, no secrets in logs) |
+| `docker compose -f docker/compose.yml up --build` | Local stack (copy `docker/.env.example` to `docker/.env` first); API on `127.0.0.1:3000` |
+
+For a partial test run (single files), set `CONTRACT_COVERAGE=off` so the spec-coverage gate does not fail.

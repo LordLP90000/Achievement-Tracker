@@ -1,0 +1,100 @@
+# Local development stack: PostgreSQL + one-off db-init and migrate jobs + API + worker.
+# Usage: copy docker/.env.example to docker/.env, fill in local-only secrets, then
+#   docker compose -f docker/compose.yml up --build
+# Production deployment is defined in M6 for the PM's hosting (O-01); these settings are for local use only.
+
+name: questline
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  image: questline-api:local
+  read_only: true
+  tmpfs:
+    - /tmp
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  networks:
+    - backend
+
+services:
+  db:
+    image: postgres:17-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set POSTGRES_ADMIN_PASSWORD in docker/.env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d postgres']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - backend
+    # No published port: the database is reachable only from the backend network.
+
+  db-init:
+    <<: *app
+    command: ['node', 'dist/bootstrap-db.js']
+    environment:
+      APP_ENV: development
+      DATABASE_ADMIN_URL: postgres://postgres:${POSTGRES_ADMIN_PASSWORD}@db:5432/postgres
+      DATABASE_NAME: questline
+      DB_PASSWORD_MIGRATOR: ${DB_PASSWORD_MIGRATOR:?set DB_PASSWORD_MIGRATOR in docker/.env}
+      DB_PASSWORD_APP: ${DB_PASSWORD_APP:?set DB_PASSWORD_APP in docker/.env}
+      DB_PASSWORD_WORKER: ${DB_PASSWORD_WORKER:?set DB_PASSWORD_WORKER in docker/.env}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  migrate:
+    <<: *app
+    command: ['node', 'dist/migrate.js']
+    environment:
+      APP_ENV: development
+      DATABASE_URL_MIGRATOR: postgres://questline_migrator:${DB_PASSWORD_MIGRATOR}@db:5432/questline
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: 'no'
+
+  api:
+    <<: *app
+    command: ['node', 'dist/server.js']
+    environment:
+      APP_ENV: development
+      HOST: 0.0.0.0
+      PORT: '3000'
+      DATABASE_URL_APP: postgres://questline_app:${DB_PASSWORD_APP}@db:5432/questline
+    ports:
+      - 127.0.0.1:${API_PORT:-3000}:3000
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/health/ready']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app
+    command: ['node', 'dist/worker.js']
+    environment:
+      APP_ENV: development
+      DATABASE_URL_WORKER: postgres://questline_worker:${DB_PASSWORD_WORKER}@db:5432/questline
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+networks:
+  backend: {}
+
+volumes:
+  db-data: {}

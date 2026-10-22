@@ -1,0 +1,9 @@
+# Only what the image build needs is sent to the Docker daemon (no secrets, no local state).
+*
+!package.json
+!package-lock.json
+!.npmrc
+!tsconfig.json
+!tsconfig.build.json
+!src/
+src/**/*.test.ts

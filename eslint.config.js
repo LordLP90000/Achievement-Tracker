@@ -50,6 +50,11 @@ export default defineConfig(
     rules: { 'no-restricted-syntax': 'off' },
   },
   {
+    // The end-to-end smoke test drives the Docker CLI; nothing else may spawn processes.
+    files: ['test/e2e/**/*.ts'],
+    rules: { 'no-restricted-imports': 'off' },
+  },
+  {
     files: ['src/domain/**/*.ts'],
     rules: {
       'no-restricted-syntax': [

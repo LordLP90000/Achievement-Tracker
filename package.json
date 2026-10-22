@@ -17,7 +17,8 @@
     "lint:openapi": "redocly lint openapi/openapi.yaml",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
