@@ -8,7 +8,8 @@ Security, privacy and test-driven development are core requirements of this proj
 
 ## Status
 
-The project is in **M1 – Walking skeleton**. See [`docs/PROGRESS.md`](docs/PROGRESS.md)
+**M1 – Walking skeleton** is complete and in review ([report](docs/reports/M1-status-report.md)); M2 starts after
+the PM's "go". See [`docs/PROGRESS.md`](docs/PROGRESS.md)
 for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for architecture decisions.
 
 ## Documentation map

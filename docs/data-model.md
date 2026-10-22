@@ -351,7 +351,7 @@ Retention 30 days.
 ## 4. Roles, grants and RLS (ADR-0003)
 
 ```sql
--- roles (created once by scripts/db-roles.sql, passwords from the secret store)
+-- roles (created once by the db-init job, src/platform/db/bootstrap.ts; passwords from the secret store)
 CREATE ROLE questline_migrator LOGIN;          -- owner of all objects, runs migrations
 CREATE ROLE questline_app      LOGIN NOBYPASSRLS;
 CREATE ROLE questline_worker   LOGIN NOBYPASSRLS;

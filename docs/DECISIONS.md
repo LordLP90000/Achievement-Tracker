@@ -272,3 +272,40 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   fields. DPIA R-15 assesses gambling-like mechanics for users aged 13+.
 - **Tests:** `unit/domain/{habit-reset,rank,gamble,duration}.test.ts` with property tests; `integration/attempts.test.ts`;
   `integration/gamble-settlement.test.ts` with injected clock across the Zurich DST dates.
+
+## ADR-0016 · Supply-chain controls and CI gates
+
+- **Status:** proposed (M1, 2026-10-22; accepted with the PM's "go" for M2)
+- **Context:** Work is pushed straight to `master` (ADR-0001), so nothing reviews a dependency or a commit before it
+  lands. R-SUP-01/02 and threats T-10 (malicious dependency), T-11 (tampered image) and E-07 (committed secrets)
+  need controls that act before install, before commit, before push and on every CI run.
+- **Decision:**
+  - npm never runs dependency install scripts (`ignore-scripts=true`) and resolves only versions published at
+    least 7 days ago (`min-release-age=7`); installs are lockfile-only (`npm ci`); every version is exact.
+  - Runtime dependencies must be listed with a reason in the allowlist of `docs/architecture.md` §7; production
+    packages must not include payment SDKs (R-GMB-05).
+  - GitHub Actions are pinned to commit SHAs, scanner images to digests; the workflow token is read-only and never
+    persisted; scanners get read-only mounts; Trivy scans an image tarball instead of the Docker socket.
+  - Exceptions only in reviewed files, with reason: `osv-scanner.toml` (with expiry), `.gitleaksignore` (exact
+    finding fingerprints), `// nosemgrep: <rule> -- <reason>` on the line. Every exception is listed in the next
+    milestone report.
+  - CI runs every gate on each push and nightly (fresh vulnerability data); each push gets its own run.
+- **Consequences:** A fix published less than 7 days ago needs an explicit, reported `min-release-age-exclude`
+  entry. A dependency that needs an install script (none so far; `sodium-native` is expected to load its bundled
+  prebuilt binaries at runtime — verified when it is added in M2) needs explicit approval. CI can turn red without
+  a code change (new advisory) — it is then fixed first.
+- **Tests:** `test/supply-chain/dependency-allowlist.test.ts`; CI jobs `static`, `osv-scanner`, `gitleaks`,
+  `semgrep` (with `semgrep --test` rule tests), `image` (Trivy, SBOM).
+
+## ADR-0017 · Runtime image: distroless Node.js 26 on Debian 13
+
+- **Status:** proposed (M1, 2026-10-22; accepted with the PM's "go" for M2)
+- **Context:** The plan allowed "distroless or Alpine"; threat E-06 lists "no shell in distroless image" as a
+  mitigation. The first M1 image (Alpine) still contained a busybox shell.
+- **Decision:** Runtime stage `gcr.io/distroless/nodejs26-debian13:nonroot`, build stages `node:26-trixie-slim`
+  (same glibc), both pinned by digest; uid 65532; application files owned by root; read-only root filesystem with a
+  `tmpfs` `/tmp`, `no-new-privileges`, all capabilities dropped (Compose). Health checks use Node itself.
+- **Consequences:** No shell for debugging inside containers (deliberate); base updates are digest bumps verified by
+  the strict Trivy gate (0 HIGH/CRITICAL incl. unfixed at adoption). Native add-ons must ship glibc builds.
+- **Tests:** `test/e2e/smoke.test.ts` (uid ≠ 0, read-only root, no shell, no package manager, no secrets in logs,
+  production refusal); CI Trivy gate.

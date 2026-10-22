@@ -178,21 +178,21 @@ settlement exactly-once under concurrency.
 ├── .github/workflows/ci.yml           # every gate on each push + nightly (test-strategy §7)
 ├── docker/
 │   ├── Dockerfile                     # multi-stage; distroless Node 26 runtime (no shell), non-root, read-only FS
-│   └── compose.yml                    # local dev: postgres + api + worker
+│   ├── compose.yml                    # local dev: postgres → db-init → migrate → api + worker
+│   └── .env.example                   # placeholders only (copy to docker/.env)
 ├── docs/                              # see README documentation map
 ├── openapi/openapi.yaml               # contract (source of truth)
 ├── scripts/
-│   ├── build-password-filter.ts       # Bloom filter from pinned list (ADR-0012)
-│   └── db-roles.sql                   # roles & grants applied by the migration job
+│   └── build-password-filter.ts       # Bloom filter from pinned list (ADR-0012)
 ├── src/
 │   ├── app.ts                         # buildApp(deps): Fastify instance with all plugins and modules
 │   ├── server.ts                      # API entrypoint
-│   ├── worker.ts                      # worker entrypoint
+│   ├── worker.ts                      # worker entrypoint (also migrate.ts, bootstrap-db.ts; logic in main/)
 │   ├── domain/                        # pure functions (see §5), *.test.ts colocated
 │   ├── platform/
 │   │   ├── config/
 │   │   ├── crypto/
-│   │   ├── db/{client.ts, schema/, migrations/, rls.sql}
+│   │   ├── db/{bootstrap.ts, client.ts, migrate.ts, schema/, migrations/}   # roles, grants, RLS helpers
 │   │   ├── email/                     # EmailSender, SmtpEmailSender (nodemailer), templates
 │   │   ├── http/
 │   │   ├── jobs/
@@ -214,9 +214,9 @@ settlement exactly-once under concurrency.
 │   ├── integration/                   # API + real PostgreSQL
 │   ├── contract/                      # OpenAPI conformance & spec coverage
 │   ├── security/                      # authz/BOLA, auth flows, abuse cases, RLS, headers, log leakage
+│   ├── supply-chain/                  # dependency allowlist, exact versions, no payment SDK
 │   └── e2e/                           # few smoke flows against the built container
 ├── .semgrep/                          # custom Semgrep rules + annotated rule tests
-├── .env.example
 ├── .gitleaksignore · .semgrepignore · .nvmrc · .npmrc · lefthook.yml · commitlint.config.js · osv-scanner.toml
 ├── .dependency-cruiser.mjs · eslint.config.js · stryker.config.mjs · vitest.config.ts · vitest.unit.config.ts
 ├── drizzle.config.ts · tsconfig.json · package.json · package-lock.json
