@@ -99,6 +99,9 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | T-13 | Idempotency key reused with a different body to overwrite/replay | Request hash compared; mismatch → 422 | `integration/idempotency.test.ts` |
 | T-14 | Tampered pagination cursor | Cursor parsed with Zod, rejected → 400; even a valid cursor from A yields only B's rows under B's scope | `integration/pagination.test.ts` |
 | T-15 | Edits to habit/target parameters to retroactively "complete" quests and farm XP | Allowed by design (goals change), but XP is awarded once per completion transition and revoked on un-completion; deletion revokes XP (Q-12) | `integration/quest-edit-effects.test.ts` |
+| T-16 | XP farming through pause/resume or reset loops (complete quests → pause → resume → complete again) | Pause revokes all XP of the attempt (R-ACH-06); rank bonus only on unlock, reverted on undo; gambles cannot be re-placed after a loss on the same attempt | `integration/pause-reset.test.ts` (net XP after N loops = XP of one honest run) |
+| T-17 | Gamble manipulation: stake inflated via client, placed after the fact, cancelled, or settled twice | Stake computed server-side from the ledger at placement; one pending gamble per achievement (partial unique index); no cancel endpoint; settlement under `FOR UPDATE`, idempotent by `status` transition | `integration/gamble.test.ts`, `security/mass-assignment.test.ts` (client `stake`/`status` → 400) |
+| T-18 | Rank/score manipulation via back-dated check-ins, timezone changes or clock skew | Back-dated check-ins never count (R-CHK-04); "today" computed server-side in the account timezone; timezone changes re-bucket nothing retroactively (A-23); score uses server-recorded resets/gambles only | `unit/domain/rank.test.ts`, `integration/check-ins.test.ts` |
 
 ### 3.3 Repudiation
 
@@ -165,12 +168,15 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | E-08 | Service starts with weak/missing secrets or dev crypto in production | Startup validation (R-SUP-04) | `unit/config.test.ts` (each missing/weak variable → refuses to start; `KEK_PROVIDER=local` in production → refuses) |
 | E-09 | Worker code path used for cross-user access from the API | Worker role credentials only in the worker process; dependency-cruiser forbids API modules importing retention code | `ci` (dependency-cruiser), `security/db-roles.test.ts` |
 | E-10 | Goal content created without consent | Consent guard on create endpoints (R-PRIV-04) | `security/consent.test.ts` |
+| E-11 | Compromise of the 1Password Connect server or its token yields the KEK (ADR-0013) | Connect server in the private network only; token scoped to one vault, rotated with the KEK; KEK fetched once at startup and held in guarded memory; startup refused if Connect is unreachable; access logged | `unit/crypto/kek-source.test.ts`, M6 runbook (rotation drill) |
+| E-12 | Stolen SMTP relay credentials used to send phishing as Questline | Credentials only in 1Password/env, TLS-only transport, dedicated sending sub-domain with DMARC `p=reject`, outbox rate limits | `unit/email/smtp-sender.test.ts`, `unit/config.test.ts` |
+| E-13 | Deactivated (pending deletion) account used or reactivated by an attacker | All sessions/tokens revoked at deactivation; reactivation only by password login (rate-limited, audited) and notice email to the user; no other endpoint accepts the account | `security/deactivation.test.ts` |
 
 ## 4. Residual risks (accepted for v1, revisited each milestone)
 
 | ID | Risk | Why accepted | Review |
 |----|------|-------------|--------|
-| RR-1 | Compromised app server can decrypt data of active users | Inherent to server-side computation; mitigated by hardening and short DEK cache | E2E encryption evaluation for v2 (§2) |
+| RR-1 | Compromised app server can decrypt data of **all** users (the KEK is in process memory because it is sourced from 1Password Connect instead of a KMS — PM decision Q-02, ADR-0013) | Accepted by PM; mitigated by hardening, private Connect server, rotation; a KMS adapter can replace it later | E2E encryption evaluation for v2 (§2); revisit when hosting is chosen |
 | RR-2 | Structural metadata (dates, counts, statuses, `target_date`) is plaintext | Needed for progress/streak engine and pagination; low sensitivity alone | DPIA R-5; consider encrypting `target_date` if PM wants (cheap) |
 | RR-3 | Deterministic blind index allows email guessing with DB + key | Required for login lookup/uniqueness; key kept outside the DB | Key rotation runbook (M6) |
 | RR-4 | Backups within 30 days may hold deleted users' ciphertext + wrapped DEK | KMS access required to read; tombstone replay after restore (Q-13) | Restore drill in M6 |

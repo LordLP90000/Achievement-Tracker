@@ -15,7 +15,25 @@ milestone ends with a status report and waits for the PM's "go". One branch and 
 | M4 Privacy rights | export, deletion + crypto-shredding + tombstones, consent withdrawal effects, retention jobs, data-inventory guard test | 5–7 | Q-10 withdrawal, Q-11 deletion timing, Q-13 tombstones |
 | M5 Auth hardening | passkeys (WebAuthn), optional TOTP 2FA, recovery codes, step-up | 7–10 | approval of WebAuthn library dependency; RP ID/domain (Q-19) |
 | M6 Hardening & handover | DAST (ZAP) + load/limits (k6) on staging, deployment config for the chosen provider, runbooks (ops, key rotation, restore drill, breach), API docs, `client-security.md`, DP-expert review package | 6–9 | Q-01 hosting (accounts/credentials for staging), budget |
-| **Total** | | **44–62** | |
+| **Total** | | **51–72** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log) | |
+
+## Change log 2026-10-22 — impact of the PM's decisions (Q-01…Q-24)
+
+| Decision | Impact | Effort delta |
+|----------|--------|--------------|
+| Q-04/Q-17 habit reset, pause = reset, attempts, no archiving | New `attempt`/`reset_count`/`needs_restart` columns, `counts_for_progress`; effects engine handles resets and pause revocation; daily job closes periods | M3 +2 d |
+| Q-05 ranks, execution score, duration factor, ×3 level curve, gambles | New `gambles` table, rank/score fields, badge rank, XP `bigint`; new endpoint to place a gamble; settlement job; many new domain tests | M3 +4–5 d |
+| Q-08 back-dated check-ins are history only | `counts_for_progress` flag; simpler streak repair logic | M3 ±0 |
+| Q-11 30-day deletion grace | `deactivated_at`, login reactivation, daily hard-delete job | M4 +1 d |
+| Q-18 week-start setting | `users.week_start`, period helpers parameterised | M3 +0.5 d |
+| Q-02 1Password Connect KEK source | Connect client + startup checks (no SDK) | M2 +1 d |
+| Q-03 custom SMTP | `nodemailer` sender + local SMTP test server | M2 +0.5 d |
+| Q-01 hosting deferred | None for M1–M5; M6 depends on the host being named | – |
+| Q-24 encrypted target_date | trivial | – |
+
+Pending document updates after this change (next session): OpenAPI (`gamble` endpoint, rank/score/attempt fields,
+status enum without `archived`, `age_confirmed`, `week_start`, deletion → `202` with deadline), threat model
+additions T-16…T-18/E-11, data inventory YAML for the new columns.
 
 Risk buffer: +15 % recommended for unknowns in provider APIs (KMS, email) and Node 26 native-module prebuilds.
 
