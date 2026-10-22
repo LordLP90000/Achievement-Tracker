@@ -13,8 +13,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Status:** proposed (2026-10-22)
 - **Context:** The PM requires TDD, small Conventional Commits, one branch per milestone, PROGRESS.md and
   DECISIONS.md reporting, and PRs when a remote exists.
-- **Decision:** Single repository `questline-api`. `main` is protected; each milestone works on a branch
-  `m<n>-<name>` and is merged after the PM's "go". Conventional Commits (`feat`, `fix`, `refactor`, `docs`,
+- **Decision:** Single repository (GitHub `LordLP90000/Achievement-Tracker`, default branch `master` as created by
+  the PM's IDE — not renamed without PM approval). `master` is protected; each milestone works on a branch
+  `m<n>-<name>` and is merged by PR after the PM's "go". Conventional Commits (`feat`, `fix`, `refactor`, `docs`,
   `test`, `chore`, `perf`, `ci`, `security`). Every commit that changes behaviour contains its tests.
 - **Consequences:** Linear, reviewable history per milestone; the milestone report doubles as PR description.
 - **Tests:** CI gate `commitlint` (M1).
