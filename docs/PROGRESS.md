@@ -6,8 +6,8 @@ Updated after every completed task (date, task, tests, commit). Newest entries a
 
 | Milestone | Name | Status | Branch | Report |
 |-----------|------|--------|--------|--------|
-| M0 | Plan | REVIEW | `m0-plan` | [docs/reports/M0-status-report.md](reports/M0-status-report.md) |
-| M1 | Walking skeleton | not started | – | – |
+| M0 | Plan | DONE | `m0-plan`, merged into `master` as `5d41b7d` | [docs/reports/M0-status-report.md](reports/M0-status-report.md) |
+| M1 | Walking skeleton | IN PROGRESS | `master` (direct pushes, ADR-0001 as amended) | – |
 | M2 | Accounts & sessions | not started | – | – |
 | M3 | Core domain | not started | – | – |
 | M4 | Privacy rights | not started | – | – |
@@ -40,4 +40,14 @@ test strategy, hosting options and effort per milestone.
 | 2026-10-22 | Test strategy v2: catalogue rows for R-AUTH-09/10/11, R-ENC-05, R-PRIV-06 (30-day window)/07, R-XP-02/03, R-QST-04/09, R-CHK-04, R-RANK-01…05, R-GMB-01…05, T-16…T-18, E-11…E-13; domain plan for habit resets, periods by `week_start`, duration-factor table, score/rank, gambles across Zurich DST; stale "open-ended periods"/"pause freezing" rows replaced; R-AUTH-02 aligned with the contract (length → 400) | Script check: all 25 requested IDs present in the catalogue | `276ecc4` |
 | 2026-10-22 | Architecture v2: 1Password Connect replaces the KMS (`KekSource`, KEK loaded once at startup), SMTP relay via `nodemailer`, config variables (`KEK_SOURCE`, `OP_*`, `SMTP_*`), domain files `constants.ts`, `habit-reset.ts`, `duration.ts`, `rank.ts`, `gamble.ts`, jobs (daily settlement, 30-day hard delete), folders `platform/email`, `modules/gambles`, runtime dependency `nodemailer` | n/a (docs); diagram alignment and leftover-KMS check by script | `843e223` |
 | 2026-10-22 | Cross-reference check (every R-/A-/Q-/O-/ADR-/threat/DPIA/H- ID referenced in docs and spec is defined); restored R-TLS-01…04, R-LOG-01…03, R-SUP-01…05 (R-SUP-04 adapted to ADR-0013); decision-consistency sweep of threat model, DPIA, data inventory, data model, ADR-0006/0012, plan; final addendum to the M0 report | Scratch scripts (not committed): cross-reference check — all references defined; inventory check — 0 differences; all docs CRLF-only | this commit |
-| **open** | Waiting for the PM: **"go" for M1**, PR merge decision for `m0-plan`; O-06 (rank/gamble integrity) needed before M3 | – | – |
+| 2026-10-22 | M0 closed: PM "go" for M1; workflow changed to direct pushes on `master` (ADR-0001 amended); `m0-plan` merged once; ADR-0002…0012 accepted, ADR-0015 engineering shape accepted | Direct push to `master` verified (`e922acc..5d41b7d`; no branch protection) | `5d41b7d`, next commit |
+
+## M1 – Walking skeleton
+
+Goal: tooling pinned to Node 26, `buildApp()` skeleton (request IDs, allowlist logging, security headers, problem
+details, health), config module with production guards, Drizzle + migration 0001 (roles, RLS helper, `job_runs`),
+Testcontainers + contract harness, Docker image + Compose, CI with all gates. Scope and exit criteria:
+`docs/plan.md` → M1. All commits are pushed directly to `master`.
+
+| Date | Task | Tests | Commit |
+|------|------|-------|--------|

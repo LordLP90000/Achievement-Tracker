@@ -2,7 +2,8 @@
 
 Status: M0 proposal (2026-10-22). Effort is given in focused engineering days (senior-engineer equivalent) and
 includes writing tests first, docs and reports; calendar time depends on how fast PM decisions arrive. Each
-milestone ends with a status report and waits for the PM's "go". One branch and one PR per milestone.
+milestone ends with a status report and waits for the PM's "go". All work is pushed directly to `master` (ADR-0001 as
+amended on 2026-10-22).
 
 ## Summary
 
@@ -55,7 +56,7 @@ Deliverables
 - CI: lint, typecheck, unit, integration (Docker), coverage thresholds, Stryker (scaffold), Semgrep, osv-scanner,
   gitleaks, Trivy, CycloneDX SBOM, e2e smoke (health through the built image).
 
-Exit criteria: all gates green on the PR; `docker compose up` serves `/health/ready`; tests prove config refusal,
+Exit criteria: all gates green on `master`; `docker compose up` serves `/health/ready`; tests prove config refusal,
 headers, problem format, log allowlist, RLS fail-closed on a sample table, app role has no DDL.
 
 ## M2 — Accounts & sessions (10–14 days)

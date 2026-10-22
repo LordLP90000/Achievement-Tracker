@@ -162,7 +162,9 @@ nightly: full Stryker, timing-uniformity check, dependency refresh report
 M6: ZAP API scan + k6 against staging
 ```
 
-All gates are `required` checks on `master`. No `continue-on-error`, no `--no-verify`.
+Work is pushed directly to `master` (ADR-0001 as amended), so the fast gates also run locally in the lefthook `pre-push`
+hook and CI runs every gate on each push; a red pipeline is fixed or reverted before any other work. No
+`continue-on-error`, no `--no-verify`, no force-push.
 
 ## 8. Conventions
 

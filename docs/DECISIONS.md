@@ -10,19 +10,23 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0001 · Repository and workflow conventions
 
-- **Status:** proposed (2026-10-22)
-- **Context:** The PM requires TDD, small Conventional Commits, one branch per milestone, PROGRESS.md and
-  DECISIONS.md reporting, and PRs when a remote exists.
-- **Decision:** Single repository (GitHub `LordLP90000/Achievement-Tracker`, default branch `master` as created by
-  the PM's IDE — not renamed without PM approval). `master` is protected; each milestone works on a branch
-  `m<n>-<name>` and is merged by PR after the PM's "go". Conventional Commits (`feat`, `fix`, `refactor`, `docs`,
-  `test`, `chore`, `perf`, `ci`, `security`). Every commit that changes behaviour contains its tests.
-- **Consequences:** Linear, reviewable history per milestone; the milestone report doubles as PR description.
-- **Tests:** CI gate `commitlint` (M1).
+- **Status:** accepted; **amended by the PM on 2026-10-22: trunk-based — all work is pushed directly to `master`**
+- **Context:** The PM requires TDD, small Conventional Commits, PROGRESS.md and DECISIONS.md reporting. The original
+  proposal (one branch and one PR per milestone) was replaced by the PM after M0 ("why always merge? … straight push").
+- **Decision:** Single repository (GitHub `LordLP90000/Achievement-Tracker`, default branch `master`, kept per Q-22).
+  Every commit is pushed directly to `master`: no milestone branches, no PRs (`m0-plan` was merged once as `5d41b7d`).
+  Conventional Commits (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `security`). Every commit
+  that changes behaviour contains its tests. Milestone boundaries are the commit ranges in `docs/PROGRESS.md` and the
+  milestone reports.
+- **Consequences:** Faster flow, but CI can no longer block a commit *before* it lands on `master`. Mitigations: the
+  fast gates (format, lint, typecheck, unit and contract tests, OpenAPI lint) run locally in a lefthook `pre-push`
+  hook, the secret scan in `pre-commit` and commitlint in `commit-msg`; CI runs every gate on each push to `master`;
+  a red pipeline is fixed or reverted before any other work; never `--no-verify`, never force-push to `master`.
+- **Tests:** CI gate `commitlint` on the pushed range; lefthook hooks (M1).
 
 ## ADR-0002 · Node.js 26 LTS as runtime target
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** The stack mandates Node.js LTS. Node 26 enters Active LTS on 2026-10-28; Node 24 moves to
   Maintenance LTS on 2026-10-20. The dev machine currently runs Node 25 (never LTS).
 - **Decision:** Target **Node 26 LTS** (pinned via `.nvmrc`/`engines`/Docker tag in M1, once the LTS release is
@@ -34,7 +38,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0003 · Drizzle ORM, two database roles, Row-Level Security as defence in depth
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** Only parameterized queries are allowed; the app role must have no DDL rights; every query must be
   scoped to the authenticated user ("another user's object returns 404").
 - **Decision:**
@@ -55,7 +59,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0004 · Opaque random tokens; no JWTs
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** The brief prefers opaque tokens; JWTs would need algorithm pinning, claim validation and still a
   revocation list for "revoke session" and "password change revokes all other sessions".
 - **Decision:** All tokens (access, refresh, email verification, password reset) are 32 random bytes
@@ -70,7 +74,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0005 · libsodium (`sodium-native`) for password hashing, AEAD and constant-time comparison
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** Vetted libraries only. Need Argon2id, XChaCha20-Poly1305 (preferred by the brief), constant-time
   comparison and secure memory. Fewer dependencies are better for supply-chain risk.
 - **Decision:** `sodium-native` (prebuilt libsodium bindings) provides all of: `crypto_pwhash` (Argon2id13),
@@ -87,7 +91,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0006 · Envelope encryption design and the limits of crypto-shredding
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** Goal content may be health data. Requirement: per-user data key (DEK) wrapped by a KEK (a KMS in
   the original brief; a KEK from 1Password Connect per ADR-0013), AEAD with AD = user ID + record ID + field name,
   key version for rotation, crypto-shredding on deletion.
@@ -117,7 +121,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0007 · Error format: RFC 9457 problem details with URN problem types
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** Errors must be `application/problem+json` without internals. No production domain exists yet.
 - **Decision:** `type` is a URN `urn:questline:problem:<slug>` (dereferenceability is not required by RFC 9457);
   switch to `https://<docs-domain>/problems/<slug>` once the PM provides a domain. Every problem carries
@@ -129,7 +133,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0008 · Idempotency keys and optimistic concurrency
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** Mobile retries; concurrent edits; brief requires idempotency keys on create endpoints and a
   version field with 409 on conflict.
 - **Decision:**
@@ -145,7 +149,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0009 · PostgreSQL for rate limiting, outbox and scheduled jobs (no Redis/queue in v1)
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** Rate limiting must work across instances; emails and retention jobs need background execution.
   Adding Redis or a queue is a new paid component (needs PM approval) and widens the attack surface.
 - **Decision:** An `UNLOGGED` table `rate_limit_buckets` implements a token bucket keyed by HMAC(daily key,
@@ -162,7 +166,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0010 · Spec-first OpenAPI 3.1 enforced by Ajv contract tests and a spec-coverage test
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** The OpenAPI document is written first and must be enforced.
 - **Decision:** `openapi/openapi.yaml` is the single source of truth. Request/response Zod schemas are written to
   match it. The integration test harness validates **every** response (status, headers, body) against the spec
@@ -175,7 +179,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0011 · Timezone handling with `Intl` only; `local_date` stored per check-in
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** Streaks must be correct across midnight and DST in the user's IANA timezone. Avoid a timezone
   library dependency if possible.
 - **Decision:** All period logic works on **calendar dates** (`YYYY-MM-DD`), never on instants. The client sends
@@ -191,7 +195,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0012 · Offline breached-password check via a committed Bloom filter
 
-- **Status:** proposed (2026-10-22)
+- **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** NIST SP 800-63B requires blocking commonly used / breached passwords; the brief requires an offline
   list (no network calls to HIBP).
 - **Decision:** `scripts/build-password-filter.ts` builds a Bloom filter (1 % false-positive rate, ≈ 1.2 MB) from a
@@ -242,7 +246,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0015 · Gamification model: resets, ranks, duration factor, gambles
 
-- **Status:** decided by PM (2026-10-22, Q-04/Q-05/Q-08/Q-17), engineering shape proposed by lead engineer
+- **Status:** decided by PM (2026-10-22, Q-04/Q-05/Q-08/Q-17); engineering shape accepted with the M1 "go"
 - **Context:** The PM replaced the brief's "freeze on pause / Σ min(…) habit progress" with a stricter model and
   added ranks and gambles. Everything must stay non-gameable and exactly-once.
 - **Decision (engineering shape):**

@@ -8,7 +8,7 @@ Security, privacy and test-driven development are core requirements of this proj
 
 ## Status
 
-The project is in **M0 – Plan** (no production code yet). See [`docs/PROGRESS.md`](docs/PROGRESS.md)
+The project is in **M1 – Walking skeleton**. See [`docs/PROGRESS.md`](docs/PROGRESS.md)
 for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for architecture decisions.
 
 ## Documentation map
