@@ -10,7 +10,7 @@
 #   retention  : human-readable retention rule
 #   approved_by/approved_on : required for exceptions
 
-version: 1
+version: 2
 updated: 2026-10-22
 
 defaults:
@@ -21,7 +21,7 @@ defaults:
 tables:
   users:
     user_relation: id
-    retention: until account deletion; unverified accounts purged after 7 days (purge-job)
+    retention: until account deletion; a deletion request deactivates the account and the purge-job hard-deletes it 30 days later unless the user logs in (Q-11); unverified accounts purged after 7 days (purge-job)
     columns:
       id:                      { category: C3, personal: true }
       email_enc:               { category: C1, personal: true, encrypted: true }
@@ -30,7 +30,10 @@ tables:
       nickname_enc:            { category: C3, personal: true, encrypted: true }
       timezone:                { category: C3, personal: true }
       locale:                  { category: C3, personal: true }
+      week_start:              { category: C3, personal: true }
+      age_confirmed:           { category: C3, personal: true }
       email_verified_at:       { category: C3, personal: true }
+      deactivated_at:          { category: C3, personal: true, retention: set by a deletion request; the account is hard-deleted 30 days later unless reactivated by login (Q-11) }
       privacy_policy_version:  { category: C3, personal: true }
       password_changed_at:     { category: C2, personal: true }
       created_at:              { category: C3, personal: true }
@@ -56,8 +59,8 @@ tables:
       user_id:                { category: C2, personal: true, export: excluded, export_reason: transient secret record }
       purpose:                { category: C2, personal: false, export: excluded, export_reason: transient secret record }
       token_hash:             { category: C2, personal: false, export: excluded, export_reason: secret material }
-      new_email_enc:          { category: C1, personal: true, encrypted: true, export: excluded, export_reason: pending unverified address, ≤ 30 min lifetime }
-      new_email_blind_index:  { category: C1, personal: true, export: excluded, export_reason: derived keyed hash, ≤ 30 min lifetime }
+      new_email_enc:          { category: C1, personal: true, encrypted: true, export: excluded, export_reason: 'pending unverified address, ≤ 30 min lifetime' }
+      new_email_blind_index:  { category: C1, personal: true, export: excluded, export_reason: 'derived keyed hash, ≤ 30 min lifetime' }
       expires_at:             { category: C2, personal: false, export: excluded, export_reason: transient secret record }
       used_at:                { category: C2, personal: false, export: excluded, export_reason: transient secret record }
       created_at:             { category: C2, personal: false, export: excluded, export_reason: transient secret record }
@@ -69,7 +72,7 @@ tables:
       id:                   { category: C4, personal: true }
       user_id:              { category: C4, personal: true }
       client:               { category: C4, personal: true }
-      device_label_enc:     { category: C4, personal: true, encrypted: true, approved_by: pending (Q-09) }
+      device_label_enc:     { category: C4, personal: true, encrypted: true, approved_by: PM, approved_on: 2026-10-22 }
       created_at:           { category: C4, personal: true }
       last_used_at:         { category: C4, personal: true }
       last_reauth_at:       { category: C4, personal: true }
@@ -113,24 +116,32 @@ tables:
       description_enc:  { category: C6, personal: true, encrypted: true }
       motivation_enc:   { category: C6, personal: true, encrypted: true }
       category_enc:     { category: C6, personal: true, encrypted: true }
-      target_date:      { category: C6, personal: true, encrypted: false }
+      target_date_enc:  { category: C6, personal: true, encrypted: true }
       status:           { category: C6, personal: true }
       is_private:       { category: C6, personal: true }
+      attempt:          { category: C7, personal: true }
       completed_at:     { category: C7, personal: true }
+      execution_score:  { category: C7, personal: true }
+      rank:             { category: C7, personal: true }
       dek_version:      { category: C2, personal: false, export: excluded, export_reason: key-management metadata }
       created_at:       { category: C6, personal: true }
       updated_at:       { category: C6, personal: false }
       version:          { category: C6, personal: false }
 
-  achievement_pauses:
+  gambles:
     user_relation: user_id
     deletion: consent-withdrawal
+    retention: until the achievement is deleted, the goal_content consent is withdrawn (Q-10) or the account is deleted
     columns:
       id:              { category: C7, personal: true }
       user_id:         { category: C7, personal: true }
       achievement_id:  { category: C7, personal: true }
-      paused_from:     { category: C7, personal: true }
-      resumed_on:      { category: C7, personal: true }
+      attempt:         { category: C7, personal: true }
+      stake:           { category: C7, personal: true }
+      status:          { category: C7, personal: true }
+      loss_reason:     { category: C7, personal: true }
+      placed_at:       { category: C7, personal: true }
+      settled_at:      { category: C7, personal: true }
 
   quests:
     user_relation: user_id
@@ -153,6 +164,8 @@ tables:
       habit_times_per_period:  { category: C6, personal: true }
       habit_period_count:      { category: C6, personal: true }
       habit_start_date:        { category: C6, personal: true }
+      reset_count:             { category: C7, personal: true }
+      needs_restart:           { category: C7, personal: true }
       completed_at:            { category: C7, personal: true }
       dek_version:             { category: C2, personal: false, export: excluded, export_reason: key-management metadata }
       created_at:              { category: C6, personal: true }
@@ -167,6 +180,8 @@ tables:
       user_id:      { category: C6, personal: true }
       quest_id:     { category: C6, personal: true }
       local_date:   { category: C7, personal: true }
+      attempt:      { category: C7, personal: true }
+      counts_for_progress: { category: C7, personal: true }
       value_enc:    { category: C6, personal: true, encrypted: true }
       note_enc:     { category: C6, personal: true, encrypted: true }
       dek_version:  { category: C2, personal: false, export: excluded, export_reason: key-management metadata }
@@ -182,6 +197,7 @@ tables:
       amount:          { category: C7, personal: true }
       quest_id:        { category: C7, personal: true }
       achievement_id:  { category: C7, personal: true }
+      gamble_id:       { category: C7, personal: true }
       local_date:      { category: C7, personal: true }
       created_at:      { category: C7, personal: true }
 
@@ -193,6 +209,7 @@ tables:
       user_id:         { category: C7, personal: true }
       achievement_id:  { category: C7, personal: true }
       kind:            { category: C7, personal: true }
+      rank:            { category: C7, personal: true }
       awarded_at:      { category: C7, personal: true }
 
   audit_events:
@@ -243,7 +260,8 @@ tables:
     deletion: not-applicable
     deletion_reason: keyed hash of IP or email index with a daily key; not attributable to a user; rows purged after 24 h
     retention: 24 hours (purge-job)
-    approved_by: pending (Q-14)
+    approved_by: PM
+    approved_on: 2026-10-22
     columns:
       bucket_key:     { category: C11, personal: true, export: excluded, export_reason: not attributable to a user (daily-keyed HMAC) }
       tokens:         { category: C11, personal: false, export: excluded, export_reason: counter }
@@ -256,7 +274,8 @@ tables:
     deletion: not-applicable
     deletion_reason: record of a completed deletion; contains only the former random UUID; purged after 35 days
     retention: 35 days (purge-job)
-    approved_by: pending (Q-13)
+    approved_by: PM
+    approved_on: 2026-10-22
     columns:
       user_id:     { category: C12, personal: false, export: excluded, export_reason: account no longer exists }
       deleted_at:  { category: C12, personal: false, export: excluded, export_reason: account no longer exists }
