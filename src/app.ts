@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import { registerErrorHandling } from './platform/http/errors.ts';
+import { registerRequestLogging } from './platform/http/request-logging.ts';
 import { registerSecurityHeaders } from './platform/http/security-headers.ts';
 
 export const BODY_LIMIT_BYTES = 64 * 1024;
@@ -27,6 +28,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
 
   app.removeContentTypeParser('text/plain');
   registerSecurityHeaders(app);
+  registerRequestLogging(app);
   registerErrorHandling(app);
   return app;
 }
