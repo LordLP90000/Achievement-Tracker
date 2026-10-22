@@ -189,6 +189,7 @@ admin/back-office endpoints, web client (CORS stays off), passkeys/TOTP (M5), en
 | Q-12 | M3 | Deleting an achievement or quest: keep or revoke XP earned through it? | (a) revoke; (b) keep | **(a)** — consistent with undo semantics and prevents farming by create–complete–delete loops. |
 | Q-13 | M4 | Keep a `deleted_user_tombstones` table (random user UUID + deletion time, 35 days) so deletions can be replayed after a backup restore? Without it, a restore could resurrect deleted users within the 30-day backup window. | (a) yes; (b) no, rely on manual runbook | **(a)** — a UUID with no other data is not reasonably linkable to a person; documented in the inventory. |
 | Q-14 | M2 | Rate limiting needs per-IP state for ~1 h. Approve storing **HMAC-hashed** IPs (daily rotating key) in the DB for abuse prevention (legitimate interest)? | (a) yes, hashed; (b) per-IP limiting only at the edge/WAF | **(a)** — plus per-IP limits at the edge once hosting is chosen. |
+| Q-23 | M2 (registration) | Minors: goal content may be sensitive, and consent by children is legally constrained (GDPR Art. 8: 13–16 depending on member state; FADP: capacity of judgement). What is the minimum age, and how is it enforced? | (a) terms require ≥ 16, self-declaration checkbox at registration, no date of birth stored; (b) collect date of birth (new personal data, not recommended); (c) no age requirement | **(a)** — minimisation-friendly; the app shows the age statement next to the policy acceptance. |
 
 ### 6.2 Confirm or change (defaults applied otherwise)
 
@@ -205,6 +206,7 @@ admin/back-office endpoints, web client (CORS stays off), passkeys/TOTP (M5), en
 | Q-20 | Node 26 LTS (ADR-0002) | yes |
 | Q-21 | Row-Level Security as defence in depth (ADR-0003) | yes |
 | Q-22 | Housekeeping: keep `.idea/` tracked in git and keep `master` as default branch name? | keep both as created by your IDE |
+| Q-24 | Encrypt `target_date` too (not listed in the brief, but a date next to an encrypted goal is weak metadata; cost is negligible)? | **yes** — I will encrypt it unless you object (DPIA R-5) |
 
 ## 7. Traceability
 
