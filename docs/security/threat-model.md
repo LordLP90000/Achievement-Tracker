@@ -10,11 +10,11 @@ files (layer prefixes: `unit/`, `integration/`, `contract/`, `security/`, `e2e/`
 ```
                  ┌────────────────────────── Internet ──────────────────────────┐
   [User] ──▶ [Mobile app] ══ TLS ══▶ ║ Edge LB ║ ──▶ [questline-api] ──▶ [PostgreSQL]
-                                     ║ (TB1)   ║        │   (TB2)  ▲          ▲ (TB3)
-                                     ╚═════════╝        │          │          │
-                                                        ├──▶ [KMS] (TB4)      │
+                                     ║ (TB1)   ║        │   (TB2)             ▲ (TB3)
+                                     ╚═════════╝        │                     │
+                           (TB4) [1Password Connect] ◀──┤                     │
                                                         │                     │
-                                [Email provider] ◀── [questline-worker] ──────┘
+                                    [SMTP relay] ◀── [questline-worker] ──────┘
                                      (TB5)
   [Developers / CI] ──▶ [Container registry] ──▶ deployment (TB6: supply chain)
   [Backups] (TB7: encrypted, 30-day expiry)   [Logs/metrics] (TB8)
@@ -25,18 +25,18 @@ files (layer prefixes: `unit/`, `integration/`, `contract/`, `security/`, `e2e/`
 | Goal content (titles, descriptions, motivation, category, notes, values, units) | **High** — may reveal health, finances, relationships | `achievements`, `quests`, `check_ins`, `idempotency_keys`, `email_outbox` (encrypted) |
 | Email address | High (identifier, contact) | `users.email_enc`, blind index |
 | Credentials: password hashes, access/refresh/one-time token hashes | High | `users`, `session_tokens`, `one_time_tokens` |
-| Data encryption keys (DEK), KEK, blind-index key, rate-limit key | **Critical** | `user_keys` (wrapped), KMS, secret store, process memory |
+| Data encryption keys (DEK), KEK, blind-index key, rate-limit key | **Critical** | `user_keys` (wrapped), 1Password vault + self-hosted Connect server (KEK), secret store, process memory |
 | Behavioural data: check-in dates, XP ledger, streaks, audit events | Medium | `check_ins`, `xp_events`, `audit_events` |
 | Availability of the service | Medium | all |
 
 Trust boundaries: TB1 client↔edge (untrusted network), TB2 edge↔API (trusted network, proxy headers),
-TB3 API↔DB (private network, TLS), TB4 API↔KMS, TB5 worker↔email provider (processor), TB6 supply chain,
+TB3 API↔DB (private network, TLS), TB4 API↔1Password Connect (KEK, once at startup), TB5 worker↔SMTP relay (processor), TB6 supply chain,
 TB7 backups, TB8 logs/observability.
 
 ### Trusted / assumed
 
 - The mobile app binary is not trusted (anyone can call the API); the API never relies on client-side checks.
-- The hosting provider's infrastructure (hypervisor, network isolation, KMS HSM) behaves as documented.
+- The hosting infrastructure (hypervisor, network isolation) and 1Password (vault encryption, Connect server) behave as documented.
 - Operators with production access are trusted but **their access is logged by the provider** and they never need
   plaintext goal content to operate the service (no admin endpoints, encrypted at rest, no content in logs).
 
@@ -44,14 +44,14 @@ TB7 backups, TB8 logs/observability.
 
 | Scenario | Protected? | Why |
 |----------|-----------|-----|
-| Leaked database dump or SQL export (e.g. misconfigured bucket, stolen laptop with a dump) | **Yes** | Goal content, email, nickname, outbox payloads are AEAD-encrypted with per-user DEKs wrapped by a KMS key the dump does not contain; tokens are hashed; passwords are Argon2id. The attacker learns only structure (counts, dates, statuses, XP). |
+| Leaked database dump or SQL export (e.g. misconfigured bucket, stolen laptop with a dump) | **Yes** | Goal content, email, nickname, outbox payloads are AEAD-encrypted with per-user DEKs wrapped by a KEK the dump does not contain (it lives only in 1Password and in app memory); tokens are hashed; passwords are Argon2id. The attacker learns only structure (counts, dates, statuses, XP). |
 | Leaked backup (TB7) | **Yes**, same as above | Backups contain the same ciphertext and wrapped DEKs. |
 | Database compromise via SQL injection or a DB credential leak (read access, no app host) | **Yes** for content | Same reasoning; plus RLS limits what the app role can see without `app.user_id`. |
-| Curious/malicious DBA or provider staff with DB access only | **Yes** | They lack KMS `Decrypt` permission on the KEK. |
-| Compromised **app server** (RCE, stolen runtime credentials incl. KMS access) | **No** | The process can unwrap DEKs; an attacker in the process can decrypt whatever it decrypts, for users who are active while they persist. Mitigations: minimal container, read-only FS, non-root, DEK cache ≤ 5 min, KMS audit logs, alerting. |
+| Curious/malicious DBA or provider staff with DB access only | **Yes** | They have no access to the KEK (1Password vault, app memory). |
+| Compromised **app server** (RCE, stolen runtime credentials incl. the Connect token) | **No** | The process holds the KEK (ADR-0013), so an attacker in the process can decrypt **all** users' data (RR-1). Mitigations: minimal container, read-only FS, non-root, KEK in guarded memory, DEK cache ≤ 5 min, Connect access logs, alerting. |
 | Compromised client device | **No** (out of scope for the backend) | See `docs/client-security.md` (M6): Keychain/Keystore, no content in notifications. |
-| Metadata inference (number of quests, check-in cadence, target dates) | **Partially** | Structural columns are plaintext for progress/streak maths; `target_date` is plaintext (brief does not list it). Documented in the DPIA as residual risk R-5. |
-| Email guessing against the blind index by someone holding the DB **and** the blind-index key | **No** | Deterministic HMAC allows offline guessing of candidate emails. Mitigation: key lives in the secret store/KMS, never in the DB; rotation procedure re-indexes. |
+| Metadata inference (number of quests, check-in cadence, target dates) | **Partially** | Structural columns (check-in dates, counts, statuses, ranks, scores) are plaintext for progress/streak maths; `target_date` is encrypted (Q-24). Documented in the DPIA as residual risk R-5. |
+| Email guessing against the blind index by someone holding the DB **and** the blind-index key | **No** | Deterministic HMAC allows offline guessing of candidate emails. Mitigation: key lives in the secret store (1Password), never in the DB; rotation procedure re-indexes. |
 
 **End-to-end encryption (v2 evaluation).** Encrypting goal content on the device with a key the server never sees
 would also cover the "compromised server" row. Costs: the server could no longer compute progress, XP, streaks or
@@ -92,7 +92,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | T-06 | XP double-award via retries or concurrent check-ins | Effects engine runs under `SELECT … FOR UPDATE` on quest + achievement; idempotency keys; append-only ledger (R-XP-01) | `integration/xp-exactly-once.test.ts` (20 parallel identical requests → one award; parallel distinct check-ins → consistent totals) |
 | T-07 | Lost updates between two devices | `version` + `If-Match`, `409` on mismatch, `428` when missing (ADR-0008) | `integration/concurrency.test.ts` |
 | T-08 | Prerequisite cycles or cross-achievement prerequisites to corrupt lock logic | Service validation (same achievement, acyclic, depth ≤ 20) | `unit/quests/prerequisite.test.ts`, `integration/quests.test.ts` |
-| T-09 | Manipulated `local_date` (future / far past) to fabricate streaks | Validation against today in the account timezone; ≤ 7 days back-dating (A-08) | `integration/check-ins.test.ts` with injected clock and `Europe/Zurich` DST dates |
+| T-09 | Manipulated `local_date` (future / far past) to fabricate streaks | Validation against today in the account timezone; ≤ 7 days back-dating, and back-dated check-ins never count (R-CHK-04) | `integration/check-ins.test.ts` with injected clock and `Europe/Zurich` DST dates |
 | T-10 | Malicious or vulnerable dependency (typosquat, compromised release) | Lockfile, `npm ci`, minimal deps, `osv-scanner`, Semgrep, dependency review in reports (R-SUP-01/02) | `ci` gates; `unit/supply-chain/dependency-allowlist.test.ts` (runtime deps must be in the documented allowlist) |
 | T-11 | Tampered container image | Images built in CI, digest-pinned deployments, Trivy scan, SBOM | `ci` |
 | T-12 | Schema changes or DDL through the app connection | `questline_app` has no DDL rights; migrations by a separate role in a separate job (ADR-0003) | `security/db-roles.test.ts` |
@@ -131,8 +131,8 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | I-13 | Idempotency replay returns another user's stored response | Keys scoped to (user, route); stored response encrypted with the user's DEK | `integration/idempotency.test.ts` |
 | I-14 | `403` vs `404` discloses existence of other users' objects | Always `404` | `security/ownership.test.ts` |
 | I-15 | Health endpoints leak versions or dependency details | Body limited to `{status}` | `contract/health.test.ts` |
-| I-16 | Email provider sees addresses and tokens | Necessary processor under DPA (PM approval, `processors.md`); tokens single-use, ≤ 30 min; emails contain no goal content | `unit/email/templates.test.ts`, `docs/privacy/processors.md` |
-| I-17 | KMS provider sees DEKs during unwrap | Inherent to envelope encryption; KMS never sees field data; KMS access logged | documented |
+| I-16 | SMTP relay operator sees addresses and tokens | Necessary processor under DPA (PM approval, `processors.md`); tokens single-use, ≤ 30 min; emails contain no goal content | `unit/email/templates.test.ts`, `docs/privacy/processors.md` |
+| I-17 | 1Password holds the KEK | The KEK is stored end-to-end encrypted in the 1Password vault and fetched once by the private Connect server; DEK unwrap happens in-process, so 1Password never sees DEKs or field data; Connect access logged (ADR-0013) | documented; `unit/crypto/kek-source.test.ts` |
 | I-18 | Backups readable after account deletion | Wrapped DEK deleted with the user; backups expire after 30 days; tombstone replay after restore (ADR-0006, Q-13) | `integration/account-deletion.test.ts`, M6 restore drill checklist |
 | I-19 | Rate-limit storage reveals IPs/emails | Bucket keys are HMACs with a daily-rotated key (Q-14) | `unit/rate-limit/keys.test.ts` (no raw subject persisted; keys differ per day) |
 | I-20 | Goal content in push notifications | No server push in v1; client guidance (M6) | n/a |
@@ -165,7 +165,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | E-05 | App role bypasses RLS or alters schema | `NOBYPASSRLS`, `FORCE ROW LEVEL SECURITY`, DML-only grants | `security/rls.test.ts`, `security/db-roles.test.ts` |
 | E-06 | Container breakout / privilege escalation on the host | Non-root UID, read-only root FS, no shell in distroless image, dropped capabilities, Trivy | `e2e/container.test.ts` (uid ≠ 0, write to `/` fails), `ci` |
 | E-07 | Secrets committed or baked into images | gitleaks (CI + pre-commit), `.dockerignore`, env-only config | `ci`, `unit/config.test.ts` |
-| E-08 | Service starts with weak/missing secrets or dev crypto in production | Startup validation (R-SUP-04) | `unit/config.test.ts` (each missing/weak variable → refuses to start; `KEK_PROVIDER=local` in production → refuses) |
+| E-08 | Service starts with weak/missing secrets or dev crypto in production | Startup validation (R-SUP-04) | `unit/config.test.ts` (each missing/weak variable → refuses to start; `KEK_SOURCE=env` in production → refuses, R-SUP-04) |
 | E-09 | Worker code path used for cross-user access from the API | Worker role credentials only in the worker process; dependency-cruiser forbids API modules importing retention code | `ci` (dependency-cruiser), `security/db-roles.test.ts` |
 | E-10 | Goal content created without consent | Consent guard on create endpoints (R-PRIV-04) | `security/consent.test.ts` |
 | E-11 | Compromise of the 1Password Connect server or its token yields the KEK (ADR-0013) | Connect server in the private network only; token scoped to one vault, rotated with the KEK; KEK fetched once at startup and held in guarded memory; startup refused if Connect is unreachable; access logged | `unit/crypto/kek-source.test.ts`, M6 runbook (rotation drill) |
@@ -177,9 +177,9 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | ID | Risk | Why accepted | Review |
 |----|------|-------------|--------|
 | RR-1 | Compromised app server can decrypt data of **all** users (the KEK is in process memory because it is sourced from 1Password Connect instead of a KMS — PM decision Q-02, ADR-0013) | Accepted by PM; mitigated by hardening, private Connect server, rotation; a KMS adapter can replace it later | E2E encryption evaluation for v2 (§2); revisit when hosting is chosen |
-| RR-2 | Structural metadata (dates, counts, statuses, `target_date`) is plaintext | Needed for progress/streak engine and pagination; low sensitivity alone | DPIA R-5; consider encrypting `target_date` if PM wants (cheap) |
+| RR-2 | Structural metadata (check-in dates, counts, statuses, ranks, scores) is plaintext | Needed for progress/streak engine and pagination; low sensitivity alone | DPIA R-5 (`target_date` encrypted since Q-24) |
 | RR-3 | Deterministic blind index allows email guessing with DB + key | Required for login lookup/uniqueness; key kept outside the DB | Key rotation runbook (M6) |
-| RR-4 | Backups within 30 days may hold deleted users' ciphertext + wrapped DEK | KMS access required to read; tombstone replay after restore (Q-13) | Restore drill in M6 |
+| RR-4 | Backups within 30 days may hold deleted users' ciphertext + wrapped DEK | Reading them requires the KEK (1Password, app memory); tombstone replay after restore (Q-13) | Restore drill in M6 |
 | RR-5 | Per-account rate limiting can be used to slow a victim's login | Capped backoff, per-IP limits first | Consider device-bound trust signals in M5 (passkeys) |
 
 ## 5. Abuse cases exercised by the security test layer

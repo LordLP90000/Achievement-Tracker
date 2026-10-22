@@ -1,6 +1,6 @@
 # Data inventory
 
-Status: M0 draft (2026-10-22). Legal frameworks: Swiss FADP (nDSG/revFADP, in force 2023-09-01) and GDPR.
+Status: M0 draft v2 (2026-10-22, PM decisions applied). Legal frameworks: Swiss FADP (nDSG/revFADP, in force 2023-09-01) and GDPR.
 Controller: Questline (PM to confirm legal entity and address for the privacy policy). This document has a
 machine-readable twin, `data-inventory.yaml`, which the **data-inventory guard test** (R-PRIV-08) reads: the test
 introspects `information_schema` and fails if any table or column holding user data is missing from the YAML or
@@ -8,7 +8,7 @@ lacks an export/deletion classification.
 
 ## 1. Principles applied
 
-- **Minimisation**: account = email + password hash + timezone/locale + optional nickname. No name, phone,
+- **Minimisation**: account = email + password hash + timezone/locale/week start + optional nickname + age self-declaration flag (no date of birth). No name, phone,
   location, contacts, advertising IDs, device fingerprints, analytics or crash reporters (R-PRIV-01/02).
 - **Purpose limitation**: each category below has exactly one purpose set; no secondary use (no marketing, no
   profiling, no model training).
@@ -35,19 +35,19 @@ Retention codes: `ACCOUNT` = until account deletion (cascade), `SESSION` = until
 |---|----------|---------------|---------|-------------|-----------|---------------------------|------------|--------|----------|
 | C1 | Account identifier | Email address; HMAC blind index of the email | Login, uniqueness, verification/reset emails, security notices | LB-CONTRACT | ACCOUNT; unverified accounts purged after **7 days** | `users.email_enc`, `users.email_blind_index`; transient copies in `one_time_tokens.new_email_*` (TOKEN), `email_outbox.payload_enc` (until sent) | Encrypted with user DEK; blind index keyed HMAC | yes (email) ; blind index no (derived secret) | cascade |
 | C2 | Authentication secrets | Argon2id password hash; SHA-256 hashes of access/refresh/verification/reset tokens; password-changed timestamp | Authenticate the user; session continuity; single-use flows | LB-CONTRACT | Password hash: ACCOUNT. Session tokens: SESSION. One-time tokens: TOKEN | `users.password_hash`, `users.password_changed_at`, `session_tokens.*`, `one_time_tokens.*` | Hashes only; constant-time comparison | **no** (secret material, documented exception) | cascade |
-| C3 | Account settings | Timezone (IANA), locale, optional nickname, accepted privacy-policy version | Correct local dates/streaks; localised emails; display; proof of acceptance | LB-CONTRACT (LB-LEGAL for policy version) | ACCOUNT | `users.timezone`, `users.locale`, `users.nickname_enc`, `users.privacy_policy_version` | Nickname encrypted | yes | cascade |
+| C3 | Account settings & status | Timezone (IANA), locale, week start, optional nickname, accepted privacy-policy version, age self-declaration (≥ 13, no date of birth), deactivation time of a pending deletion | Correct local dates/streaks/week periods; localised emails; display; proof of acceptance and of the age declaration; 30-day reactivation window | LB-CONTRACT (LB-LEGAL for policy version and age declaration) | ACCOUNT; a deactivated account is hard-deleted **30 days** after the deletion request (Q-11) | `users.timezone`, `users.locale`, `users.week_start`, `users.nickname_enc`, `users.privacy_policy_version`, `users.age_confirmed`, `users.deactivated_at` | Nickname encrypted | yes | cascade / purge-job |
 | C4 | Device sessions | Session ID, client platform (`ios`/`android`), optional user-chosen device label, created/last-used/re-auth timestamps, revocation reason | Let users see and revoke sessions; enforce re-auth; detect token reuse | LB-CONTRACT, LB-LEGIT-SEC | SESSION | `sessions.*` | Label encrypted | yes | cascade |
 | C5 | Consents | Type (`goal_content`), text version, granted/withdrawn timestamps | Lawful basis for storing potentially sensitive goal content; proof | LB-LEGAL | ACCOUNT (history kept while the account exists) | `consents.*` | – | yes | cascade |
-| C6 | Goal content (**potentially sensitive / health**) | Achievement title, description, motivation, category, target date, status, privacy flag; quest title, notes, type, size, required flag, order, prerequisite, habit parameters, unit, start/target values; check-in values and notes | Core service: track goals and progress | LB-CONTRACT + **LB-CONSENT-HEALTH** | ACCOUNT, or immediately on consent withdrawal (Q-10) | `achievements.*`, `achievement_pauses.*`, `quests.*`, `check_ins.*` | Free-text and numeric content encrypted with user DEK; structure plaintext (DPIA R-5) | yes | cascade / consent withdrawal |
-| C7 | Behavioural & derived data | Check-in dates, XP ledger (kind, amount, local date), badges, streaks (derived at read time) | Progress, XP, level, streak and stats features | LB-CONTRACT | ACCOUNT (follows C6) | `check_ins.local_date`, `xp_events.*`, `badges.*` | – | yes | cascade |
+| C6 | Goal content (**potentially sensitive / health**) | Achievement title, description, motivation, category, target date, status, privacy flag; quest title, notes, type, size, required flag, order, prerequisite, habit parameters, unit, start/target values; check-in values and notes | Core service: track goals and progress | LB-CONTRACT + **LB-CONSENT-HEALTH** | ACCOUNT, or immediately on consent withdrawal (Q-10) | `achievements.*`, `quests.*`, `check_ins.*` (except the C7 columns) | Free-text and numeric content and the target date encrypted with user DEK (Q-24); structure plaintext (DPIA R-5) | yes | cascade / consent withdrawal |
+| C7 | Behavioural & derived data | Check-in dates, attempt numbers and counts-for-progress flags; completion times; habit reset counts and restart flags; execution scores and ranks; gambles (stake, status, loss reason, times); XP ledger (kind, amount, local date); rank badges; streaks (derived at read time) | Progress, XP, level, streak, rank, gamble and stats features | LB-CONTRACT | ACCOUNT (follows C6, incl. consent withdrawal) | `check_ins.local_date/attempt/counts_for_progress`, `achievements.attempt/completed_at/execution_score/rank`, `quests.reset_count/needs_restart/completed_at`, `gambles.*`, `xp_events.*`, `badges.*` | – | yes | cascade / consent withdrawal |
 | C8 | Security audit events | Event type, outcome, truncated IP (/24 or /48), client platform, session ID, reason codes | Detect/investigate account takeover; let users review security events via export | LB-LEGIT-SEC | **90 days** (worker job), or ACCOUNT if earlier | `audit_events.*` | IP truncated; no emails/tokens/content | yes | cascade |
 | C9 | Request idempotency records | Idempotency key, route, hash of request body, stored response (may contain C6) | Safe retries from mobile clients | LB-CONTRACT | **24 hours** | `idempotency_keys.*` | Response encrypted with user DEK | no (transient duplicate of C6; documented exception) | cascade / 24 h purge |
 | C10 | Email outbox | Recipient address, locale, template name, raw token/link, attempt metadata | Deliver verification, reset and security emails reliably | LB-CONTRACT, LB-LEGIT-SEC | Deleted on send; dead letters **7 days** | `email_outbox.*` | Payload encrypted with user DEK | no (transient; contents are C1 + secrets) | cascade / purge |
 | C11 | Rate-limit state | HMAC (daily key) of `scope:IP` or `scope:email-blind-index`, counters, block-until | Abuse prevention (brute force, enumeration, email bombing) | LB-LEGIT-SEC (Q-14) | **24 hours** | `rate_limit_buckets.*` | Keyed hash, not reversible without the daily key; not linkable across days | n/a (not attributable to a user) | n/a (no user relation) |
 | C12 | Deletion tombstones | Random UUID of a deleted account + deletion timestamp | Replay deletions after a backup restore (Q-13) | LB-LEGAL (effective erasure) | **35 days** | `deleted_user_tombstones.*` | Contains no identifier other than the former random ID | n/a | n/a (the record of deletion) |
 | C13 | Application logs | Request ID, method, route pattern, status, duration, error class, job metrics | Operate and debug the service | LB-LEGIT-SEC | **30 days** (provider log retention, M6) | Provider log storage (not the DB) | No PII by design (allowlist serializer, tested) | n/a | n/a |
-| C14 | Backups | Encrypted snapshots of the whole database (all categories above, ciphertext + wrapped DEKs) | Disaster recovery | LB-CONTRACT | **30 days** rolling | Provider backup storage, encrypted at rest | DEK wrapped by KMS; see ADR-0006 | n/a | expiry; tombstone replay after restore |
-| C15 | Email delivery metadata at the provider | Recipient address, send timestamps, delivery status | Email delivery | LB-CONTRACT | Provider default (to be minimised in configuration, target ≤ 30 days) | Email provider (processor, Q-03) | DPA; EU/CH hosting | n/a | provider retention |
+| C14 | Backups | Encrypted snapshots of the whole database (all categories above, ciphertext + wrapped DEKs) | Disaster recovery | LB-CONTRACT | **30 days** rolling | Provider backup storage, encrypted at rest | DEKs wrapped by the KEK held in 1Password (ADR-0013); see ADR-0006 | n/a | expiry; tombstone replay after restore |
+| C15 | Email delivery metadata at the SMTP relay | Recipient address, send timestamps, delivery status | Email delivery | LB-CONTRACT | Relay default (to be minimised in configuration, target ≤ 30 days) | SMTP relay operator (processor, Q-03; to be named, O-02) | DPA; CH/EU preferred — a Gmail/Google Workspace relay is a US processor (DPIA R-9) | n/a | relay retention |
 
 Not collected at all: real name, phone number, postal address, precise or coarse location, contacts, photos,
 advertising identifiers, device identifiers (IDFA/GAID/IMEI), push tokens (no server push in v1), analytics events,
@@ -57,14 +57,15 @@ crash reports.
 
 | Location | What | Country | Status |
 |----------|------|---------|--------|
-| PostgreSQL (primary + backups) | C1–C12, C14 | CH or EU — **Q-01** | pending PM decision |
-| KMS | KEK only (never user data) | same provider/region — **Q-02** | pending |
-| Email provider | C15 (+ C1 and one-time links in transit) | CH/EU — **Q-03** | pending |
-| Log storage | C13 | same as hosting | pending |
+| PostgreSQL (primary + backups) | C1–C12, C14 | CH or EU — PM's own hosting option (Q-01) | to be named (O-01) |
+| 1Password vault + self-hosted Connect server | KEK only (never user data) | vault: 1Password cloud (EU region to confirm); Connect: our private network (Q-02, ADR-0013) | decided |
+| SMTP relay | C15 (+ C1 and one-time links in transit) | depends on the operator (Q-03); Google = USA | to be named (O-02) |
+| Log storage | C13 | same as hosting | to be named (O-01) |
 | Developer machines / CI | synthetic data only (R-SUP-05); no production data ever | – | enforced by process |
 
 No transfers outside CH/EU are planned. If the PM chooses a US-headquartered provider's Swiss region (AWS/GCP/Azure),
-the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9).
+the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9); the same applies to a Gmail/Google Workspace SMTP
+relay (O-02).
 
 ## 5. Data-subject rights — how each is fulfilled
 
@@ -72,7 +73,7 @@ the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9).
 |-------|-----------|---------|
 | Access & portability (GDPR 15/20, FADP 25/28) | `GET /v1/me/export` — complete JSON, re-auth, 2/24 h, audit-logged | immediate |
 | Rectification (GDPR 16, FADP 32) | `PATCH /v1/me`, `PATCH /v1/achievements/{id}`, `PATCH /v1/quests/{id}`; check-ins are undo + re-create | immediate |
-| Erasure (GDPR 17, FADP 32) | `DELETE /v1/me` — hard delete + crypto-shredding; backups expire ≤ 30 d; tombstone replay | immediate (backups ≤ 30 d) |
+| Erasure (GDPR 17, FADP 32) | `DELETE /v1/me` — immediate deactivation (all sessions revoked); hard delete + crypto-shredding after the 30-day reactivation window (Q-11); backups expire ≤ 30 d later; tombstone replay | deactivation immediate; erasure after 30 d (+ ≤ 30 d backups) |
 | Restriction / withdrawal of consent (GDPR 7(3), 18) | `DELETE /v1/me/consents/goal_content` — deletes goal content (Q-10) | immediate |
 | Objection (GDPR 21) | Only legitimate-interest processing is security-related (C8, C11); users may object by email to the controller; evaluated case by case | manual |
 | Information (GDPR 13/14, FADP 19) | Privacy policy in the app (PM/legal) referencing this inventory | n/a |
@@ -95,4 +96,5 @@ the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9).
 | Date | Change |
 |------|--------|
 | 2026-10-22 | Initial inventory for M0. |
-| 2026-10-22 (v2) | PM decisions applied: approved Q-09 (device label), Q-13 (tombstones), Q-14 (hashed IPs). New elements: `users.week_start`, `users.age_confirmed` (C3), `users.deactivated_at` (C3; **deactivated accounts retained 30 days, then hard-deleted**, Q-11), `achievements.attempt/rank/execution_score`, `quests.reset_count/needs_restart`, `check_ins.attempt/counts_for_progress` (C6/C7), new table `gambles` (C7: stake, status, loss reason — derived gamification data, exported, cascade/consent-withdrawal), `target_date` now encrypted (C6), `achievement_pauses` removed. Processors: 1Password (Connect, holds the KEK — no personal data), SMTP relay operator (email addresses + one-time links; **Google = US jurisdiction if Gmail is used**, DPIA R-9). Hosting: PM's own option, location TBD. Minimum age 13 self-declared (Q-23). The machine-readable `data-inventory.yaml` is updated for these columns in the next session before any migration is written. |
+| 2026-10-22 (v2) | PM decisions applied: approved Q-09 (device label), Q-13 (tombstones), Q-14 (hashed IPs). New elements: `users.week_start`, `users.age_confirmed` (C3), `users.deactivated_at` (C3; **deactivated accounts retained 30 days, then hard-deleted**, Q-11), `achievements.attempt/rank/execution_score`, `quests.reset_count/needs_restart`, `check_ins.attempt/counts_for_progress` (C6/C7), new table `gambles` (C7: stake, status, loss reason — derived gamification data, exported, cascade/consent-withdrawal), `target_date` now encrypted (C6), `achievement_pauses` removed. Processors: 1Password (Connect, holds the KEK — no personal data), SMTP relay operator (email addresses + one-time links; **Google = US jurisdiction if Gmail is used**, DPIA R-9). Hosting: PM's own option, location TBD. Minimum age 13 self-declared (Q-23). The machine-readable `data-inventory.yaml` was updated in the next row. |
+| 2026-10-22 (yaml v2) | `data-inventory.yaml` v2: the columns and table above added, `achievement_pauses` removed, approvals for Q-09/Q-13/Q-14 recorded (`approved_by: PM`, `approved_on`); C3/C6/C7 rows of this document aligned. Fixed two `export_reason` values that contained an unquoted comma inside a YAML flow mapping and therefore silently produced bogus keys. Checked against `docs/data-model.md`: 18 tables, 175 columns, no differences. |

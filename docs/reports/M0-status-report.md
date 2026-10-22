@@ -133,3 +133,101 @@ in the next session before M1 starts; effort now **51–72 days** (+7–10, most
 `docs/requirements.md` §7 — O-05 is a recommendation to review gambling-like mechanics for 13–15-year-olds before M3.
 
 **Still needed from you**: the "go" for M1 (nothing in M1 depends on the open items).
+
+---
+
+## Final addendum 2026-10-22 (evening) — remaining M0 tasks done
+
+**Overall: GREEN for M1** (nothing open blocks it) · **AMBER for M3** (O-06 needs your decision before ranks and
+gambles are implemented).
+
+### Done
+
+- `56a43d1` OpenAPI v2 (`0.2.0-draft`, 40 operations): statuses `active|paused|completed` (client may request
+  `active|paused`; completed = read-only, not deletable → `409 achievement-completed`); achievement `attempt`,
+  `rank`, `execution_score`; quest `needs_restart`, integer `xp`, `duration_factor`, `reset_count`; check-in
+  `attempt`, `counts_for_progress`; `placeGamble` + `listGambles`; `Effects` with rank, score and gamble outcome;
+  `Stats` with completed-by-rank and gamble record; `age_confirmed` (const `true`); `week_start`;
+  `DELETE /me` → `202 {deletion_scheduled_for}` with reactivation by login.
+- `39b014f` `data-inventory.yaml` v2 (+ `data-inventory.md` C3/C6/C7).
+- `276ecc4` test strategy v2: 23 new and 3 updated catalogue rows; domain plan for habit resets, `week_start`
+  periods, duration-factor table, score/rank, gambles across the Zurich DST dates.
+- `843e223` architecture v2: 1Password Connect `KekSource`, SMTP relay, domain files `constants`, `habit-reset`,
+  `duration`, `rank`, `gamble`; runtime dependency `nodemailer`.
+- Commit `docs(m0): cross-reference check and decision-consistency sweep`: restored requirement definitions,
+  aligned threat model, DPIA, data inventory, data model, ADR-0006/0012 and plan with your decisions, this addendum.
+
+### Tests
+
+n/a — documentation only. Automated checks (scratch scripts, not committed): Redocly lint valid with 0 warnings;
+Ajv 2020 strict validation of 42 sample payloads (incl. negative cases) against the v2 schemas; inventory YAML vs
+data model: 18 tables, 175 columns, 0 differences; cross-reference check: every ID referenced in the 16 docs/spec
+files (≈ 1 300 references) is defined. I propose turning these into M1 tests (contract semantics, traceability,
+data-inventory guard preview).
+
+### Pre-existing defects found and fixed
+
+1. `CheckInResult` / `AchievementDetail` combined `allOf` with `additionalProperties: false`, so no valid response
+   could ever pass the planned contract tests → `*Base` schemas + `unevaluatedProperties: false` (verified).
+2. `data-inventory.yaml`: unquoted commas inside YAML flow mappings created bogus keys.
+3. Requirements v2 had dropped the definitions of R-LOG-01…03 and R-SUP-01…05 (still referenced in 7 files) and
+   condensed R-TLS-01…04 → restored from v1; R-SUP-04 adapted to ADR-0013 (production refuses an env-supplied KEK).
+4. My earlier log and report said the v1 spec had 33 operations — it had 38.
+5. Password length was `422` in the test strategy but `400` in the spec → `400` (schema) for length, `422` only for
+   breached passwords; `register` now documents its `422`.
+6. Threat model, DPIA, data inventory, data model, ADR-0006/0012 and plan still described a KMS, a plaintext
+   `target_date`, immediate deletion and Q-23 as open → aligned.
+
+### Security & privacy
+
+- **New risk — O-06, integrity of ranks and gambles** (details in `docs/requirements.md` §7): (a) the same XP can be
+  staked on many achievements at once; (b) "−stake" can lower the level or push XP below 0, contradicting
+  R-XP-03/04; (c) wins compound — a simulation of trivial "Champion + gamble" achievements exceeds the 2^53 bound of
+  R-XP-04 after 102 rounds, inside the 200-achievement limit; (d) a one-quest achievement unlocked the same day is
+  flawless → Champion bonus 10 × 365 = 3 650 XP (200 of them reach level 10 without any gamble); (e) moving or
+  removing `target_date` avoids the lateness penalty and Champion's deadline.
+- **Re-rated — DPIA R-12 = 6 medium**: a self-declared 13–15-year-old may not consent validly alone in EU states
+  whose age of digital consent is 14–16 (GDPR Art. 8) → DP-expert review together with O-04.
+- **Interim secure defaults in the contract** (proposed, you may object): A-26 no `target_date` change while a
+  gamble is pending; A-27 no new gamble after a loss in the same attempt (T-16); A-28 habit `start_date` not in
+  the past.
+- Scans: none (no code). Data-inventory changes: `data-inventory.md` §7.
+
+### Decisions I made
+
+| Decision | Reason |
+|----------|--------|
+| A-26, A-27, A-28 (interim, proposed) | close manipulation paths T-16/T-17; a past start date could never be met |
+| Reads may apply lazy habit resets and gamble losses (documented in the contract conventions) | A-21 |
+| `listGambles` uses cursor pagination | gamble history per achievement is unbounded |
+| `PATCH`/`DELETE` of a completed achievement and mutations of its quests → `409 achievement-completed` | R-ACH-07, R-QST-07 |
+| Gamble placement accepts no body fields | stake is server-side (T-17) |
+| R-SUP-04: production refuses an env-supplied KEK | keeps v1's "no dev crypto in production" under ADR-0013 |
+
+### Decisions I need from you
+
+| ID | Question | Options | My recommendation |
+|----|----------|---------|-------------------|
+| M1 | "go" for M1 on `m1-walking-skeleton` | go · hold | go |
+| PR | Merge `m0-plan` into `master` | you on GitHub · me locally (`--no-ff`) and push | either; asked separately |
+| O-06 | Rank/gamble integrity (before M3) | recommended package · point by point · keep the rules and add only an XP cap | **package**: one pending gamble per user; loss = min(stake, XP above the current level's threshold); payout capped at the achievement's required XP; lateness and Champion deadline measured against the earliest `target_date` set in the attempt; optional — gamble wins and rank bonus only if the achievement existed ≥ 7 days before its unlock |
+| O-01…O-05 | unchanged | | |
+
+### Scope or plan changes
+
+- Contract additions beyond your list, all derived from approved requirements or threats: `409 achievement-completed`
+  on achievement `PATCH` and quest mutations, `409 gamble-pending` on `target_date` edits (A-26),
+  `409 gamble-lost-this-attempt` (A-27), `409 quest-needs-restart`, `422` for a past habit `start_date` (A-28),
+  `422` for a breached password on `register`. Please object if any of these should not exist.
+- Effort unchanged at 51–72 days; O-06 may add about 0.5–1 day to M3 depending on the option.
+- Dependencies: runtime `nodemailer` (M2, ADR-0014, approved with Q-03); planned dev dependency `smtp-server`
+  (M2, local SMTP test server, to confirm then). No new external service or processor.
+
+### Next
+
+**M1 Walking skeleton (4–6 days)** on `m1-walking-skeleton` after your "go": tooling pinned to Node 26 LTS
+(`.nvmrc`, `engines`), `buildApp()` with request IDs, allowlist logging, security headers, problem details and
+health endpoints; Zod config module with secret-strength and `KEK_SOURCE` production guards; Drizzle + migration
+0001 (roles, RLS helpers); Testcontainers + contract harness (Ajv 2020 strict); Dockerfile + Compose; CI with all
+gates. The PR description for `m0-plan` is this report; compare link:
+https://github.com/LordLP90000/Achievement-Tracker/pull/new/m0-plan

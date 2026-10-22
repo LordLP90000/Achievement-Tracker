@@ -1,7 +1,7 @@
 # Architecture
 
-Status: M0 proposal (2026-10-22). Implements the requirements in `docs/requirements.md`; decisions are recorded in
-`docs/DECISIONS.md` (ADR-0001 … ADR-0012).
+Status: M0 proposal v2 (2026-10-22, updated for the PM decisions). Implements the requirements in
+`docs/requirements.md`; decisions are recorded in `docs/DECISIONS.md` (ADR-0001 … ADR-0015).
 
 ## 1. Shape: a modular monolith with a separate worker process
 
@@ -12,26 +12,27 @@ Status: M0 proposal (2026-10-22). Implements the requirements in `docs/requireme
  Edge: provider load balancer (TLS termination, per-IP limits)   ── private network ──┐
    │                                                                                   │
    ▼                                                                                   ▼
- ┌──────────────────────────────┐        ┌──────────────────────────────┐   ┌────────────────┐
- │ questline-api (Fastify)      │        │ questline-worker             │   │ KMS (KEK)      │
- │  /health, /v1/*              │        │  outbox → email provider     │   │ wrap/unwrap DEK│
- │  role: questline_app (RLS)   │        │  retention & cleanup jobs    │   └────────────────┘
- └──────────────┬───────────────┘        │  role: questline_worker      │
+ ┌──────────────────────────────┐        ┌──────────────────────────────┐   ┌──────────────────────┐
+ │ questline-api (Fastify)      │        │ questline-worker             │   │ 1Password Connect    │
+ │  /health, /v1/*              │        │  outbox → SMTP relay         │   │ (self-hosted): KEK   │
+ │  role: questline_app (RLS)   │        │  retention, settlement jobs  │   │ read once at startup │
+ └──────────────┬───────────────┘        │  role: questline_worker      │   └──────────────────────┘
                 │ parameterized SQL      └──────────────┬───────────────┘
                 ▼                                       ▼
- ┌─────────────────────────────────────────────────────────────────────┐   ┌────────────────┐
- │ PostgreSQL 17 (private, encrypted disk, encrypted backups ≤ 30 d)   │   │ Email provider │
- │ migrations by role questline_migrator (separate job)                │   │ (approved      │
- └─────────────────────────────────────────────────────────────────────┘   │  processor)    │
-                                                                           └────────────────┘
+ ┌─────────────────────────────────────────────────────────────────────┐   ┌──────────────────────┐
+ │ PostgreSQL 17 (private, encrypted disk, encrypted backups ≤ 30 d)   │   │ SMTP relay (TLS)     │
+ │ migrations by role questline_migrator (separate job)                │   │ approved processor,  │
+ └─────────────────────────────────────────────────────────────────────┘   │ operator TBD (O-02)  │
+                                                                           └──────────────────────┘
 ```
 
 - One codebase, two entrypoints (`src/server.ts`, `src/worker.ts`), one container image, started with a
   different command. Both are stateless; all state is in PostgreSQL.
 - No Redis, no message queue, no object storage in v1 (ADR-0009). Everything that needs shared state goes
   through PostgreSQL behind small interfaces so it can be swapped later.
-- The server never calls user-supplied URLs; its only outbound connections are PostgreSQL, the KMS and the
-  email provider (allowlisted at the network level in M6).
+- The server never calls user-supplied URLs; its only outbound connections are PostgreSQL, the self-hosted
+  1Password Connect server (API process, once at startup to load the KEK — ADR-0013) and the SMTP relay (worker
+  only — ADR-0014), allowlisted at the network level in M6.
 
 ## 2. Layers inside a module
 
@@ -44,7 +45,7 @@ Each feature module (`src/modules/<feature>/`) is organised the same way; depend
     │
  repository.ts  Persistence: Drizzle queries, ALWAYS scoped by user_id (type-enforced), field encryption
     │
- src/domain/*  Pure functions: progress, XP, levels, streaks, state machines. No I/O, no Date.now(), no randomness.
+ src/domain/*  Pure functions: progress, resets, XP, levels, ranks, gambles, streaks, state machines. No I/O, no Date.now(), no randomness.
 ```
 
 Rules enforced by lint/tests:
@@ -82,12 +83,15 @@ Rules enforced by lint/tests:
   if anything is missing or weak.
 - Secret strength checks: base64/hex decodes to ≥ 32 bytes, not all identical bytes, not one of the documented
   example values, not equal to another secret.
-- `APP_ENV=production` additionally refuses `KEK_PROVIDER=local`, `LOG_LEVEL=debug|trace`, missing
-  `TRUST_PROXY_HOPS`, and any `DATABASE_URL` without `sslmode=verify-full`.
+- `APP_ENV=production` additionally refuses `KEK_SOURCE=env` (the KEK must come from 1Password Connect, R-ENC-05),
+  `LOG_LEVEL=debug|trace`, missing `TRUST_PROXY_HOPS`, any `DATABASE_URL` without `sslmode=verify-full` and any
+  SMTP setting without TLS.
 - Variables (final list in M1): `APP_ENV`, `PORT`, `LOG_LEVEL`, `TRUST_PROXY_HOPS`, `PUBLIC_LINK_BASE_URL`,
-  `DATABASE_URL_APP`, `DATABASE_URL_WORKER`, `DATABASE_URL_MIGRATOR` (migration job only), `KEK_PROVIDER`,
-  `LOCAL_KEK` (dev/test), `KMS_*` (provider-specific), `BLIND_INDEX_KEY`, `RATE_LIMIT_KEY`, `EMAIL_PROVIDER`,
-  `EMAIL_*` credentials, `EMAIL_FROM`.
+  `DATABASE_URL_APP`, `DATABASE_URL_WORKER`, `DATABASE_URL_MIGRATOR` (migration job only), `KEK_SOURCE`
+  (`env` | `onepassword-connect`), `LOCAL_KEK` (dev/test only), `OP_CONNECT_URL`, `OP_CONNECT_TOKEN`,
+  `OP_KEK_VAULT_ID`, `OP_KEK_ITEM_ID`, `BLIND_INDEX_KEY`, `RATE_LIMIT_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`
+  (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`. Secrets are injected as environment
+  variables (from 1Password or the host's secret store); only the KEK is fetched from Connect at runtime.
 
 ### 4.2 Database (`platform/db`)
 
@@ -102,7 +106,8 @@ Rules enforced by lint/tests:
 
 | Component | Responsibility |
 |-----------|---------------|
-| `KeyWrapper` (interface) | `wrap(dek, userId) → {blob, kekId, kekVersion}`, `unwrap(blob, userId, kekId)`. Implementations: `LocalKeyWrapper` (XChaCha20-Poly1305 with the env KEK; dev/test only), `KmsKeyWrapper` (provider SDK/API after Q-02). |
+| `KeyWrapper` (interface) | `wrap(dek, userId) → {blob, kekId, kekVersion}`, `unwrap(blob, userId, kekId)`. Implementation: `LocalKeyWrapper` (XChaCha20-Poly1305 in-process, AD = user ID) using the KEK from a `KekSource`; a `KmsKeyWrapper` can be added later if the PM's hosting offers a KMS (ADR-0013). |
+| `KekSource` (interface) | Provides the 32-byte KEK once at startup: `EnvKekSource` (dev/test, `LOCAL_KEK`) and `OnePasswordConnectKekSource` (production: `GET /v1/vaults/{vault}/items/{item}` on the self-hosted Connect server with Node's built-in `fetch`, timeout, ≥ 32-byte check). Any failure → the process refuses to start. The KEK lives only in `sodium_malloc` guarded memory and is never logged (R-ENC-05). |
 | `KeyService` | Creates a DEK at registration, stores the wrapped DEK in `user_keys`, unwraps on demand, caches plaintext DEKs ≤ 5 min in `sodium_malloc` guarded memory, wipes on eviction/shutdown, destroys on account deletion. |
 | `FieldCipher` | `encrypt(dek, {userId, recordId, field}, plaintext)` → `0x01‖nonce‖ct`; `decrypt` verifies AD. Typed helpers for strings and decimals. |
 | `PasswordHasher` | Argon2id (ADR-0005) with `needsRehash` for parameter upgrades. |
@@ -137,9 +142,12 @@ content-type enforcement.
   exponential retry (max 8 attempts), then dead-letter (encrypted payload, 7-day retention).
 - `Scheduler`: fixed-interval jobs guarded by `pg_try_advisory_lock` so only one worker instance runs a job.
   Jobs: unverified-account purge (7 d), expired one-time tokens, expired/revoked sessions & tokens,
-  idempotency keys (24 h), audit events (90 d), tombstones (35 d), stale rate-limit buckets, dead letters (7 d).
-- Email sending is the only outbound call; the `EmailSender` interface has a `FakeEmailSender` for tests that
-  exposes delivered messages (so tests can extract verification links).
+  idempotency keys (24 h), audit events (90 d), tombstones (35 d), stale rate-limit buckets, dead letters (7 d),
+  daily habit-period closing and gamble settlement after local midnight per user timezone (A-20, A-21), hard
+  delete of deactivated accounts after 30 days with tombstone (R-PRIV-06).
+- Email sending is the worker's only outbound call: `SmtpEmailSender` (`nodemailer`, TLS required — STARTTLS on
+  587 or implicit TLS on 465, ADR-0014). Tests use `FakeEmailSender`, which exposes delivered messages (so tests
+  can extract verification links), and a local SMTP test server for the real sender.
 
 ## 5. Domain engine (`src/domain`)
 
@@ -147,16 +155,21 @@ Pure, exhaustively tested functions:
 
 | File | Functions |
 |------|-----------|
-| `progress.ts` | `oneTimeProgress`, `targetProgress(start, target, current)`, `habitProgress(periods, N, K)`, `achievementProgress(quests)` |
-| `periods.ts` | `periodKeyFor(localDate, period)`, `enumeratePeriods(start, until, period)`, ISO-week arithmetic |
-| `streak.ts` | `currentStreak(checkInDates, config, today, pauses)`, `bestStreak(...)` with pause intervals frozen |
-| `xp.ts` | `xpForSize`, `unlockBonus(requiredXp)`, `levelForXp`, `xpToNextLevel` |
-| `transitions.ts` | Achievement status state machine, quest lock state (`locked | available | completed`) |
-| `effects.ts` | Given previous and next quest/achievement states, derive XP ledger entries, badge awards/removals, status changes — used by both create-check-in and undo paths so they are exact inverses |
+| `constants.ts` | Every tunable number in one place (ADR-0015): size XP 10/25/50, duration-factor table, level base 100 and factor 3, rank thresholds and multipliers, lateness window 30 d, −10 per lost gamble, back-dating limit 7 d |
+| `progress.ts` | `oneTimeProgress`, `targetProgress(start, target, current)`, `habitProgress(periods, N, K)` (consecutive met periods of the current run), `achievementProgress(quests)` (weighted by effective XP) |
+| `habit-reset.ts` | `evaluateHabit(config, countingCheckIns, today)` → met periods, reset on a closed period with < N counting check-ins, `needs_restart`; identical result for lazy (read/write) and daily-job evaluation (A-21) |
+| `periods.ts` | `periodKeyFor(localDate, period, weekStart)`, `enumeratePeriods(start, until, period, weekStart)`; weeks start on `monday`, `sunday` or `saturday` (R-QST-09) |
+| `duration.ts` | `durationFactor(quest)` from the habit span in days, `effectiveXp(size, factor)` (R-XP-02) |
+| `streak.ts` | `currentStreak(...)` of the current attempt, `bestStreak(...)` across attempts |
+| `xp.ts` | `xpThreshold(level)` (`100 × 3^(L−2)`), `levelForXp`, `xpToNextLevel`, safe-integer assertions (R-XP-03/04) |
+| `rank.ts` | `executionScore(...)`, `isFlawless(...)`, `rankForScore(score, flawless)`, `rankBonus(requiredXp, rank)` (R-RANK-01…03) |
+| `gamble.ts` | `canPlace(...)` guards, `stakeFor(totalXp)`, `settle(gamble, event)` → won / lost / reverted with XP delta (R-GMB-*) |
+| `transitions.ts` | Achievement status state machine (`active ↔ paused`, `completed` system-only), quest states (`locked`, `available`, `needs_restart`, `completed`) |
+| `effects.ts` | Given previous and next states, derive XP ledger entries (quest, rank bonus, pause revocation, gamble), badge awards/removals, rank and score, gamble settlements and status changes — used by the check-in, undo, pause, edit and delete paths so they are exact inverses |
 
 The service layer loads the (decrypted) state, calls `effects`, and persists the result in one transaction
-with `SELECT … FOR UPDATE` on the quest and achievement rows, which is what makes XP exactly-once under
-concurrency.
+with `SELECT … FOR UPDATE` on the quest, achievement and pending-gamble rows, which is what makes XP and gamble
+settlement exactly-once under concurrency.
 
 ## 6. Folder structure
 
@@ -180,6 +193,7 @@ concurrency.
 │   │   ├── config/
 │   │   ├── crypto/
 │   │   ├── db/{client.ts, schema/, migrations/, rls.sql}
+│   │   ├── email/                     # EmailSender, SmtpEmailSender (nodemailer), templates
 │   │   ├── http/
 │   │   ├── jobs/
 │   │   ├── logging/
@@ -191,9 +205,10 @@ concurrency.
 │       ├── achievements/
 │       ├── quests/
 │       ├── check-ins/
+│       ├── gambles/
 │       ├── stats/
 │       ├── audit/
-│       └── privacy/                   # export, deletion, retention jobs
+│       └── privacy/                   # export, deactivation and deletion, retention jobs
 ├── test/
 │   ├── helpers/                       # testcontainers harness, app factory, fake clock, fake email, log capture, contract validator
 │   ├── integration/                   # API + real PostgreSQL
@@ -218,22 +233,27 @@ Unit tests live next to the code they test (`*.test.ts`); integration/contract/s
 | `postgres` (postgres.js) | PostgreSQL driver with zero dependencies, supported by Drizzle | `pg` (more deps) |
 | `sodium-native` | Argon2id, XChaCha20-Poly1305, constant-time compare, guarded memory (ADR-0005) | `argon2` + `libsodium-wrappers` (two deps) |
 | `pino` | Structured logging (already a Fastify dependency; used directly by the worker) | – |
-| KMS client (after Q-02) | Wrap/unwrap DEKs in production | plain `fetch` for OpenBao/Scaleway HTTP APIs (no SDK) |
+| `nodemailer` | SMTP delivery to the PM's relay with mandatory TLS (ADR-0014); mature, no runtime dependencies of its own | provider HTTP APIs/SDKs (not chosen: the PM decided on custom SMTP, Q-03) |
+
+No 1Password SDK: the Connect API is called with Node's built-in `fetch` (ADR-0013).
 
 Everything else (`vitest`, `testcontainers`, `drizzle-kit`, `typescript`, `eslint`, `@stryker-mutator/*`, `ajv`,
 `ajv-formats`, `yaml`, `@redocly/cli`, `fast-check`, `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
-`@commitlint/*`, `lefthook`) is a dev dependency and never ships in the container.
+`@commitlint/*`, `lefthook`, and `smtp-server` as the local SMTP test server — to be confirmed in M2) is a dev
+dependency and never ships in the container.
 
 ## 8. Deployment & operations view (details in M6 runbook)
 
 - One immutable image per commit, signed digest pinned in deployment config; API and worker are the same image.
 - Containers run as non-root with a read-only root filesystem and `tmpfs` for `/tmp`; no secrets baked in;
-  secrets injected as environment variables from the provider's secret store.
+  secrets injected as environment variables (from 1Password or the host's secret store); the KEK itself is
+  fetched from the self-hosted 1Password Connect server at startup (ADR-0013).
 - PostgreSQL: private network only, TLS required (`verify-full`), encrypted volume, automated encrypted backups
   with 30-day expiry, point-in-time recovery if the provider offers it.
 - Migrations run as a separate job before the new API version starts (expand/contract strategy for zero
   downtime).
-- Health: `/health/live` (process up), `/health/ready` (DB reachable, KEK unwrap self-test passed).
+- Health: `/health/live` (process up), `/health/ready` (DB reachable, KEK loaded at startup and wrap/unwrap
+  self-test passed).
 - Observability without personal data: request metrics (count, duration, status by route), job metrics, error
   counts. No third-party APM that receives bodies or identifiers.
 

@@ -3,6 +3,8 @@
 Status: M0 **v2** (2026-10-22) — updated with the PM's answers to all open questions (Q-01…Q-24, §6). Requirement IDs
 (`R-…`) are referenced by the threat model, the test strategy and test names. Assumptions (`A-…`) are defaults the
 PM has not objected to. Where a PM decision changed the original brief, the row is marked **[PM 2026-10-22]**.
+Later on 2026-10-22: R-TLS/R-LOG/R-SUP rows restored from v1 (R-SUP-04 adapted to ADR-0013), A-26…A-28 proposed,
+open item O-06 added.
 
 ## 1. Product summary
 
@@ -136,7 +138,10 @@ end-to-end encryption (v2 evaluation), reward currency/coupons (v2).
 | R-OUT-01 | RFC 9457 problems, URN types until a domain exists **[PM, Q-19]**, no internals. |
 | R-OUT-02 | Random UUID v4 IDs only. |
 | R-OUT-03 | `Idempotency-Key` on create endpoints (incl. gamble placement); `version` + `If-Match`, `409` on conflict. |
-| R-TLS-01…04 | TLS 1.2+/1.3, HSTS, security headers; `Cache-Control: no-store` on authenticated responses; CORS off; constant-time comparisons. |
+| R-TLS-01 | TLS only (1.2+, prefer 1.3) at the edge; HSTS (`max-age=63072000; includeSubDomains; preload`) and security headers (`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `Permissions-Policy` minimal, `Cross-Origin-Resource-Policy: same-origin`). |
+| R-TLS-02 | `Cache-Control: no-store` (+ `Pragma: no-cache`) on every authenticated response. |
+| R-TLS-03 | CORS disabled (no `Access-Control-Allow-Origin` ever) unless the PM approves a web client. |
+| R-TLS-04 | Constant-time comparison for all secrets and tokens. |
 
 ### 3.4 Encryption & data at rest
 
@@ -148,9 +153,27 @@ end-to-end encryption (v2 evaluation), reward currency/coupons (v2).
 | R-ENC-04 | Threat model states the protection scope; E2E evaluated for v2. |
 | R-ENC-05 | **KEK source in production: 1Password Connect server (self-hosted)** **[PM, Q-02]**: the API fetches the KEK at startup over the local Connect API, holds it only in guarded memory, and refuses to start without it. Dev/test use a local env secret. Residual risk: a compromised app process holds the KEK (ADR-0013). |
 
-### 3.5 Logging & monitoring · 3.6 Supply chain
+### 3.5 Logging & monitoring
 
-Unchanged from v1 (R-LOG-01…03, R-SUP-01…05). SMTP credentials and the Connect token are secrets under R-SUP-04.
+Unchanged from v1 (restored verbatim on 2026-10-22 after the cross-reference check found them missing from v2).
+
+| ID | Requirement |
+|----|-------------|
+| R-LOG-01 | Structured JSON logs with request IDs. |
+| R-LOG-02 | Never log passwords, tokens, emails, goal content or request bodies. A test captures all logs emitted during the whole test run and fails if any seeded secret or personal value appears. |
+| R-LOG-03 | Security audit events (login success/failure, password/email change, session revocation, export, deletion, consent changes) with minimal data; retention 90 days. |
+
+### 3.6 Supply chain
+
+Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the Connect token are secrets under R-SUP-04.
+
+| ID | Requirement |
+|----|-------------|
+| R-SUP-01 | Lockfile committed; minimal dependencies; every new runtime dependency is listed with a reason in the next report. |
+| R-SUP-02 | CI fails on lint, typecheck, test or coverage failures; SAST findings (Semgrep); high/critical vulnerable dependencies (osv-scanner); committed secrets (gitleaks, also pre-commit); high/critical container findings (Trivy). SBOM (CycloneDX) generated per build. |
+| R-SUP-03 | Containers: minimal base image, non-root, read-only filesystem, no secrets inside. |
+| R-SUP-04 | Config via environment; the app refuses to start if a required secret is missing or too weak; production refuses a KEK supplied via environment — it must come from 1Password Connect (R-ENC-05; v1: "refuses the local key wrapper", which ADR-0013 now uses in production with the Connect-sourced KEK). |
+| R-SUP-05 | Synthetic seed data only in dev and test. |
 
 ## 4. Privacy requirements (Swiss FADP + GDPR)
 
@@ -195,6 +218,9 @@ Unchanged from v1 (R-LOG-01…03, R-SUP-01…05). SMTP credentials and the Conne
 | A-23 | `week_start` change does not retroactively re-bucket already closed periods. |
 | A-24 | The PM's own hosting must satisfy H-1…H-7 in `docs/hosting-options.md`; until named, deployment artefacts stay provider-neutral (Docker image + Compose). |
 | A-25 | SMTP sender uses `nodemailer` with TLS required (STARTTLS or implicit TLS), credentials from 1Password/env, per-account send limit 3/h, outbox dedupe. |
+| A-26 | **[proposed 2026-10-22, PM may object]** While a gamble is pending, the achievement's `target_date` cannot be changed or removed (`409 gamble-pending`); otherwise a loss could be avoided by moving the date (T-17). |
+| A-27 | **[proposed 2026-10-22, PM may object]** After a lost gamble, no new gamble can be placed on the same achievement in the same attempt (`409 gamble-lost-this-attempt`, T-16). |
+| A-28 | **[proposed 2026-10-22, PM may object]** A habit `start_date` (on creation and on restart) must be today or later (`422`): a period before today could never be met because back-dated check-ins never count (R-CHK-04). |
 
 ## 6. Decisions taken by the PM (2026-10-22)
 
@@ -234,6 +260,7 @@ Unchanged from v1 (R-LOG-01…03, R-SUP-01…05). SMTP credentials and the Conne
 | O-03 | 1Password Connect server deployment details (URL, vault, token issuance) | start of M2 |
 | O-04 | Consent text + version, privacy policy text, controller identity | before launch |
 | O-05 | Product review of gambling-like mechanics for users aged 13–15 (DPIA R-15) | before M3 implementation of gambles |
+| O-06 | **Integrity of ranks and gambles** (found while specifying `placeGamble`; analysis and recommendation in the M0 report): (a) one pending gamble *per achievement* with an unremoved stake lets the same XP be staked on many achievements at once; (b) R-GMB-03 "−stake" can lower the level or push XP below 0 when XP changed after placement, contradicting R-XP-03/R-XP-04; (c) wins compound — a simulation of trivial achievements with gambles exceeds the 2^53 safe-integer bound of R-XP-04 after 102 rounds, inside the 200-achievement limit; (d) a trivial achievement (one S quest, unlocked the same day) is flawless → Champion bonus 10 × 365 = 3 650 XP, and a gamble on it is riskless; (e) moving or removing `target_date` avoids the lateness penalty and Champion's deadline condition (A-26 only covers pending gambles) | before M3 implementation of ranks/gambles |
 
 ## 8. Traceability
 
