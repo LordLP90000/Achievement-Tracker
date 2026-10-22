@@ -6,7 +6,7 @@ Updated after every completed task (date, task, tests, commit). Newest entries a
 
 | Milestone | Name | Status | Branch | Report |
 |-----------|------|--------|--------|--------|
-| M0 | Plan | IN PROGRESS | `m0-plan` | – |
+| M0 | Plan | REVIEW | `m0-plan` | [docs/reports/M0-status-report.md](reports/M0-status-report.md) |
 | M1 | Walking skeleton | not started | – | – |
 | M2 | Accounts & sessions | not started | – | – |
 | M3 | Core domain | not started | – | – |
@@ -24,4 +24,13 @@ test strategy, hosting options and effort per milestone.
 
 | Date | Task | Tests | Commit |
 |------|------|-------|--------|
-| 2026-10-22 | Repository initialised (`main`), PM reporting docs created, M0 branch opened | n/a (docs only) | see git log |
+| 2026-10-22 | Repository set up: GitHub remote `LordLP90000/Achievement-Tracker` (default branch `master`), PM reporting docs created, branch `m0-plan` opened | n/a (docs only) | `2c1ddee` |
+| 2026-10-22 | Requirements restated with IDs; assumptions A-01…A-19; open questions Q-01…Q-24 with options and recommendations (`docs/requirements.md`) | n/a | `b59efdb`, `499fbfc`, `ea5856d` |
+| 2026-10-22 | Architecture, request lifecycle, platform components, folder structure, planned runtime dependencies (`docs/architecture.md`) | n/a | `639d97a` |
+| 2026-10-22 | Data model: 18 tables, encryption markers, RLS policies, roles/grants, deletion cascade, export shape (`docs/data-model.md`) | n/a | `92b8e7a` |
+| 2026-10-22 | OpenAPI 3.1 draft: 33 operations, problem schemas, idempotency/concurrency conventions (`openapi/openapi.yaml`) | Redocly lint: valid, 0 warnings | `9a74220` |
+| 2026-10-22 | STRIDE threat model: 60+ threats → mitigations → planned tests; encryption scope statement; E2E evaluation; residual risks (`docs/security/threat-model.md`) | n/a | `a4d9321` |
+| 2026-10-22 | Data inventory (md + machine-readable yaml), DPIA draft (14 risks), processors register (`docs/privacy/*`) | n/a | `499fbfc` |
+| 2026-10-22 | Test strategy: layers, harness, domain test plan incl. DST vectors, requirement→test catalogue, gates, CI pipeline (`docs/test-strategy.md`) | n/a | `2bd8cd4` |
+| 2026-10-22 | Hosting/KMS/email options with recommendation; milestone plan with effort 44–62 days (`docs/hosting-options.md`, `docs/plan.md`) | n/a | `ea5856d` |
+| 2026-10-22 | M0 status report written, branch pushed, PR requested → **waiting for PM "go"** | n/a | see report |
