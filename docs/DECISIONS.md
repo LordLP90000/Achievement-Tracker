@@ -2,7 +2,7 @@
 
 Short ADRs for every significant decision. Status values: `proposed` (made by the lead engineer in M0, becomes
 `accepted` with the PM's milestone "go"), `accepted`, `superseded`, `rejected`. Decisions that the PM must take
-are **not** recorded here until taken; they live in `docs/requirements.md` → "Open questions".
+are **not** recorded here until taken; they live in `docs/requirements.md` (§6 decisions taken, §7 open items).
 
 Format: Context → Decision → Consequences → Tests that enforce it.
 
@@ -88,9 +88,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 ## ADR-0006 · Envelope encryption design and the limits of crypto-shredding
 
 - **Status:** proposed (2026-10-22)
-- **Context:** Goal content may be health data. Requirement: per-user data key (DEK) wrapped by a KEK (KMS in
-  production), AEAD with AD = user ID + record ID + field name, key version for rotation, crypto-shredding on
-  deletion.
+- **Context:** Goal content may be health data. Requirement: per-user data key (DEK) wrapped by a KEK (a KMS in
+  the original brief; a KEK from 1Password Connect per ADR-0013), AEAD with AD = user ID + record ID + field name,
+  key version for rotation, crypto-shredding on deletion.
 - **Decision:**
   - One 32-byte DEK per user, generated at registration, wrapped by the KEK through a `KeyWrapper` interface
     (`LocalKeyWrapper` with a 32-byte KEK: from an env secret in dev/test, from the self-hosted 1Password Connect
@@ -99,14 +99,14 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   - Field ciphertext format (bytea): `0x01 | nonce(24) | ciphertext+tag`. AD = `questline|v1|<user_id>|<record_id>|<field>`.
     Record IDs are therefore generated application-side (random UUID v4) before the insert.
   - Unwrapped DEKs are cached in process memory (`sodium_malloc` guarded buffers) for at most 5 minutes per user
-    and wiped on eviction, to bound KMS calls and latency.
+    and wiped on eviction, to bound unwrap work and latency while limiting how long plaintext DEKs stay in memory.
   - **Crypto-shredding scope (honest statement):** deleting a user hard-deletes all rows including the wrapped DEK.
     Backups taken before the deletion still contain the wrapped DEK and the ciphertext; they can be decrypted only
-    by a party that has **both** the backup **and** KMS `Decrypt` permission, and only until the backup expires
-    (30 days). Against a *leaked* backup or DB dump (no KMS access) the data is unreadable immediately — this is
-    the primary threat this design addresses. To make our own restores safe, a `deleted_user_tombstones` table
-    (random user UUID + timestamp, retained 35 days > backup retention) is replayed after any restore
-    (pending PM approval — see open question Q-13). Per-user KMS keys (immediate shredding) were evaluated and
+    by a party that has **both** the backup **and** the KEK (1Password vault access or a running app process,
+    ADR-0013), and only until the backup expires (30 days). Against a *leaked* backup or DB dump (no KEK) the data
+    is unreadable immediately — this is the primary threat this design addresses. To make our own restores safe, a
+    `deleted_user_tombstones` table (random user UUID + timestamp, retained 35 days > backup retention) is replayed
+    after any restore (approved by the PM, Q-13). Per-user KMS keys (immediate shredding) were evaluated and
     rejected for v1 on cost grounds (≈ USD 0.06–1.00 per user per month).
 - **Consequences:** Encrypted fields cannot be searched/aggregated in SQL; all progress maths happens in the domain
   layer (which we want anyway for testability). Key rotation = re-wrap DEKs (cheap) or re-encrypt fields
@@ -198,7 +198,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   pinned, checksum-verified public list (SecLists "top 1,000,000", MIT licence) plus context words (app name).
   The filter binary is committed and loaded at startup; a false positive merely asks the user for a different
   password. Passwords are compared case-sensitively after NFKC normalisation; length policy 12–128 chars
-  (Q-06: minimum length to confirm).
+  (minimum 12 confirmed by the PM, Q-06).
 - **Consequences:** No external dependency at runtime; the list can be refreshed with a documented script.
 - **Tests:** `unit/accounts/password-policy.test.ts` (top-100 passwords rejected, long passphrases accepted,
   ≥ 64 chars allowed, no composition rules, no truncation).

@@ -1,6 +1,6 @@
 # Data inventory
 
-Status: M0 draft (2026-10-22). Legal frameworks: Swiss FADP (nDSG/revFADP, in force 2023-09-01) and GDPR.
+Status: M0 draft v2 (2026-10-22, PM decisions applied). Legal frameworks: Swiss FADP (nDSG/revFADP, in force 2023-09-01) and GDPR.
 Controller: Questline (PM to confirm legal entity and address for the privacy policy). This document has a
 machine-readable twin, `data-inventory.yaml`, which the **data-inventory guard test** (R-PRIV-08) reads: the test
 introspects `information_schema` and fails if any table or column holding user data is missing from the YAML or
@@ -8,7 +8,7 @@ lacks an export/deletion classification.
 
 ## 1. Principles applied
 
-- **Minimisation**: account = email + password hash + timezone/locale + optional nickname. No name, phone,
+- **Minimisation**: account = email + password hash + timezone/locale/week start + optional nickname + age self-declaration flag (no date of birth). No name, phone,
   location, contacts, advertising IDs, device fingerprints, analytics or crash reporters (R-PRIV-01/02).
 - **Purpose limitation**: each category below has exactly one purpose set; no secondary use (no marketing, no
   profiling, no model training).
@@ -46,8 +46,8 @@ Retention codes: `ACCOUNT` = until account deletion (cascade), `SESSION` = until
 | C11 | Rate-limit state | HMAC (daily key) of `scope:IP` or `scope:email-blind-index`, counters, block-until | Abuse prevention (brute force, enumeration, email bombing) | LB-LEGIT-SEC (Q-14) | **24 hours** | `rate_limit_buckets.*` | Keyed hash, not reversible without the daily key; not linkable across days | n/a (not attributable to a user) | n/a (no user relation) |
 | C12 | Deletion tombstones | Random UUID of a deleted account + deletion timestamp | Replay deletions after a backup restore (Q-13) | LB-LEGAL (effective erasure) | **35 days** | `deleted_user_tombstones.*` | Contains no identifier other than the former random ID | n/a | n/a (the record of deletion) |
 | C13 | Application logs | Request ID, method, route pattern, status, duration, error class, job metrics | Operate and debug the service | LB-LEGIT-SEC | **30 days** (provider log retention, M6) | Provider log storage (not the DB) | No PII by design (allowlist serializer, tested) | n/a | n/a |
-| C14 | Backups | Encrypted snapshots of the whole database (all categories above, ciphertext + wrapped DEKs) | Disaster recovery | LB-CONTRACT | **30 days** rolling | Provider backup storage, encrypted at rest | DEK wrapped by KMS; see ADR-0006 | n/a | expiry; tombstone replay after restore |
-| C15 | Email delivery metadata at the provider | Recipient address, send timestamps, delivery status | Email delivery | LB-CONTRACT | Provider default (to be minimised in configuration, target ≤ 30 days) | Email provider (processor, Q-03) | DPA; EU/CH hosting | n/a | provider retention |
+| C14 | Backups | Encrypted snapshots of the whole database (all categories above, ciphertext + wrapped DEKs) | Disaster recovery | LB-CONTRACT | **30 days** rolling | Provider backup storage, encrypted at rest | DEKs wrapped by the KEK held in 1Password (ADR-0013); see ADR-0006 | n/a | expiry; tombstone replay after restore |
+| C15 | Email delivery metadata at the SMTP relay | Recipient address, send timestamps, delivery status | Email delivery | LB-CONTRACT | Relay default (to be minimised in configuration, target ≤ 30 days) | SMTP relay operator (processor, Q-03; to be named, O-02) | DPA; CH/EU preferred — a Gmail/Google Workspace relay is a US processor (DPIA R-9) | n/a | relay retention |
 
 Not collected at all: real name, phone number, postal address, precise or coarse location, contacts, photos,
 advertising identifiers, device identifiers (IDFA/GAID/IMEI), push tokens (no server push in v1), analytics events,
@@ -57,14 +57,15 @@ crash reports.
 
 | Location | What | Country | Status |
 |----------|------|---------|--------|
-| PostgreSQL (primary + backups) | C1–C12, C14 | CH or EU — **Q-01** | pending PM decision |
-| KMS | KEK only (never user data) | same provider/region — **Q-02** | pending |
-| Email provider | C15 (+ C1 and one-time links in transit) | CH/EU — **Q-03** | pending |
-| Log storage | C13 | same as hosting | pending |
+| PostgreSQL (primary + backups) | C1–C12, C14 | CH or EU — PM's own hosting option (Q-01) | to be named (O-01) |
+| 1Password vault + self-hosted Connect server | KEK only (never user data) | vault: 1Password cloud (EU region to confirm); Connect: our private network (Q-02, ADR-0013) | decided |
+| SMTP relay | C15 (+ C1 and one-time links in transit) | depends on the operator (Q-03); Google = USA | to be named (O-02) |
+| Log storage | C13 | same as hosting | to be named (O-01) |
 | Developer machines / CI | synthetic data only (R-SUP-05); no production data ever | – | enforced by process |
 
 No transfers outside CH/EU are planned. If the PM chooses a US-headquartered provider's Swiss region (AWS/GCP/Azure),
-the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9).
+the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9); the same applies to a Gmail/Google Workspace SMTP
+relay (O-02).
 
 ## 5. Data-subject rights — how each is fulfilled
 
@@ -72,7 +73,7 @@ the DPIA must record the CLOUD Act consideration (see `dpia.md` R-9).
 |-------|-----------|---------|
 | Access & portability (GDPR 15/20, FADP 25/28) | `GET /v1/me/export` — complete JSON, re-auth, 2/24 h, audit-logged | immediate |
 | Rectification (GDPR 16, FADP 32) | `PATCH /v1/me`, `PATCH /v1/achievements/{id}`, `PATCH /v1/quests/{id}`; check-ins are undo + re-create | immediate |
-| Erasure (GDPR 17, FADP 32) | `DELETE /v1/me` — hard delete + crypto-shredding; backups expire ≤ 30 d; tombstone replay | immediate (backups ≤ 30 d) |
+| Erasure (GDPR 17, FADP 32) | `DELETE /v1/me` — immediate deactivation (all sessions revoked); hard delete + crypto-shredding after the 30-day reactivation window (Q-11); backups expire ≤ 30 d later; tombstone replay | deactivation immediate; erasure after 30 d (+ ≤ 30 d backups) |
 | Restriction / withdrawal of consent (GDPR 7(3), 18) | `DELETE /v1/me/consents/goal_content` — deletes goal content (Q-10) | immediate |
 | Objection (GDPR 21) | Only legitimate-interest processing is security-related (C8, C11); users may object by email to the controller; evaluated case by case | manual |
 | Information (GDPR 13/14, FADP 19) | Privacy policy in the app (PM/legal) referencing this inventory | n/a |

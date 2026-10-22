@@ -81,7 +81,7 @@ Lookups: by `id` (after auth) and by `email_blind_index` (login, register, forgo
 |--------|------|-------|
 | `user_id` | uuid PK → `users` ON DELETE CASCADE | |
 | `wrapped_dek` 🔑 | bytea NOT NULL | DEK wrapped by the KEK (`KeyWrapper`) |
-| `kek_id` | text NOT NULL | KMS key identifier / `local` |
+| `kek_id` | text NOT NULL | KEK identifier (1Password item reference in production, `local` in dev/test — ADR-0013) |
 | `kek_version` | integer NOT NULL | |
 | `dek_version` | integer NOT NULL | current version used for new writes |
 | `created_at`, `rotated_at` | timestamptz | |
