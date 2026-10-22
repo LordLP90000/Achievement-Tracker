@@ -195,6 +195,9 @@ Unchanged from v1 (R-LOG-01…03, R-SUP-01…05). SMTP credentials and the Conne
 | A-23 | `week_start` change does not retroactively re-bucket already closed periods. |
 | A-24 | The PM's own hosting must satisfy H-1…H-7 in `docs/hosting-options.md`; until named, deployment artefacts stay provider-neutral (Docker image + Compose). |
 | A-25 | SMTP sender uses `nodemailer` with TLS required (STARTTLS or implicit TLS), credentials from 1Password/env, per-account send limit 3/h, outbox dedupe. |
+| A-26 | **[proposed 2026-10-22, PM may object]** While a gamble is pending, the achievement's `target_date` cannot be changed or removed (`409 gamble-pending`); otherwise a loss could be avoided by moving the date (T-17). |
+| A-27 | **[proposed 2026-10-22, PM may object]** After a lost gamble, no new gamble can be placed on the same achievement in the same attempt (`409 gamble-lost-this-attempt`, T-16). |
+| A-28 | **[proposed 2026-10-22, PM may object]** A habit `start_date` (on creation and on restart) must be today or later (`422`): a period before today could never be met because back-dated check-ins never count (R-CHK-04). |
 
 ## 6. Decisions taken by the PM (2026-10-22)
 
@@ -234,6 +237,7 @@ Unchanged from v1 (R-LOG-01…03, R-SUP-01…05). SMTP credentials and the Conne
 | O-03 | 1Password Connect server deployment details (URL, vault, token issuance) | start of M2 |
 | O-04 | Consent text + version, privacy policy text, controller identity | before launch |
 | O-05 | Product review of gambling-like mechanics for users aged 13–15 (DPIA R-15) | before M3 implementation of gambles |
+| O-06 | **Integrity of ranks and gambles** (found while specifying `placeGamble`; analysis and recommendation in the M0 report): (a) one pending gamble *per achievement* with an unremoved stake lets the same XP be staked on many achievements at once; (b) R-GMB-03 "−stake" can lower the level or push XP below 0 when XP changed after placement, contradicting R-XP-03/R-XP-04; (c) wins compound — a simulation of trivial achievements with gambles exceeds the 2^53 safe-integer bound of R-XP-04 after 102 rounds, inside the 200-achievement limit; (d) a trivial achievement (one S quest, unlocked the same day) is flawless → Champion bonus 10 × 365 = 3 650 XP, and a gamble on it is riskless; (e) moving or removing `target_date` avoids the lateness penalty and Champion's deadline condition (A-26 only covers pending gambles) | before M3 implementation of ranks/gambles |
 
 ## 8. Traceability
 
