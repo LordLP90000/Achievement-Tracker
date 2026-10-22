@@ -1,18 +1,21 @@
-# Requirements, assumptions and open questions
+# Requirements, assumptions and decisions
 
-Status: M0 draft (2026-10-22). Requirement IDs (`R-…`) are referenced by the threat model, the test strategy and
-test names. Assumptions (`A-…`) are defaults I will apply unless the PM objects. Open questions (`Q-…`) are
-decisions the PM must take; each lists options and my recommendation.
+Status: M0 **v2** (2026-10-22) — updated with the PM's answers to all open questions (Q-01…Q-24, §6). Requirement IDs
+(`R-…`) are referenced by the threat model, the test strategy and test names. Assumptions (`A-…`) are defaults the
+PM has not objected to. Where a PM decision changed the original brief, the row is marked **[PM 2026-10-22]**.
 
 ## 1. Product summary
 
 Questline is a mobile app. Users set an **Achievement** (a big goal), break it into **Quests** (smaller goals) and
 record **Check-ins**. Completing quests earns **XP**; an achievement is **unlocked** when all its required quests
-are completed (badge + bonus XP). The backend is a REST/JSON API under `/v1` used only by the mobile app.
+are completed, receives a **rank** (Bronze … Champion) based on how flawlessly it was executed, and pays a rank bonus.
+Users may **gamble** their current-level XP on finishing an achievement by its target date. The backend is a
+REST/JSON API under `/v1` used only by the mobile app.
 
 Vocabulary used verbatim in code, API and docs: `Achievement`, `Quest`, `Check-in` (`check_in` in identifiers),
-`XP`, `level`, `streak`, `badge`, quest types `one_time | habit | target`, sizes `S | M | L`, achievement statuses
-`active | paused | completed | archived`.
+`XP`, `level`, `streak`, `badge`, `rank`, `gamble`, `attempt`, quest types `one_time | habit | target`, sizes
+`S | M | L`, achievement statuses `active | paused | completed`, ranks
+`bronze | silver | gold | platinum | emerald | diamond | champion`.
 
 ## 2. Functional requirements
 
@@ -20,53 +23,82 @@ Vocabulary used verbatim in code, API and docs: `Achievement`, `Quest`, `Check-i
 
 | ID | Requirement |
 |----|-------------|
-| R-ACH-01 | An achievement has: `title`, `description`, `motivation` ("why"), `category`, optional `target_date`, `status` (`active`, `paused`, `completed`, `archived`), `is_private` (display hint for the app only). |
-| R-ACH-02 | `title`, `description`, `motivation`, `category` are encrypted at the application level (see R-ENC-*). |
-| R-ACH-03 | Achievement progress = XP-weighted average of the progress of its **required** quests: `Σ(progress_i · xp_i) / Σ(xp_i)`. |
-| R-ACH-04 | An achievement is unlocked (status → `completed`, badge awarded, bonus XP granted) when all required quests are completed. Bonus quests give XP but never block unlocking. |
-| R-ACH-05 | Undoing a check-in that makes a required quest incomplete again reverses the unlock: status back to `active`, badge removed, bonus XP revoked. |
-| R-ACH-06 | Pausing an achievement freezes the streaks of its habit quests (periods during the pause neither break nor extend a streak). |
-| R-ACH-07 | `status` transitions by the client are limited to `active ↔ paused`, `active|paused → archived`, `archived → active`. `completed` is set only by the system (and reverted only by R-ACH-05). See Q-17. |
+| R-ACH-01 | An achievement has: `title`, `description`, `motivation` ("why"), `category`, optional `target_date`, `status` (`active`, `paused`, `completed`), `is_private` (display hint), `attempt` (1-based counter of restarts), and — once completed — `rank` and `execution_score`. |
+| R-ACH-02 | `title`, `description`, `motivation`, `category` **and `target_date`** are encrypted at the application level (R-ENC-*). **[PM 2026-10-22, Q-24]** |
+| R-ACH-03 | Achievement progress = XP-weighted average of the progress of its **required** quests: `Σ(progress_i · xp_i) / Σ(xp_i)` (xp_i = base size XP × duration factor, R-XP-02). |
+| R-ACH-04 | An achievement is unlocked when all required quests are completed: status → `completed`, `completed_at` set, execution score and rank computed (R-RANK-*), rank badge awarded, rank bonus XP granted, pending gamble settled as won if on/before `target_date`. Bonus quests give XP but never block unlocking. |
+| R-ACH-05 | Undoing a check-in that makes a required quest incomplete again reverses the unlock: status back to `active`, rank/score/badge removed, rank bonus revoked, a gamble settled by that unlock is reverted to pending. (Possible only for check-ins made "today", see R-CHK-04.) |
+| R-ACH-06 | **Pausing resets the achievement** **[PM 2026-10-22, Q-17]**: all quests return to 0 % (new attempt), XP earned through the achievement in the current attempt is revoked (prevents farming), a pending gamble is lost, check-ins are kept as history only (`counts_for_progress = false`). Resuming (`paused → active`) starts attempt `n + 1`. The brief's "pausing freezes streaks" is superseded. |
+| R-ACH-07 | Client-requestable transitions: `active → paused`, `paused → active` only. `completed` is set only by the system. There is **no manual archiving**; completed achievements are the user's archive: read-only and **not deletable** **[PM 2026-10-22, Q-17]**. |
 | R-ACH-08 | Achievements are listed with cursor pagination, filterable by `status`. |
+| R-ACH-09 | Deleting an `active`/`paused` achievement deletes its quests and check-ins and revokes all XP earned through it **[PM 2026-10-22, Q-12]**; a pending gamble is lost (stake removed). |
 
 ### 2.2 Quests
 
 | ID | Requirement |
 |----|-------------|
-| R-QST-01 | A quest belongs to exactly one achievement, has a `position` (order), is `required` or `bonus`, and has a `size` `S/M/L` worth `10/25/50` XP. |
-| R-QST-02 | A quest may name one `prerequisite_quest_id` of the **same** achievement; the quest is `locked` (no check-ins) until the prerequisite is completed. No prerequisite cycles. |
-| R-QST-03 | Type `one_time`: completed by a single "done" check-in; progress is 0 or 1. |
-| R-QST-04 | Type `habit`: `times_per_period` N, `period` `day|week`, `period_count` K, `start_date`. Progress = `Σ_periods min(check-ins in period, N) / (N · K)`. Completed when progress = 1. (Period semantics: Q-04.) |
-| R-QST-05 | Type `target`: `start_value`, `target_value` (≠ start), optional `unit`; increasing or decreasing. Progress = `clamp((current − start) / (target − start), 0, 1)` where `current` = value of the latest check-in (by `local_date`, then `created_at`); no check-in ⇒ `current = start`. Completed when progress = 1. |
+| R-QST-01 | A quest belongs to exactly one achievement, has a `position`, is `required` or `bonus`, and has a `size` `S/M/L` worth base `10/25/50` XP. Effective `xp` = base × duration factor (R-XP-02). |
+| R-QST-02 | A quest may name one `prerequisite_quest_id` of the **same** achievement; it is `locked` until the prerequisite is completed. No cycles. |
+| R-QST-03 | Type `one_time`: completed by a single counting check-in; progress 0 or 1. |
+| R-QST-04 | Type `habit`: `times_per_period` N, `period` `day|week`, `period_count` K, `start_date`. Progress = (consecutive fully-met periods since the attempt's start) / K; a period is met when it has ≥ N counting check-ins. **A closed period with < N counting check-ins resets the quest** **[PM 2026-10-22, Q-04]**: progress → 0, state → `needs_restart` (no check-ins accepted), `reset_count + 1`. The user restarts by editing the quest (new `start_date` ≥ today, optionally new N/K); earlier check-ins remain visible as history and do not count. Completed when K consecutive periods are met. |
+| R-QST-05 | Type `target`: `start_value`, `target_value` (≠ start), optional `unit`; increasing or decreasing. Progress = `clamp((current − start) / (target − start), 0, 1)`, `current` = value of the latest counting check-in (by `local_date`, then `created_at`); none ⇒ `start`. Completed when progress = 1. |
 | R-QST-06 | `title`, `notes`, `unit`, `start_value`, `target_value` are encrypted at the application level. |
-| R-QST-07 | Quests can be edited (title, notes, position, required flag, size, prerequisite, type-specific parameters); the quest `type` is immutable. Progress/XP are recomputed after edits (an edit may complete or un-complete a quest; XP follows R-XP-*). |
-| R-QST-08 | Deleting a quest deletes its check-ins, revokes XP earned through it (Q-12) and clears `prerequisite_quest_id` on quests that referenced it. |
+| R-QST-07 | Quests can be edited (title, notes, position, required flag, size, prerequisite, type-specific parameters); `type` is immutable. Progress/XP are recomputed; XP follows R-XP-*. Quests of a `completed` achievement are read-only. |
+| R-QST-08 | Deleting a quest deletes its check-ins, revokes XP earned through it and clears `prerequisite_quest_id` on quests that referenced it. |
+| R-QST-09 | Week-based periods start on the user's configured `week_start` (`monday | sunday | saturday`, default `monday`) **[PM 2026-10-22, Q-18]**. Changing `week_start` applies to periods that start after the change. |
 
 ### 2.3 Check-ins
 
 | ID | Requirement |
 |----|-------------|
-| R-CHK-01 | A check-in records progress for a quest: "done" (one_time), one occurrence (habit) or a numeric `value` (target); optional `note`; `local_date` in the user's timezone. |
+| R-CHK-01 | A check-in records progress for a quest: one occurrence (one_time/habit) or a numeric `value` (target); optional `note`; `local_date` in the user's timezone. |
 | R-CHK-02 | `value` and `note` are encrypted at the application level. |
-| R-CHK-03 | Undo = delete the check-in and reverse **all** its effects (progress, completion, XP, streak, achievement unlock). Check-ins are otherwise immutable. |
-| R-CHK-04 | Check-ins on a `locked` quest, a quest of a `paused|archived|completed` achievement, or with a future `local_date` are rejected. Back-dating is limited (A-08). |
-| R-CHK-05 | Creating a check-in returns the updated quest and achievement state and the XP awarded, so the app needs no second round trip. |
+| R-CHK-03 | Undo = delete the check-in and reverse **all** its effects (progress, completion, XP, streak, rank, gamble). Check-ins are otherwise immutable. |
+| R-CHK-04 | `local_date` must not be in the future and may be back-dated at most 7 days. **Only check-ins dated "today" (account timezone, at creation time) count** toward progress, streaks, XP and resets; back-dated ones are stored as history with `counts_for_progress = false` **[PM 2026-10-22, Q-08]**. |
+| R-CHK-05 | Check-ins are rejected (409) on a `locked` or `needs_restart` quest, on quests of a `paused`/`completed` achievement, and (422) with a `value` on non-target quests or without one on target quests. |
+| R-CHK-06 | Creating a check-in returns the check-in, the updated quest and achievement, XP awarded and any rank/gamble/unlock events (no second round trip). |
 
-### 2.4 XP, levels, streaks, stats
+### 2.4 XP, levels, duration factor
 
 | ID | Requirement |
 |----|-------------|
-| R-XP-01 | XP is awarded exactly once per quest completion and once per achievement unlock (idempotent under retries and concurrent requests), and revoked on undo. All XP changes are recorded in an append-only ledger. |
-| R-XP-02 | Level is derived from total XP (curve: Q-05). |
-| R-STR-01 | Streak = number of consecutive periods (ending with the latest closed or the current period) in which a habit quest met its target N, computed in the user's IANA timezone. The current, still-open period does not break a streak. |
-| R-STR-02 | Streaks are correct across midnight and DST changes; mandatory test vectors: `Europe/Zurich` on 2026-03-29 (clocks forward) and 2026-10-25 (clocks back). |
-| R-STR-03 | Best streak per habit quest is tracked for stats. |
-| R-STA-01 | Stats endpoint: XP over time (per local day), total XP and level, unlocked achievements, badges, best streaks. |
+| R-XP-01 | XP is awarded exactly once per quest completion / unlock / rank / gamble settlement (idempotent under retries and concurrency), and revoked on undo, pause-reset, deletion. All changes are in an append-only ledger with a user-local date. |
+| R-XP-02 | **Duration factor** (habit quests only, from structure not from user claims) **[PM 2026-10-22, Q-05g/h]**: span in days = `period_count` (daily) or `period_count × 7` (weekly); factor ×1 for ≤ 28 days, ×1.5 for 29–56, ×2 for 57–112, ×3 for ≥ 113. `xp = round(base × factor)`. |
+| R-XP-03 | **Level curve** **[PM 2026-10-22, Q-05e]**: XP required to reach level L is `100 × 3^(L−2)` for L ≥ 2 (L2 = 100, L3 = 300, L4 = 900, L5 = 2 700, L10 = 656 100); level 1 at 0 XP. Level is derived from total XP (which can decrease through gambles — a lost gamble removes exactly the XP above the current level's threshold, so the level itself never drops). |
+| R-XP-04 | Total XP never goes below 0 and is stored/handled as a 64-bit integer. |
 
-### 2.5 Out of scope for the backend in v1
+### 2.5 Execution score and ranks **[PM 2026-10-22, Q-05c…f]**
 
-Reminders (local notifications, no server push), achievement templates (shipped in the app), file uploads,
-admin/back-office endpoints, web client (CORS stays off), passkeys/TOTP (M5), end-to-end encryption (evaluated for v2).
+| ID | Requirement |
+|----|-------------|
+| R-RANK-01 | On unlock, the **execution score** (0–100) of the current attempt is computed from non-gameable signals only: (a) quest execution = XP-weighted mean over required quests of `100 / (1 + reset_count_in_attempt)` for habits and 100 for one_time/target; (b) lateness: if `target_date` is set and unlock is after it, multiply by `max(0, 1 − days_late / 30)`; (c) each gamble lost on this achievement (any attempt) subtracts 10 points. Clamp 0–100. |
+| R-RANK-02 | Ranks by score: Bronze ≥ 55, Silver ≥ 65, Gold ≥ 75, Platinum ≥ 85, Emerald ≥ 92, **Diamond = 100**, **Champion = 100 and flawless**: `attempt = 1` (never paused/reset), no habit reset in the attempt, no gamble ever lost on this achievement, every bonus quest also completed, and on/before `target_date` if set. Score < 55 → unlocked but `unranked`. |
+| R-RANK-03 | **Rank bonus** = `round(Σ required quest xp × multiplier)` with multipliers Bronze ×0.5, Silver ×1.5, Gold ×4.5, Platinum ×13.5, Emerald ×40, Diamond ×120, Champion ×365; unranked → 0. Recorded as an XP event `rank_bonus` and a badge of kind `achievement_rank` with the rank. |
+| R-RANK-04 | Rank, score and badge are reverted if the unlock is undone (R-ACH-05). |
+| R-RANK-05 | A spendable reward currency ("coupons") is **out of scope for v1**; the ledger design (per-rank events) allows adding it later without migration of history. |
+
+### 2.6 Gambles **[PM 2026-10-22, Q-05i]**
+
+| ID | Requirement |
+|----|-------------|
+| R-GMB-01 | A user may place **one** pending gamble per `active` achievement that has a `target_date` in the future. Stake = XP above the current level's threshold at placement time (must be > 0). The stake is locked (recorded) but not removed. |
+| R-GMB-02 | **Win**: the achievement is unlocked on/before `target_date` → XP event `gamble_won` of `+stake` (double or nothing), status `won`. |
+| R-GMB-03 | **Loss**: `target_date` passes without unlock (settled by the daily retention job in the user's timezone), or a habit quest of the achievement resets, or the achievement is paused or deleted → XP event `gamble_lost` of `−stake`, status `lost`. Quest progress is never affected by a loss. |
+| R-GMB-04 | A gamble cannot be cancelled. Losses count against Champion eligibility and the execution score (R-RANK-01/02). |
+| R-GMB-05 | Gambles are XP-only mechanics (no money, no purchases). |
+
+### 2.7 Streaks and stats
+
+| ID | Requirement |
+|----|-------------|
+| R-STR-01 | Streak = number of consecutive met periods in the current attempt ending with the latest closed or the current period (the open period never breaks it), in the user's timezone and `week_start`. Because a missed period resets the quest, the current streak equals the met-period count of the attempt; the **best streak** across attempts is tracked for stats. |
+| R-STR-02 | Streaks and period boundaries are correct across midnight and DST; mandatory vectors: `Europe/Zurich` 2026-03-29 and 2026-10-25. |
+| R-STA-01 | Stats endpoint: XP over time (per local day), total XP and level, completed achievements by rank, badges, best streaks, gamble record (won/lost counts). |
+
+### 2.8 Out of scope for the backend in v1
+
+Reminders/push, achievement templates, file uploads, admin endpoints, web client (CORS off), passkeys/TOTP (M5),
+end-to-end encryption (v2 evaluation), reward currency/coupons (v2).
 
 ## 3. Security requirements (ASVS 5.0 L2 + OWASP API Security Top 10)
 
@@ -74,142 +106,138 @@ admin/back-office endpoints, web client (CORS stays off), passkeys/TOTP (M5), en
 
 | ID | Requirement |
 |----|-------------|
-| R-AUTH-01 | v1 authentication: email + password. M5 adds passkeys (WebAuthn) and optional TOTP 2FA. |
-| R-AUTH-02 | Passwords hashed with Argon2id ≥ OWASP parameters (ADR-0005). Policy per NIST SP 800-63B: length over complexity, ≥ 64 chars allowed (we allow 128), no composition rules, no forced rotation, offline block-list of common/breached passwords (ADR-0012), no truncation, Unicode allowed (NFKC-normalised). |
-| R-AUTH-03 | Email verification and password reset use single-use tokens, valid ≤ 30 min, stored only as hashes. |
-| R-AUTH-04 | Access tokens are opaque, ≤ 15 min. Refresh tokens rotate on every use, are bound to a device session and stored only as hashes; reuse of a rotated refresh token revokes the whole session. |
-| R-AUTH-05 | Users can list and revoke their sessions. A password change revokes all other sessions. A password reset revokes all sessions. |
-| R-AUTH-06 | Changing email or password, data export and account deletion require recent re-authentication (window: A-07). |
-| R-AUTH-07 | No account enumeration: register, login, resend-verification and forgot-password return the same response shape/status and take similar time whether or not the account exists. |
-| R-AUTH-08 | Rate limiting with progressive backoff on all auth endpoints, per account (keyed by email blind index) and per IP; per-user limits on all other endpoints. `429` with `Retry-After`. |
-| R-AUTH-09 | Login is only possible after email verification (Q-15). Unverified accounts are deleted after 7 days. |
+| R-AUTH-01 | v1: email + password. M5 adds passkeys (WebAuthn) and optional TOTP 2FA. |
+| R-AUTH-02 | Argon2id ≥ OWASP parameters (ADR-0005). Policy per NIST SP 800-63B: **12–128 chars** **[PM, Q-06]**, no composition rules, no forced rotation, offline block-list (ADR-0012), no truncation, Unicode NFKC. |
+| R-AUTH-03 | Email verification and password reset: single-use tokens, ≤ 30 min, stored only as hashes. |
+| R-AUTH-04 | Access tokens opaque, ≤ 15 min. Refresh tokens rotate on every use, bound to a device session, hashed; reuse of a rotated token revokes the whole session. |
+| R-AUTH-05 | Users list and revoke sessions. Password change revokes all other sessions; password reset revokes all. |
+| R-AUTH-06 | Email change, password change, export, deletion request require re-authentication within **10 min** **[PM, Q-07]**. |
+| R-AUTH-07 | No account enumeration across register, login, resend-verification, forgot-password, email-change. |
+| R-AUTH-08 | Rate limiting with progressive backoff on auth endpoints (per account via email blind index, per IP via daily-keyed HMAC **[PM, Q-14]**); per-user limits elsewhere. `429` + `Retry-After`. |
+| R-AUTH-09 | Login only after email verification **[PM, Q-15]**; unverified accounts purged after 7 days. |
+| R-AUTH-10 | Session lifetimes **[PM, Q-07]**: access 15 min, refresh 30 days sliding, absolute 180 days. |
+| R-AUTH-11 | Registration requires `age_confirmed = true` (self-declaration of **≥ 13**, parental consent handled by the terms) **[PM, Q-23]**; no date of birth is stored. |
 
 ### 3.2 Authorization
 
 | ID | Requirement |
 |----|-------------|
-| R-AUTHZ-01 | Deny by default: every endpoint except `health`, `register`, `verify-email`, `resend-verification`, `login`, `refresh`, `password/forgot`, `password/reset` requires a valid access token. |
-| R-AUTHZ-02 | Every query is scoped to the authenticated user. Another user's object (by ID) returns `404`, never `403`. RLS enforces this as a second layer (ADR-0003). |
-| R-AUTHZ-03 | For **every** endpoint there is an automated test proving user A cannot read, change or delete user B's data (BOLA/IDOR). |
-| R-AUTHZ-04 | Explicit request/response schemas with allowlisted fields; unknown fields are rejected (`400`). Owner, XP, status transitions, completion flags and timestamps are never accepted from the client (no mass assignment). |
+| R-AUTHZ-01 | Deny by default: every endpoint except health and the public auth endpoints requires a valid access token. |
+| R-AUTHZ-02 | Every query is scoped to the authenticated user; foreign objects → `404`. RLS as second layer **[PM, Q-21]**. |
+| R-AUTHZ-03 | For every endpoint an automated test proves user A cannot read/change/delete user B's data. |
+| R-AUTHZ-04 | Strict allowlisted schemas; owner, XP, rank, score, attempt, status `completed`, gamble outcomes, completion flags and timestamps never come from the client. |
 
 ### 3.3 Input, output & transport
 
 | ID | Requirement |
 |----|-------------|
-| R-IN-01 | Everything validated (types, lengths, ranges, enums, formats); limits on body size (64 KiB), collection sizes and page size (default 20, max 100); cursor pagination only. |
-| R-IN-02 | No string-built SQL (ESLint + review); no server-side requests to user-supplied URLs (none needed). |
-| R-OUT-01 | Errors as RFC 9457 `application/problem+json`, no stack traces/internals (ADR-0007). |
-| R-OUT-02 | All IDs are random UUID v4, never sequential. |
-| R-OUT-03 | `Idempotency-Key` on create endpoints; optimistic concurrency via `version` + `If-Match`, `409` on conflict (ADR-0008). |
-| R-TLS-01 | TLS only (1.2+, prefer 1.3) at the edge; HSTS (`max-age=63072000; includeSubDomains; preload`) and security headers (`X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `Permissions-Policy` minimal, `Cross-Origin-Resource-Policy: same-origin`). |
-| R-TLS-02 | `Cache-Control: no-store` (+ `Pragma: no-cache`) on every authenticated response. |
-| R-TLS-03 | CORS disabled (no `Access-Control-Allow-Origin` ever) unless the PM approves a web client. |
-| R-TLS-04 | Constant-time comparison for all secrets and tokens. |
+| R-IN-01 | Validate everything; body ≤ 64 KiB; limits **[PM, Q-16]**: ≤ 200 achievements/user, ≤ 50 quests/achievement, ≤ 50 check-ins/quest/day, ≤ 20 sessions; page size default 20, max 100; cursor pagination. |
+| R-IN-02 | No string-built SQL; no server-side requests to user-supplied URLs. |
+| R-OUT-01 | RFC 9457 problems, URN types until a domain exists **[PM, Q-19]**, no internals. |
+| R-OUT-02 | Random UUID v4 IDs only. |
+| R-OUT-03 | `Idempotency-Key` on create endpoints (incl. gamble placement); `version` + `If-Match`, `409` on conflict. |
+| R-TLS-01…04 | TLS 1.2+/1.3, HSTS, security headers; `Cache-Control: no-store` on authenticated responses; CORS off; constant-time comparisons. |
 
 ### 3.4 Encryption & data at rest
 
 | ID | Requirement |
 |----|-------------|
-| R-ENC-01 | Application-level envelope encryption for the fields in R-ACH-02, R-QST-06, R-CHK-02, plus email and nickname: one DEK per user, wrapped by a KEK (KMS in production, local secret in dev/test only); AEAD XChaCha20-Poly1305 with AD = user ID + record ID + field name; key version stored for rotation; vetted libraries only (ADR-0005, ADR-0006). |
-| R-ENC-02 | Email stored encrypted plus an HMAC-SHA256 blind index (separate key) for login lookup and uniqueness. |
-| R-ENC-03 | Encrypted disks and backups; database never publicly reachable; app DB role has no DDL rights, migrations use a separate role (ADR-0003). |
-| R-ENC-04 | The threat model states what application-level encryption protects against (leaked DB dumps/backups) and what it does not (fully compromised server), and evaluates end-to-end encryption for v2. |
+| R-ENC-01 | Envelope encryption: one DEK per user wrapped by the KEK; AEAD XChaCha20-Poly1305 with AD = user ID + record ID + field; key version stored (ADR-0006). |
+| R-ENC-02 | Email encrypted + HMAC blind index (separate key). |
+| R-ENC-03 | Encrypted disks and backups; private DB; app role without DDL; migrations by a separate role. |
+| R-ENC-04 | Threat model states the protection scope; E2E evaluated for v2. |
+| R-ENC-05 | **KEK source in production: 1Password Connect server (self-hosted)** **[PM, Q-02]**: the API fetches the KEK at startup over the local Connect API, holds it only in guarded memory, and refuses to start without it. Dev/test use a local env secret. Residual risk: a compromised app process holds the KEK (ADR-0013). |
 
-### 3.5 Logging & monitoring
+### 3.5 Logging & monitoring · 3.6 Supply chain
 
-| ID | Requirement |
-|----|-------------|
-| R-LOG-01 | Structured JSON logs with request IDs. |
-| R-LOG-02 | Never log passwords, tokens, emails, goal content or request bodies. A test captures all logs emitted during the whole test run and fails if any seeded secret or personal value appears. |
-| R-LOG-03 | Security audit events (login success/failure, password/email change, session revocation, export, deletion, consent changes) with minimal data; retention 90 days. |
+Unchanged from v1 (R-LOG-01…03, R-SUP-01…05). SMTP credentials and the Connect token are secrets under R-SUP-04.
 
-### 3.6 Supply chain & infrastructure
+## 4. Privacy requirements (Swiss FADP + GDPR)
 
 | ID | Requirement |
 |----|-------------|
-| R-SUP-01 | Lockfile committed; minimal dependencies; every new runtime dependency is listed with a reason in the next report. |
-| R-SUP-02 | CI fails on lint, typecheck, test or coverage failures; SAST findings (Semgrep); high/critical vulnerable dependencies (osv-scanner); committed secrets (gitleaks, also pre-commit); high/critical container findings (Trivy). SBOM (CycloneDX) generated per build. |
-| R-SUP-03 | Containers: minimal base image, non-root, read-only filesystem, no secrets inside. |
-| R-SUP-04 | Config via environment; the app refuses to start if a required secret is missing or too weak; production refuses the local key wrapper. |
-| R-SUP-05 | Synthetic seed data only in dev and test. |
+| R-PRIV-01 | Data minimisation: account = email + password hash + settings (timezone, locale, `week_start`) + optional nickname + age confirmation flag. |
+| R-PRIV-02 | No third-party analytics, trackers, ad SDKs, crash reporters. |
+| R-PRIV-03 | Every processor needs PM approval and an entry in `docs/privacy/processors.md`. Approved so far **[PM, Q-02/Q-03]**: 1Password (Connect, security service — holds the KEK, no personal data), SMTP relay operator (to be named; email addresses + one-time links). Hosting: PM's own option, to be documented. |
+| R-PRIV-04 | Explicit, unticked, versioned consent for goal content; withdrawal **hard-deletes all goal content immediately, account stays** **[PM, Q-10]**. |
+| R-PRIV-05 | `GET /v1/me/export` — complete JSON, re-auth, 2/24 h, audit-logged. |
+| R-PRIV-06 | **Account deletion with a 30-day reactivation window** **[PM, Q-11]**: the request (re-auth) revokes all sessions and deactivates the account; logging in with the password within 30 days reactivates it; after 30 days the retention job hard-deletes all rows and destroys the wrapped DEK (crypto-shredding) and writes a tombstone **[PM, Q-13]**. |
+| R-PRIV-07 | Inventory with retention: audit 90 d, hashed-IP rate-limit rows 24 h, idempotency 24 h, backups 30 d, unverified accounts 7 d, deactivated accounts 30 d, tombstones 35 d. |
+| R-PRIV-08 | Data-inventory guard test. |
+| R-PRIV-09 | DPIA maintained; gambling-like mechanics with users ≥ 13 are assessed (DPIA R-15). |
 
-## 4. Privacy requirements (Swiss FADP/nDSG + GDPR)
-
-| ID | Requirement |
-|----|-------------|
-| R-PRIV-01 | Data minimisation: account = email + password hash + settings (timezone, locale) + optional nickname. No real name, phone, location, contacts, advertising IDs, device fingerprinting. |
-| R-PRIV-02 | No third-party analytics, trackers, ad SDKs or crash reporters receiving personal data. |
-| R-PRIV-03 | Every external processor needs PM approval and an entry in `docs/privacy/processors.md`. |
-| R-PRIV-04 | Explicit, unticked, versioned consent for storing goal content (may include health data); consent version + timestamp stored; withdrawal possible (consequence: Q-10). Without active consent, goal content cannot be created. |
-| R-PRIV-05 | `GET /v1/me/export` returns all of the user's data as machine-readable JSON (re-auth, rate-limited, audit-logged). |
-| R-PRIV-06 | Account deletion revokes all sessions, hard-deletes all rows of the user and destroys the wrapped data key (crypto-shredding; scope and limits in ADR-0006). |
-| R-PRIV-07 | `docs/privacy/data-inventory.md` lists every data category with purpose, legal basis, retention, storage location. Defaults: audit log 90 days, IP addresses truncated in logs, backups expire after 30 days, unverified accounts deleted after 7 days. |
-| R-PRIV-08 | Data-inventory guard test: introspects the DB schema and fails if any table/column holding user data is not classified in the inventory and covered by export and deletion (exceptions only if documented and PM-approved). |
-| R-PRIV-09 | A DPIA draft exists from M0 and is kept current. |
-
-## 5. Assumptions (defaults applied unless the PM objects)
+## 5. Assumptions (not objected to by the PM)
 
 | ID | Assumption |
 |----|-----------|
-| A-01 | **Nickname**: optional, 1–40 chars, encrypted with the user's DEK; used only for display in the app. |
-| A-02 | **Timezone** is an IANA name validated against `Intl.supportedValuesOf('timeZone')`; default `Europe/Zurich` if the client sends none. **Locale** is a BCP 47 tag from an allowlist (`de-CH`, `fr-CH`, `it-CH`, `en`, …), used only to localise emails. |
-| A-03 | **Habit check-ins** are count-based: each check-in is one occurrence; several per day are allowed (e.g. "2× per day"); `value` is not used for habits. |
-| A-04 | **Week periods** start on Monday (ISO 8601) for all users in v1 (Q-18 if a user setting is wanted). |
-| A-05 | **Target quests** accept any number of check-ins; the "current value" is the latest check-in. `start_value = target_value` is a validation error. Values are decimals with ≤ 3 fractional digits, |value| ≤ 10⁹. |
-| A-06 | **Badges** in v1: exactly one badge per unlocked achievement. Streak-milestone badges may come later. |
-| A-07 | **Re-authentication window**: 10 minutes since the last successful password entry on the current session (`POST /v1/auth/reauth` or login). |
-| A-08 | **Check-in dates**: `local_date` must not be in the future (in the account timezone) and may be back-dated at most 7 days. At most 50 check-ins per quest per local day. |
-| A-09 | **Limits**: ≤ 200 achievements per user (any status), ≤ 50 quests per achievement, title ≤ 120 chars, description/motivation ≤ 2 000 chars, category ≤ 60 chars, note ≤ 500 chars, unit ≤ 20 chars, device label ≤ 64 chars, body ≤ 64 KiB. |
-| A-10 | **Session lifetimes**: access token 15 min; refresh token 30 days, sliding on each rotation; absolute session lifetime 180 days; then full login (documented per ASVS 5.0 §7.1). |
-| A-11 | **Export** is synchronous (a single JSON document; user data volumes are small), limited to 2 exports per user per 24 h. |
-| A-12 | **Email change** sends a verification link to the new address and a security notice to the old one; the change becomes effective only after verification; the new email must not be registered already (checked without leaking: the user is told "we sent a verification link" in both cases, and the existing owner gets a notice). |
-| A-13 | **XP ledger** entries carry the user's local date (computed at write time in the account timezone) so "XP over time" needs no later timezone conversion. |
-| A-14 | **Registration** requires acceptance of the privacy policy/terms version (`privacy_policy_version`), which is distinct from the goal-content consent (R-PRIV-04). The goal-content consent is given later in the app (unticked checkbox) via `POST /v1/me/consents`. |
-| A-15 | **Idempotency keys** are retained 24 h; stored responses are encrypted with the user's DEK. |
-| A-16 | **Prerequisite chains** are limited to depth 20 (validation), which also bounds cycle detection. |
-| A-17 | **Achievements without any required quest** have progress 0 and cannot be unlocked (the client should prompt the user to add a quest). |
-| A-18 | **Health endpoints** (`/health/live`, `/health/ready`) are unauthenticated, return no version or dependency details beyond `{"status":"ok"}`, and sit outside `/v1`. |
-| A-19 | **Email templates** contain no goal content, only the action link and generic text; links point to a universal link / app link scheme provided by the mobile app team (`questline://…` or `https://<domain>/…`). |
+| A-01 | Nickname optional, 1–40 chars, encrypted. |
+| A-02 | Timezone validated against `Intl.supportedValuesOf('timeZone')`, default `Europe/Zurich`; locale from an allowlist. |
+| A-03 | Habit check-ins are count-based; several per day allowed. |
+| A-04 | *(superseded by R-QST-09)* |
+| A-05 | Target values: decimals ≤ 3 fractional digits, |value| ≤ 10⁹; `start = target` is invalid. |
+| A-06 | Badges: one `achievement_rank` badge per completed achievement (carries the rank). |
+| A-07 | Re-auth window 10 min (confirmed Q-07). |
+| A-08 | *(superseded by R-CHK-04)* |
+| A-09 | Field limits as in R-IN-01 (confirmed Q-16). |
+| A-10 | Session lifetimes (confirmed Q-07). |
+| A-11 | Export synchronous, 2 per 24 h. |
+| A-12 | Email change: verify new address, notify old, uniform responses. |
+| A-13 | XP ledger entries carry the user's local date. |
+| A-14 | Registration stores accepted `privacy_policy_version` and `age_confirmed`; goal-content consent is given later in-app. |
+| A-15 | Idempotency records 24 h, encrypted. |
+| A-16 | Prerequisite chains ≤ depth 20. |
+| A-17 | Achievements without required quests have progress 0 and cannot be unlocked. |
+| A-18 | Health endpoints unauthenticated, `{status}` only, outside `/v1`. |
+| A-19 | Emails contain no goal content; links use a base URL from config. |
+| A-20 | **Gamble settlement for a missed `target_date`** runs daily after local midnight in the user's timezone; an unlock on the target date itself counts as on time. |
+| A-21 | **Habit period closing** is evaluated lazily on read/write and by the daily job, so a reset is detected even if the user does not open the app (needed for gamble losses). |
+| A-22 | **Deactivated accounts** (pending deletion) cannot use any endpoint except login (which reactivates after password check and re-verifies nothing else); their emails are not sent; their data is excluded from nothing (it is simply retained encrypted). |
+| A-23 | `week_start` change does not retroactively re-bucket already closed periods. |
+| A-24 | The PM's own hosting must satisfy H-1…H-7 in `docs/hosting-options.md`; until named, deployment artefacts stay provider-neutral (Docker image + Compose). |
+| A-25 | SMTP sender uses `nodemailer` with TLS required (STARTTLS or implicit TLS), credentials from 1Password/env, per-account send limit 3/h, outbox dedupe. |
 
-## 6. Open questions for the PM
+## 6. Decisions taken by the PM (2026-10-22)
 
-### 6.1 Blocking (need an answer before the stated milestone)
+| ID | Decision |
+|----|----------|
+| Q-01 | Hosting: PM's **own hosting option**, to be added later. Nothing in M1 depends on it; it must meet H-1…H-7. |
+| Q-02 | KEK via **1Password Connect server (self-hosted)**; app fetches the KEK at startup (ADR-0013). |
+| Q-03 | Email via **custom SMTP** (relay to be documented; Gmail/Google Workspace SMTP with DNS on Cloudflare mentioned) → ADR-0014. |
+| Q-04 | Habit: **missed period resets the quest to 0 %**, user restarts by redefining it; earlier check-ins kept as history. |
+| Q-05 | No self-declared difficulty. **Duration factor** by habit span (R-XP-02); **ranks** Bronze…Champion with multipliers ×0.5 … ×365 (×3 per rank); **level curve ×3 per level**; Diamond = 100 %, Champion = 100 % + flawless (incl. no lost gamble); **gambles** on achievements with the current-level XP as stake, double or nothing (R-GMB-*); coupons/currency deferred to v2. |
+| Q-06 | Password minimum **12** characters. |
+| Q-07 | Access 15 min · refresh 30 d sliding · absolute 180 d · re-auth 10 min. |
+| Q-08 | Back-dating up to 7 days allowed, **but back-dated check-ins never count** toward progress. |
+| Q-09 | Device label: **yes** (encrypted, ≤ 64 chars). |
+| Q-10 | Consent withdrawal: **hard-delete goal content, keep account**. |
+| Q-11 | Deletion: **30-day reactivation window**, then hard delete. |
+| Q-12 | Deleting achievements/quests **revokes** their XP. |
+| Q-13 | Tombstones: **yes** (35 days). |
+| Q-14 | Hashed IPs for rate limiting: **yes** (24 h). |
+| Q-15 | Email verification **required before login**. |
+| Q-16 | Limits: **defaults accepted**. |
+| Q-17 | Status model: `active ↔ paused` (pause = reset), `completed` set by the system, read-only, not deletable; **no manual archiving**. |
+| Q-18 | Week start **user-selectable** (Monday/Sunday/Saturday). |
+| Q-19 | No domain yet → URNs and placeholders. |
+| Q-20 | **Node 26 LTS**. |
+| Q-21 | **RLS enabled**. |
+| Q-22 | Keep `.idea/` tracked and `master`. |
+| Q-23 | Minimum age **13**, self-declared, no DOB. |
+| Q-24 | **Encrypt `target_date`**. |
 
-| ID | Needed by | Question | Options | Recommendation |
-|----|-----------|----------|---------|----------------|
-| Q-01 | M1 (CI/infra), M6 (deploy) | Hosting provider and region | See `docs/hosting-options.md`: (a) Exoscale (CH), (b) Scaleway (EU, FR/NL/PL), (c) Hetzner (DE/FI), (d) AWS/GCP/Azure Switzerland regions | **(a) Exoscale** — Swiss jurisdiction for compute, managed PostgreSQL **and** KMS from one provider; if lower cost/EU-only is acceptable: **(b) Scaleway** (verify its KMS/email maturity first). |
-| Q-02 | M2 (per-user keys) | KEK provider (KMS) | Depends on Q-01: cloud KMS of the chosen provider; or self-hosted OpenBao/Vault Transit; or Infisical KMS | KMS of the chosen provider. If Exoscale: **Exoscale KMS** (encrypt/decrypt with encryption context = user ID, same Swiss jurisdiction). Self-hosted OpenBao Transit only if no provider KMS exists. `KeyWrapper` interface keeps this swappable. |
-| Q-03 | M2 (verification emails) | Transactional email provider (processor, paid) | Infomaniak (CH), Scaleway TEM (FR), Brevo (FR), Mailjet (FR); non-EU providers not recommended | **Infomaniak** (Swiss) if hosting is Exoscale; Scaleway TEM if hosting is Scaleway. Needs DPA + entry in `processors.md`; tracking disabled. |
-| Q-04 | M3 | Habit period semantics. With the formula `Σ min(c_i, N) / (N·K)` over a fixed window of K periods, one missed occurrence makes the quest impossible to complete (e.g. 39/40 forever). | (a) strict fixed window; (b) open-ended: periods count from `start_date` until the sum reaches N·K (K is the plan, not a deadline); (c) fixed window but completion at ≥ 90 % | **(b)** — keeps the formula, keeps the per-period cap (no cramming), and a missed week only delays completion. |
-| Q-05 | M3 | Level curve and unlock bonus | Level: (a) `xp_to_reach(L) = 50·L·(L−1)` (L2 = 100, L5 = 1 000, L10 = 4 500); (b) linear 250 XP per level. Bonus: (a) 50 % of the achievement's required-quest XP, min 10; (b) flat 100 XP | Level **(a)**, bonus **(a)** (proportional bonus prevents XP farming with tiny achievements). |
-| Q-09 | M2 | Session list needs a human-readable label. Should we store a user-chosen `device_label` (e.g. "My iPhone")? It is a new (minor) data category. | (a) `client` enum (`ios`/`android`) + optional user-chosen label, encrypted, ≤ 64 chars; (b) `client` enum only + created/last-used timestamps | **(a)** — labels are user-provided, not fingerprints, encrypted at rest and deleted with the session. |
-| Q-10 | M2/M4 | Consequence of withdrawing the goal-content consent | (a) hard-delete all goal content (achievements, quests, check-ins, XP ledger, badges) immediately, account stays; (b) withdrawal = account deletion; (c) keep data but block access (not compliant: storage is processing) | **(a)**; the app must show a clear confirmation. |
-| Q-11 | M4 | Account deletion timing | (a) immediate hard delete; (b) 14-day grace period with cancellation (data retained meanwhile) | **(a)** (more private; the app confirms with re-auth + explicit confirmation). |
-| Q-12 | M3 | Deleting an achievement or quest: keep or revoke XP earned through it? | (a) revoke; (b) keep | **(a)** — consistent with undo semantics and prevents farming by create–complete–delete loops. |
-| Q-13 | M4 | Keep a `deleted_user_tombstones` table (random user UUID + deletion time, 35 days) so deletions can be replayed after a backup restore? Without it, a restore could resurrect deleted users within the 30-day backup window. | (a) yes; (b) no, rely on manual runbook | **(a)** — a UUID with no other data is not reasonably linkable to a person; documented in the inventory. |
-| Q-14 | M2 | Rate limiting needs per-IP state for ~1 h. Approve storing **HMAC-hashed** IPs (daily rotating key) in the DB for abuse prevention (legitimate interest)? | (a) yes, hashed; (b) per-IP limiting only at the edge/WAF | **(a)** — plus per-IP limits at the edge once hosting is chosen. |
-| Q-23 | M2 (registration) | Minors: goal content may be sensitive, and consent by children is legally constrained (GDPR Art. 8: 13–16 depending on member state; FADP: capacity of judgement). What is the minimum age, and how is it enforced? | (a) terms require ≥ 16, self-declaration checkbox at registration, no date of birth stored; (b) collect date of birth (new personal data, not recommended); (c) no age requirement | **(a)** — minimisation-friendly; the app shows the age statement next to the policy acceptance. |
+## 7. Open items (non-blocking)
 
-### 6.2 Confirm or change (defaults applied otherwise)
+| ID | Item | Needed by |
+|----|------|-----------|
+| O-01 | Name of the hosting option and its database/backup/TLS/secret-store capabilities (H-1…H-7) | before M6 (staging) |
+| O-02 | SMTP relay operator and credentials path in 1Password; DPA status (Google = US processor if Gmail is used) | start of M2 |
+| O-03 | 1Password Connect server deployment details (URL, vault, token issuance) | start of M2 |
+| O-04 | Consent text + version, privacy policy text, controller identity | before launch |
+| O-05 | Product review of gambling-like mechanics for users aged 13–15 (DPIA R-15) | before M3 implementation of gambles |
 
-| ID | Question | Default |
-|----|----------|---------|
-| Q-06 | Minimum password length: 8 (NIST SHALL), 12, or 15 (NIST SHOULD)? | **12** with breach list + rate limiting; I will switch to 15 if you prefer the stricter option. |
-| Q-07 | Session lifetimes (A-10) and re-auth window (A-07) | 15 min / 30 d sliding / 180 d absolute / 10 min re-auth |
-| Q-08 | Back-dating window for check-ins (A-08) | 7 days, no future dates |
-| Q-15 | Must the email be verified before login? | **Yes** (unverified accounts can only resend verification). |
-| Q-16 | Limits in A-09 | as listed |
-| Q-17 | Achievement status transitions (R-ACH-07), incl. whether `archived → active` is allowed | as listed, `archived → active` allowed |
-| Q-18 | Week start Monday for everyone (A-04) | yes |
-| Q-19 | Domain for problem-type URIs / API docs | URNs until a domain exists (ADR-0007) |
-| Q-20 | Node 26 LTS (ADR-0002) | yes |
-| Q-21 | Row-Level Security as defence in depth (ADR-0003) | yes |
-| Q-22 | Housekeeping: keep `.idea/` tracked in git and keep `master` as default branch name? | keep both as created by your IDE |
-| Q-24 | Encrypt `target_date` too (not listed in the brief, but a date next to an encrypted goal is weak metadata; cost is negligible)? | **yes** — I will encrypt it unless you object (DPIA R-5) |
+## 8. Traceability
 
-## 7. Traceability
-
-- Threats → mitigations → tests: `docs/security/threat-model.md` (references R-IDs).
-- Data categories → tables/columns → export/deletion coverage: `docs/privacy/data-inventory.md`.
-- Test layers, coverage/mutation targets and CI gates: `docs/test-strategy.md`.
+- Threats → mitigations → tests: `docs/security/threat-model.md`.
+- Data categories → tables/columns → export/deletion: `docs/privacy/data-inventory.md` + `.yaml`.
+- Test layers, gates: `docs/test-strategy.md`.
+- Decision records: `docs/DECISIONS.md` (ADR-0001…0015).

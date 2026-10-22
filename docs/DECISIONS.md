@@ -93,8 +93,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   deletion.
 - **Decision:**
   - One 32-byte DEK per user, generated at registration, wrapped by the KEK through a `KeyWrapper` interface
-    (`LocalKeyWrapper` for dev/test using a 32-byte env secret; `KmsKeyWrapper` for production — provider chosen by
-    the PM, see hosting options). Wrapped DEKs live in `user_keys` with `kek_id`, `kek_version`, `dek_version`.
+    (`LocalKeyWrapper` with a 32-byte KEK: from an env secret in dev/test, from the self-hosted 1Password Connect
+    server in production — ADR-0013; a `KmsKeyWrapper` remains possible if the PM's hosting offers a KMS later).
+    Wrapped DEKs live in `user_keys` with `kek_id`, `kek_version`, `dek_version`.
   - Field ciphertext format (bytea): `0x01 | nonce(24) | ciphertext+tag`. AD = `questline|v1|<user_id>|<record_id>|<field>`.
     Record IDs are therefore generated application-side (random UUID v4) before the insert.
   - Unwrapped DEKs are cached in process memory (`sodium_malloc` guarded buffers) for at most 5 minutes per user
@@ -180,8 +181,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Decision:** All period logic works on **calendar dates** (`YYYY-MM-DD`), never on instants. The client sends
   `local_date` with each check-in (the device knows the user's day); the server validates it against "today" in the
   account timezone (computed with `Intl.DateTimeFormat(…, {timeZone})`) — no future dates, back-dating limited to
-  7 days (Q-08). Day periods are consecutive dates; week periods are ISO weeks (Monday start). Timezone strings are
-  validated against `Intl.supportedValuesOf('timeZone')`.
+  7 days and back-dated check-ins never count (Q-08). Day periods are consecutive dates; week periods start on the
+  user's `week_start` setting (`monday | sunday | saturday`, PM decision Q-18). Timezone strings are validated
+  against `Intl.supportedValuesOf('timeZone')`.
 - **Consequences:** Zero dependencies; DST only affects the mapping instant → local date, which `Intl` handles.
   Test vectors for Europe/Zurich on 2026-03-29 and 2026-10-25 are mandatory.
 - **Tests:** `unit/domain/streak.test.ts`, `unit/time/tz.test.ts` (DST vectors), property tests with
@@ -200,3 +202,65 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Consequences:** No external dependency at runtime; the list can be refreshed with a documented script.
 - **Tests:** `unit/accounts/password-policy.test.ts` (top-100 passwords rejected, long passphrases accepted,
   ≥ 64 chars allowed, no composition rules, no truncation).
+
+## ADR-0013 · Production KEK sourced from a self-hosted 1Password Connect server
+
+- **Status:** decided by PM (2026-10-22, Q-02)
+- **Context:** The brief foresaw a KMS for the key-encryption key. The PM's hosting is not chosen yet and the PM
+  requires 1Password connectivity. 1Password Connect is a self-hosted server that syncs selected vaults from
+  1Password and exposes them over a local REST API with scoped access tokens.
+- **Decision:** `KeyWrapper` gets a `LocalKeyWrapper` implementation in production too, but its 32-byte KEK is
+  fetched **at startup** from the Connect server (`GET /v1/vaults/{vault}/items/{item}`) using a Connect token
+  from the environment. The KEK is held only in `sodium_malloc` guarded memory, never logged or persisted; the
+  process refuses to start if the item is missing, malformed (< 32 bytes) or the Connect server is unreachable.
+  DEK wrapping is XChaCha20-Poly1305 with AD = user ID, done in-process. A `kek_version` field supports rotation:
+  new KEK item version → re-wrap job for all `user_keys`.
+- **Consequences / residual risk (accepted by PM):** unlike a KMS, the KEK is present in app memory, so a fully
+  compromised app process can decrypt **all** users' data, not only those active during the compromise
+  (threat model RR-1 widened; DPIA R-3 updated). The Connect server and its token become critical assets: the
+  server must run in the private network, its token is rotated with the KEK, and its access is logged.
+  No runtime dependency is needed (plain `fetch`); 1Password (AgileBits Inc., Canada) is recorded in
+  `processors.md` as a security service provider that holds **no personal data**.
+- **Tests:** `unit/config.test.ts` (missing/short KEK → refuse to start), `unit/crypto/kek-source.test.ts`
+  (Connect client against a local stub: happy path, 401/404/timeout → startup failure, no token in logs),
+  `integration/key-rotation.test.ts`.
+
+## ADR-0014 · Email delivery via generic SMTP (`nodemailer`)
+
+- **Status:** decided by PM (2026-10-22, Q-03)
+- **Context:** The PM wants a custom SMTP relay (Gmail/Google Workspace SMTP with DNS on Cloudflare was mentioned)
+  rather than a provider API.
+- **Decision:** `SmtpEmailSender` implements `EmailSender` using `nodemailer` (new runtime dependency: mature, no
+  transitive dependencies, the de-facto Node SMTP client). TLS is mandatory (`requireTLS` for STARTTLS on 587 or
+  implicit TLS on 465; plaintext refused), credentials come from 1Password/env, `From` uses a dedicated sending
+  domain with SPF/DKIM/DMARC configured at the DNS provider. Per-account send limit 3/h and outbox dedupe protect
+  the relay's daily quota. The relay operator is a processor for email addresses and must be named in
+  `processors.md` (Google = US jurisdiction → DPIA R-9).
+- **Consequences:** No provider SDK; delivery feedback limited to SMTP responses (no bounce webhooks in v1).
+- **Tests:** `unit/email/smtp-sender.test.ts` against a local SMTP test server (TLS enforced, auth failure → outbox
+  retry/dead-letter), `unit/email/templates.test.ts` (no goal content).
+
+## ADR-0015 · Gamification model: resets, ranks, duration factor, gambles
+
+- **Status:** decided by PM (2026-10-22, Q-04/Q-05/Q-08/Q-17), engineering shape proposed by lead engineer
+- **Context:** The PM replaced the brief's "freeze on pause / Σ min(…) habit progress" with a stricter model and
+  added ranks and gambles. Everything must stay non-gameable and exactly-once.
+- **Decision (engineering shape):**
+  - **Attempts**: an achievement carries `attempt`; pausing or a reset starts a new attempt. Check-ins carry
+    `attempt` and `counts_for_progress`; progress/streak/score are computed over counting check-ins of the current
+    attempt only. History is never deleted by resets (only by undo, quest/achievement deletion, consent withdrawal,
+    account deletion).
+  - **Habit reset**: detected when a closed period of the current attempt has fewer than N counting check-ins;
+    evaluated lazily on every read/write of the quest and by a daily job (so gamble losses are settled even without
+    app activity). State `needs_restart` blocks check-ins until the quest is edited with a new `start_date`.
+  - **Effects engine** stays the single place that derives XP events, badges, rank and gamble outcomes from
+    (previous state, next state), so undo/pause/delete are exact inverses of award paths.
+  - **Numbers** (R-XP-02/03, R-RANK-01…03, R-GMB-*) are constants in `src/domain/constants.ts`, covered by
+    table-driven tests, so the PM can tune them with a one-line change and a test update.
+  - **Integers**: XP amounts and totals are `bigint`-safe (`int8` in PostgreSQL, `number` ≤ 2^53 asserted) because
+    Champion multipliers reach ×365 on durations ×3.
+- **Consequences:** M3 grows by ≈ 5–7 engineering days; new table `gambles`, new columns on achievements/quests/
+  check-ins; `achievement_pauses` is dropped (pause = reset, no freezing); OpenAPI gains gamble placement and rank
+  fields. DPIA R-15 assesses gambling-like mechanics for users aged 13+.
+- **Tests:** `unit/domain/{habit-reset,rank,gamble,duration}.test.ts` with property tests; `integration/attempts.test.ts`;
+  `integration/gamble-settlement.test.ts` with injected clock across the Zurich DST dates.
