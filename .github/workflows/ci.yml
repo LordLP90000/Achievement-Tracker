@@ -1,6 +1,8 @@
 # CI for every push to master (trunk-based, ADR-0001) and a nightly run against fresh vulnerability databases.
 # Gates: docs/test-strategy.md §6–§7, R-SUP-02. Actions are pinned to commit SHAs and scanner images to digests;
 # the token is read-only and never persisted; workflow values reach shell scripts only through environment variables.
+# No dependency cache: npm ci from the registry takes seconds and verifies every package against the lockfile, while
+# a stalled cache restore cost 10 minutes per job on 2026-10-23.
 name: CI
 
 on:
@@ -43,7 +45,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install (lockfile only, no install scripts)
         run: npm ci --no-audit
       - name: Format
@@ -84,7 +86,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install (lockfile only, no install scripts)
         run: npm ci --no-audit
       - name: Tests with coverage thresholds and the spec-coverage gate (Testcontainers)
@@ -103,7 +105,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install (lockfile only, no install scripts)
         run: npm ci --no-audit
       - name: Stryker (break below 80 %)
@@ -172,7 +174,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
-          cache: npm
+          package-manager-cache: false
       - name: Install (lockfile only, no install scripts)
         run: npm ci --no-audit
       - name: Build the image

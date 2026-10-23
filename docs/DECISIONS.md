@@ -286,6 +286,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
     packages must not include payment SDKs (R-GMB-05).
   - GitHub Actions are pinned to commit SHAs, scanner images to digests; the workflow token is read-only and never
     persisted; scanners get read-only mounts; Trivy scans an image tarball instead of the Docker socket.
+  - CI jobs install from the registry without the Actions dependency cache: `npm ci` takes seconds and checks every
+    package against the lockfile, while a stalled cache restore cost 10 minutes per job on 2026-10-23.
   - Exceptions only in reviewed files, with reason: `osv-scanner.toml` (with expiry), `.gitleaksignore` (exact
     finding fingerprints), `// nosemgrep: <rule> -- <reason>` on the line. Every exception is listed in the next
     milestone report.
