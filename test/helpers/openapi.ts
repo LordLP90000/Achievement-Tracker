@@ -13,6 +13,8 @@ export interface SpecOperation {
   /** The same path in Fastify syntax, e.g. `/v1/quests/:questId`. */
   readonly fastifyPath: string;
   readonly pattern: RegExp;
+  /** True when the operation declares a `requestBody`. */
+  readonly hasRequestBody: boolean;
   readonly responses: Node;
 }
 
@@ -48,6 +50,7 @@ export const specOperations: readonly SpecOperation[] = Object.entries(spec['pat
         path,
         fastifyPath: path.replace(/\{([^}]+)\}/g, ':$1'),
         pattern: new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`),
+        hasRequestBody: operation['requestBody'] !== undefined,
         responses: operation['responses'] as Node,
       };
     });

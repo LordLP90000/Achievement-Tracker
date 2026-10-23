@@ -144,7 +144,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | ID | Threat | Mitigation | Test |
 |----|--------|-----------|------|
 | D-01 | Flooding auth endpoints to exhaust CPU with Argon2id | Per-IP/per-account limits before hashing; bounded hashing concurrency (semaphore) → `503`/`429` instead of collapse | `security/rate-limit.test.ts`, `unit/accounts/hash-semaphore.test.ts`, M6 load test |
-| D-02 | Oversized or deeply nested bodies | `bodyLimit` 64 KiB (`413`), JSON only (`415`) | `security/limits.test.ts` |
+| D-02 | Oversized or deeply nested bodies | `bodyLimit` 64 KiB (`413`), JSON only (`415`) | `contract/problem-details.test.ts`, `contract/body-errors.test.ts` (413/415, documented on every operation with a body); deep nesting: `security/limits.test.ts` (M2) |
 | D-03 | Unbounded collections per user | ≤ 200 achievements, ≤ 50 quests/achievement, ≤ 50 check-ins/quest/day, ≤ 20 sessions (A-09) | `integration/limits.test.ts` |
 | D-04 | Locking a victim out through per-account backoff | Backoff capped (15 min), per-IP limits hit first; victim notified of unusual failures only via audit/export | `security/rate-limit.test.ts` (legitimate login from another IP succeeds after cap) |
 | D-05 | Email bombing via resend/forgot/email-change | Per-account 3 emails / h, per-IP limits, outbox dedupe of identical pending templates | `security/email-abuse.test.ts` |

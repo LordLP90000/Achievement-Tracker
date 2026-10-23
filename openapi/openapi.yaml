@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.0-draft
+  version: 0.2.1-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
     Q-01…Q-24 in `docs/requirements.md` v2. Enforced by contract tests (ADR-0010).
+    0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -17,6 +18,7 @@ info:
     - Owner, XP, level, rank, execution score, attempt, gamble stake and outcome, the status `completed`, completion
       flags and timestamps are never accepted from the client (R-AUTHZ-04).
     - Unknown request fields are rejected with `400`.
+    - Request bodies are JSON only and at most 64 KiB: other media types → `415`, larger bodies → `413` (R-IN-01).
     - XP amounts are integers within ±(2^53 − 1), stored as 64-bit integers (R-XP-04).
     - Closed habit periods are evaluated lazily on every read and write and by a daily job (A-21), so any response
       may reflect a quest reset (`needs_restart`) or a gamble lost since the previous request.
@@ -115,6 +117,8 @@ paths:
       responses:
         '202': { $ref: '#/components/responses/Accepted' }
         '400': { $ref: '#/components/responses/ValidationError' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/WeakPassword' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/verify-email:
@@ -132,6 +136,8 @@ paths:
         '204': { description: Email verified (or token already consumed by this account). }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidToken' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/resend-verification:
     post:
@@ -147,6 +153,8 @@ paths:
       responses:
         '202': { $ref: '#/components/responses/Accepted' }
         '400': { $ref: '#/components/responses/ValidationError' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/login:
     post:
@@ -176,6 +184,8 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidCredentials' }
         '403': { $ref: '#/components/responses/EmailNotVerified' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/refresh:
     post:
@@ -206,6 +216,8 @@ paths:
               schema: { $ref: '#/components/schemas/TokenPair' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidToken' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/logout:
     post:
@@ -242,6 +254,8 @@ paths:
         '204': { description: Session marked as recently authenticated. }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/password/forgot:
     post:
@@ -257,6 +271,8 @@ paths:
       responses:
         '202': { $ref: '#/components/responses/Accepted' }
         '400': { $ref: '#/components/responses/ValidationError' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /auth/password/reset:
     post:
@@ -279,6 +295,8 @@ paths:
         '204': { description: Password changed; all sessions revoked. }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidToken' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/WeakPassword' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
@@ -324,6 +342,8 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/VersionConflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
     delete:
       tags: [me, privacy]
@@ -368,6 +388,8 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidCredentials' }
         '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/WeakPassword' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /me/email-change:
@@ -391,6 +413,8 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /me/email-change/confirm:
     post:
@@ -408,6 +432,8 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidToken' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /me/sessions:
     get:
@@ -490,6 +516,8 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
   /me/consents/{type}:
     parameters:
       - name: type
@@ -600,6 +628,8 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ConsentRequired' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableContent' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /achievements/{achievementId}:
@@ -650,6 +680,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/VersionOrStateConflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableContent' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
     delete:
@@ -723,6 +755,8 @@ paths:
         '403': { $ref: '#/components/responses/ConsentRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableContent' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
@@ -785,6 +819,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/NothingToStake' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
@@ -836,6 +872,8 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/VersionOrStateConflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableContent' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
     delete:
@@ -917,6 +955,8 @@ paths:
         '403': { $ref: '#/components/responses/ConsentRequired' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableContent' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
@@ -1108,6 +1148,20 @@ components:
       description: Too many requests.
       headers:
         Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PayloadTooLarge:
+      description: |
+        The request body is larger than 64 KiB (R-IN-01, Q-25); nothing was processed.
+        Problem type `urn:questline:problem:payload-too-large`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnsupportedMediaType:
+      description: |
+        The request body is not `application/json` (Q-25); nothing was processed.
+        Problem type `urn:questline:problem:unsupported-media-type`.
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }

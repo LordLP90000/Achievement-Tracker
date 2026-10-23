@@ -93,7 +93,7 @@ one automated test, deterministic tests only.
 | R-AUTHZ-01 | `deny-by-default.test.ts` (spec-driven) |
 | R-AUTHZ-02/03 | `ownership.test.ts` (spec-driven: every operation with an ID, user A vs user B → 404, no side effects) ; `rls.test.ts` |
 | R-AUTHZ-04 | `mass-assignment.test.ts` |
-| R-IN-01 | `limits.test.ts` (body 64 KiB + 1 → 413, limit=101 → 400, 201st achievement → 422, unknown field → 400) |
+| R-IN-01 | `contract/problem-details.test.ts` + `contract/body-errors.test.ts` (body 64 KiB + 1 → 413, non-JSON → 415, both as documented on every operation with a body — Q-25), `limits.test.ts` (limit=101 → 400, 201st achievement → 422, unknown field → 400) |
 | R-IN-02 | ESLint rule test + `injection.test.ts` |
 | R-OUT-01/03 | `problem-details.test.ts`, `idempotency.test.ts`, `concurrency.test.ts` |
 | R-OUT-02 | `ids.test.ts` (UUID v4 format, 10⁴ IDs unique) |
