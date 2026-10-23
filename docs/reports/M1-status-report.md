@@ -151,3 +151,31 @@ the allowlist, will be reported): `sodium-native`, `nodemailer`; dev: `smtp-serv
 Housekeeping: pushing from your IDE now runs the hooks — Docker must be running (pre-push) and gitleaks must be on
 `PATH` (restart the IDE once after the winget install). The fully merged `m0-plan` branch still exists on GitHub;
 deleting it is your call.
+
+---
+
+## Addendum 2026-10-23 — review with the PM
+
+**Live demo** (stack started with the README command, random local secrets in the git-ignored `docker/.env`):
+
+| Shown | Result |
+|-------|--------|
+| Health | `/health/live` and `/health/ready` → 200 with all security headers and `no-store`; no server banner |
+| Hostile requests | no CORS headers (also on a preflight); a spoofed `X-Request-Id` is ignored; unknown route → 404 problem whose `instance` drops `?token=…` |
+| Logs | one allowlisted JSON line per request with the route pattern; the token, origin, spoofed ID, path and the four database passwords appear 0 times |
+| Container | uid 65532, read-only root, `cap_drop: ALL`, `no-new-privileges`; no `sh` or `/bin/sh`; write to `/app` → `EROFS` |
+| Database outage | `/health/ready` → 503 `degraded` after 2.0 s while `/health/live` stays 200; back to 200 1.7 s after the database restarted; no crash |
+| Unsafe production settings | 3 of 3 refused with exit code 1 (weak password + no `verify-full` + no proxy setting; `debug` logging; placeholder password); messages name the variable and the rule, never the value |
+
+**Findings**: (1) Docker's health probe produced one log line every 3 s (~29 000 per day and container);
+(2) Fastify's own "Server listening at …" lines duplicated `api listening` and carried the container's internal
+IP address. Neither is a security issue; both fixed before M2 (Q-28).
+
+**Decisions** (recorded in `docs/requirements.md` §6.1): Q-25 document `413`/`415` on the 19 operations that accept a
+body · Q-26 commits use the PM's no-reply address (repository-local git config, set the same day) · Q-27 M2 builds
+against local stand-ins for SMTP and 1Password Connect; O-02/O-03 now needed before M6 · Q-28 fix both findings.
+
+**Also observed**: the nightly CI run (03:17 UTC) has not fired yet — 0 scheduled runs while the workflow is active.
+GitHub schedules are best-effort; checked again on the next day, investigated if still missing.
+
+**Status**: M1 stays in REVIEW until the follow-ups (Q-25, Q-28) are pushed and green and the PM gives the "go".

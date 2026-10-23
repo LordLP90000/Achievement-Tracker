@@ -80,4 +80,5 @@ roughly halve this for a beta.
 4. Provide the production domain (API host, email sending domain, problem-type URIs — Q-19).
 
 Until decided, M1 proceeds with provider-neutral artefacts (Docker image, Compose, CI, `KeyWrapper` with the
-local adapter) — nothing in M1 depends on the choice. Q-02/Q-03 are needed at the start of M2.
+local adapter) — nothing in M1 depends on the choice. Q-02/Q-03 are decided (1Password Connect, custom SMTP); their
+deployment details (O-02/O-03) are needed before staging in M6 — M2 uses local stand-ins (Q-27).

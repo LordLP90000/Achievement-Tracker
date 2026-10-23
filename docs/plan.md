@@ -11,7 +11,7 @@ amended on 2026-10-22).
 |-----------|-------|---------------|----------------------------|
 | M0 Plan | this document set | done in 1 | – |
 | M1 Walking skeleton | repo, tooling, Docker, CI gates, config/secrets, health, Testcontainers + contract harness | 4–6 | "go" (Q-20 Node 26, Q-21 RLS, Q-22 housekeeping are decided) |
-| M2 Accounts & sessions | crypto platform, registration/verification/login/refresh/reset, sessions, re-auth, consent, audit, rate limiting, outbox/worker, email adapter | 10–14 | O-02 SMTP relay operator + credentials path, O-03 Connect server details (Q-02/03/06/07/09/14/15/23 are decided) |
+| M2 Accounts & sessions | crypto platform, registration/verification/login/refresh/reset, sessions, re-auth, consent, audit, rate limiting, outbox/worker, email adapter | 10–14 | none: built against local stand-ins for the SMTP relay and the Connect server (Q-27); O-02/O-03 needed before M6 (Q-02/03/06/07/09/14/15/23 are decided) |
 | M3 Core domain | domain engine (+ Stryker), achievements/quests/check-ins, field encryption, idempotency, concurrency, stats, ownership tests for every endpoint | 12–16 | O-05 review of gambling-like mechanics, O-06 rank/gamble integrity rules, objections to A-26…A-28 if any (Q-04/05/08/12/16/17/18/24 are decided) |
 | M4 Privacy rights | export, deletion + crypto-shredding + tombstones, consent withdrawal effects, retention jobs, data-inventory guard test | 5–7 | – (Q-10/11/13 are decided) |
 | M5 Auth hardening | passkeys (WebAuthn), optional TOTP 2FA, recovery codes, step-up | 7–10 | approval of WebAuthn library dependency; RP ID/domain (Q-19) |
@@ -112,7 +112,7 @@ package for the data-protection expert (DPIA, inventory, threat model, processor
 
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
-| Open items O-02/O-03 (SMTP relay operator, Connect deployment) arrive late | M2 blocked on the SMTP/Connect adapters | Build against fakes first; adapters are the last M2 task |
+| Open items O-02/O-03 (SMTP relay operator, Connect deployment) arrive late | Real adapters untested against the real services | Decided (Q-27): M2 builds against local stand-ins; wiring the real services is a task before staging (M6) |
 | Node 26 prebuilds missing for `sodium-native` | M1/M2 delay | Fallback to Node 24 or `libsodium-wrappers-sumo` (ADR-0005), reported immediately |
 | Testcontainers in CI (Docker-in-Docker, pull limits) | CI flakiness | Pin image by digest, use GitHub-hosted Docker, cache layers |
 | 1Password Connect not available in CI | Cannot integration-test the real KEK source | Contract tests against a local Connect stub; one manual verification on staging in M6 |

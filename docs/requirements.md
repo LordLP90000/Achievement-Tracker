@@ -4,7 +4,7 @@ Status: M0 **v2** (2026-10-22) — updated with the PM's answers to all open que
 (`R-…`) are referenced by the threat model, the test strategy and test names. Assumptions (`A-…`) are defaults the
 PM has not objected to. Where a PM decision changed the original brief, the row is marked **[PM 2026-10-22]**.
 Later on 2026-10-22: R-TLS/R-LOG/R-SUP rows restored from v1 (R-SUP-04 adapted to ADR-0013), A-26…A-28 proposed,
-open item O-06 added.
+open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.1); O-02/O-03 moved to "before M6".
 
 ## 1. Product summary
 
@@ -251,13 +251,22 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | Q-23 | Minimum age **13**, self-declared, no DOB. |
 | Q-24 | **Encrypt `target_date`**. |
 
+### 6.1 Decisions from the M1 review (PM, 2026-10-23)
+
+| ID | Decision |
+|----|----------|
+| Q-25 | **Contract**: every operation that accepts a request body documents `413` (body over 64 KiB) and `415` (body not JSON) as problem responses — 19 operations, additive change. |
+| Q-26 | Commits in this repository use the PM's GitHub no-reply address (`272163696+LordLP90000@users.noreply.github.com`) and the name `Laurent` (repository-local git config). Past commits keep the old address; history is not rewritten. |
+| Q-27 | M2 is built and tested against local stand-ins for the SMTP relay and the 1Password Connect server; the real services are wired in when O-02/O-03 are answered, before staging (M6). |
+| Q-28 | Two findings of the M1 demo are fixed before M2: successful health probes are no longer logged (failures still are), and Fastify's per-address "Server listening at …" lines are dropped (one structured `api listening` line remains). |
+
 ## 7. Open items (non-blocking)
 
 | ID | Item | Needed by |
 |----|------|-----------|
 | O-01 | Name of the hosting option and its database/backup/TLS/secret-store capabilities (H-1…H-7) | before M6 (staging) |
-| O-02 | SMTP relay operator and credentials path in 1Password; DPA status (Google = US processor if Gmail is used) | start of M2 |
-| O-03 | 1Password Connect server deployment details (URL, vault, token issuance) | start of M2 |
+| O-02 | SMTP relay operator and credentials path in 1Password; DPA status (Google = US processor if Gmail is used) | before M6 (staging); M2 uses a local stand-in (Q-27) |
+| O-03 | 1Password Connect server deployment details (URL, vault, token issuance) | before M6 (staging); M2 uses a local stand-in (Q-27) |
 | O-04 | Consent text + version, privacy policy text, controller identity | before launch |
 | O-05 | Product review of gambling-like mechanics for users aged 13–15 (DPIA R-15) | before M3 implementation of gambles |
 | O-06 | **Integrity of ranks and gambles** (found while specifying `placeGamble`; analysis and recommendation in the M0 report): (a) one pending gamble *per achievement* with an unremoved stake lets the same XP be staked on many achievements at once; (b) R-GMB-03 "−stake" can lower the level or push XP below 0 when XP changed after placement, contradicting R-XP-03/R-XP-04; (c) wins compound — a simulation of trivial achievements with gambles exceeds the 2^53 safe-integer bound of R-XP-04 after 102 rounds, inside the 200-achievement limit; (d) a trivial achievement (one S quest, unlocked the same day) is flawless → Champion bonus 10 × 365 = 3 650 XP, and a gamble on it is riskless; (e) moving or removing `target_date` avoids the lateness penalty and Champion's deadline condition (A-26 only covers pending gambles) | before M3 implementation of ranks/gambles |
