@@ -89,4 +89,18 @@ describe('createLogger [R-LOG-01, R-LOG-02]', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('"service":"questline-worker"');
   });
+
+  it("drops Fastify's per-address listening announcements, which carry internal IP addresses [Q-28]", () => {
+    const { stream, records } = capture();
+    const logger = createLogger({ service: 'questline-api', level: 'info' }, stream);
+    logger.info('Server listening at http://172.18.0.4:3000');
+    logger.info('Server listening at http://[::1]:3000');
+    logger.info({ port: 3000 }, 'api listening');
+    logger.info('Server listening is the subject of this unrelated message');
+
+    expect(records().map((record) => record['msg'])).toEqual([
+      'api listening',
+      'Server listening is the subject of this unrelated message',
+    ]);
+  });
 });

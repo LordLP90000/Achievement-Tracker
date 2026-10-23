@@ -42,6 +42,24 @@ describe('entrypoints against a real database', () => {
     await expect(fetch(`${api.url}/health/live`)).rejects.toThrow();
   });
 
+  it('announces the API once, with its port but without network addresses [Q-28]', async () => {
+    const config: ApiConfig = {
+      appEnv: 'test',
+      logLevel: 'info',
+      http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
+      databaseUrl: database.urls.app,
+    };
+    const logs = new LogCapture();
+    const api = await startApi(config, loggerFor(logs));
+    await api.stop();
+
+    expect(logs.records().filter((record) => record['msg'] === 'api listening')).toMatchObject([
+      { port: expect.any(Number) as unknown },
+    ]);
+    expect(logs.text).not.toContain('Server listening');
+    expect(logs.text).not.toMatch(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
+  });
+
   it('fails to start when the port is taken and leaves no open database pool behind', async () => {
     const config: ApiConfig = {
       appEnv: 'test',

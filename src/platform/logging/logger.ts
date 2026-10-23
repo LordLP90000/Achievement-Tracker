@@ -1,4 +1,4 @@
-import { pino, type DestinationStream, type Logger } from 'pino';
+import { pino, type DestinationStream, type LogFn, type Logger } from 'pino';
 import type { LogLevel } from '../config/config.ts';
 
 export type ServiceName = 'questline-api' | 'questline-worker' | 'questline-migrate' | 'questline-db-init';
@@ -18,6 +18,18 @@ function serializeError(value: unknown): Record<string, string> {
   return { name: typeof name === 'string' ? name : 'UnknownError', ...(typeof code === 'string' ? { code } : {}) };
 }
 
+/**
+ * Fastify announces every interface address it listens on ("Server listening at http://172.18.0.4:3000") and has
+ * no switch to turn that off; the API logs one structured `api listening` line with the port instead (Q-28).
+ */
+const FASTIFY_LISTENING_ANNOUNCEMENT = /^Server listening at \S+$/;
+
+function dropListeningAnnouncements(this: Logger, args: Parameters<LogFn>, method: LogFn): void {
+  const [first] = args as unknown[];
+  if (typeof first === 'string' && FASTIFY_LISTENING_ANNOUNCEMENT.test(first)) return;
+  method.apply(this, args);
+}
+
 export function createLogger(settings: LoggerSettings, destination?: DestinationStream): Logger {
   const options = {
     level: settings.level,
@@ -26,6 +38,7 @@ export function createLogger(settings: LoggerSettings, destination?: Destination
     formatters: { level: (label: string) => ({ level: label }) },
     serializers: { err: serializeError },
     redact: { paths: REDACTED_KEYS.flatMap((key) => [key, `*.${key}`]), censor: '[redacted]' },
+    hooks: { logMethod: dropListeningAnnouncements },
   };
   return destination === undefined ? pino(options) : pino(options, destination);
 }

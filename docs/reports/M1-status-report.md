@@ -179,3 +179,9 @@ against local stand-ins for SMTP and 1Password Connect; O-02/O-03 now needed bef
 GitHub schedules are best-effort; checked again on the next day, investigated if still missing.
 
 **Status**: M1 stays in REVIEW until the follow-ups (Q-25, Q-28) are pushed and green and the PM gives the "go".
+
+**Follow-ups done the same morning** (each test-first, pushed to `master`): `2090e43` decisions recorded ·
+`7d719f0` contract 0.2.1-draft with `413`/`415` on all 19 operations with a body (Q-25; 5 new tests) · `66a2a27`
+successful health probes no longer logged, every failed probe logs a warning (Q-28; 2 new tests) · the following
+commit drops Fastify's per-address listening lines (Q-28; 2 new tests). Totals: **154 tests**, e2e 7/7; the rebuilt
+API container logged 2 lines in 15 s (startup and one 404) instead of a line every 3 s.
