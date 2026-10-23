@@ -126,6 +126,8 @@ content-type enforcement.
   `request_id`, `method`, `route`, `status`, `duration_ms`, `user_present` (boolean), `client` (enum).
 - No headers, no URL query strings, no bodies, no emails, no IDs other than `request_id` are logged. Pino
   `redact` is configured as a second line of defence for common key names (`password`, `token`, `email`, …).
+- Successful health probes are not logged (route config `quietOnSuccess`, Q-28): Docker and load balancers call
+  them every few seconds. A failed probe logs its `503` request line and a warning with the reason.
 - Audit events are **not** logs: they are rows in `audit_events` with minimal, allowlisted metadata.
 - Test harness captures every log line of the whole run (API + worker) and asserts that no seeded secret or
   personal value appears (R-LOG-02).

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildTestApp, LEAKY_ERROR_MESSAGE, UUID_V4 } from '../helpers/app.ts';
+import { buildTestApp, LEAKY_ERROR_MESSAGE, UUID_V4, type TestAppOptions } from '../helpers/app.ts';
 import { LogCapture } from '../helpers/log-capture.ts';
 
 const ALLOWED_REQUEST_LOG_KEYS = [
@@ -23,9 +23,9 @@ describe('request logging [R-LOG-01, R-LOG-02, I-02]', () => {
     await app?.close();
   });
 
-  const start = async () => {
+  const start = async (options: Omit<TestAppOptions, 'logCapture'> = {}) => {
     logs = new LogCapture();
-    app = await buildTestApp({ logCapture: logs });
+    app = await buildTestApp({ ...options, logCapture: logs });
     return app;
   };
 
@@ -94,5 +94,23 @@ describe('request logging [R-LOG-01, R-LOG-02, I-02]', () => {
 
     expect(requestLines()[0]).toMatchObject({ route: null, status: 404 });
     expect(logs.text).not.toContain('alice@example.test');
+  });
+
+  it('does not log successful health probes, which arrive every few seconds [Q-28]', async () => {
+    const server = await start();
+    await server.inject({ method: 'GET', url: '/health/live' });
+    await server.inject({ method: 'GET', url: '/health/ready' });
+
+    expect(requestLines()).toEqual([]);
+  });
+
+  it('still logs a failed readiness probe: its 503 request line and a warning [Q-28]', async () => {
+    const server = await start({ readiness: () => Promise.resolve(false) });
+    await server.inject({ method: 'GET', url: '/health/ready' });
+
+    expect(requestLines()).toMatchObject([{ route: '/health/ready', status: 503 }]);
+    expect(logs.records().filter((record) => record['level'] === 'warn')).toMatchObject([
+      { msg: 'readiness check reported not ready' },
+    ]);
   });
 });
