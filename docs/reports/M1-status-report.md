@@ -175,8 +175,12 @@ IP address. Neither is a security issue; both fixed before M2 (Q-28).
 body · Q-26 commits use the PM's no-reply address (repository-local git config, set the same day) · Q-27 M2 builds
 against local stand-ins for SMTP and 1Password Connect; O-02/O-03 now needed before M6 · Q-28 fix both findings.
 
-**Also observed**: the nightly CI run (03:17 UTC) has not fired yet — 0 scheduled runs while the workflow is active.
-GitHub schedules are best-effort; checked again on the next day, investigated if still missing.
+**Also observed**: the first nightly CI run started 5 h 15 min late (run #5, 08:32 UTC instead of 03:17) and passed.
+GitHub delays scheduled runs under load, so the nightly run is a best-effort safety net, not a gate.
+
+**Correction** to the report above: the stray apostrophes are only in the PM's global git config — git strips them
+when it records an author, so past commits show `Laurent <laurent_scherrer@sluz.ch>`. The address itself was
+public, which Q-26 addresses for future commits.
 
 **Status**: M1 stays in REVIEW until the follow-ups (Q-25, Q-28) are pushed and green and the PM gives the "go".
 
