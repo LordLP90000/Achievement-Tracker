@@ -182,10 +182,13 @@ GitHub delays scheduled runs under load, so the nightly run is a best-effort saf
 when it records an author, so past commits show `Laurent <laurent_scherrer@sluz.ch>`. The address itself was
 public, which Q-26 addresses for future commits.
 
-**Status**: M1 stays in REVIEW until the follow-ups (Q-25, Q-28) are pushed and green and the PM gives the "go".
+**Status**: review completed by the PM on 2026-10-23; the follow-ups below are pushed and green. M1 stays in REVIEW
+until the PM gives the "go" for M2.
 
 **Follow-ups done the same morning** (each test-first, pushed to `master`): `2090e43` decisions recorded ·
 `7d719f0` contract 0.2.1-draft with `413`/`415` on all 19 operations with a body (Q-25; 5 new tests) · `66a2a27`
-successful health probes no longer logged, every failed probe logs a warning (Q-28; 2 new tests) · the following
-commit drops Fastify's per-address listening lines (Q-28; 2 new tests). Totals: **154 tests**, e2e 7/7; the rebuilt
-API container logged 2 lines in 15 s (startup and one 404) instead of a line every 3 s.
+successful health probes no longer logged, every failed probe logs a warning (Q-28; 2 new tests) · `8380a21` drops
+Fastify's per-address listening lines (Q-28; 2 new tests) · `92562d5` two corrections below · `f8b000c` CI installs
+without the Actions dependency cache, whose restore stalled for 10 minutes per job in runs #9/#10 (run #11: green in
+1 min 27 s). Totals: **154 tests**, e2e 7/7; the rebuilt API container logged 2 lines in 15 s (startup and one 404)
+instead of a line every 3 s.
