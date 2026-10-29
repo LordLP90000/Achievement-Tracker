@@ -18,7 +18,9 @@ export type AuditEventType =
   | 'password_reset_requested'
   | 'password_reset_completed'
   | 'email_change_requested'
-  | 'email_changed';
+  | 'email_changed'
+  | 'consent_granted'
+  | 'consent_withdrawn';
 
 export interface AuditEvent {
   /** `null` only for events about unknown accounts; otherwise the transaction's user context must be this user. */

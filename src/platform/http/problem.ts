@@ -38,6 +38,7 @@ export const Problems = {
   reauthenticationRequired: { status: 403, slug: 'reauthentication-required', title: 'Re-authentication required' },
   notFound: { status: 404, slug: 'not-found', title: 'Not Found' },
   emailTaken: { status: 409, slug: 'email-taken', title: 'Email address already in use' },
+  consentAlreadyGranted: { status: 409, slug: 'consent-already-granted', title: 'Consent already granted' },
   /** Use with `extensions: { current_version }` (contract `VersionConflictProblem`). */
   versionConflict: { status: 409, slug: 'version-conflict', title: 'The resource was changed meanwhile' },
   preconditionRequired: { status: 428, slug: 'precondition-required', title: 'If-Match header required' },

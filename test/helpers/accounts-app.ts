@@ -7,6 +7,7 @@ import { createEmailChangeService } from '../../src/modules/accounts/email-chang
 import { createPasswordsService } from '../../src/modules/accounts/password-service.ts';
 import { createProfileService } from '../../src/modules/accounts/profile-service.ts';
 import { createAccountsService } from '../../src/modules/accounts/service.ts';
+import { createConsentsService } from '../../src/modules/consents/service.ts';
 import { createSessionsService } from '../../src/modules/sessions/service.ts';
 import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
 import { emailBlindIndex } from '../../src/platform/crypto/blind-index.ts';
@@ -112,12 +113,13 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
   const passwords = createPasswordsService({ ...shared, breachedPasswords });
   const emailChanges = createEmailChangeService(shared);
   const profiles = createProfileService(shared);
+  const consents = createConsentsService(shared);
   const sessions = createSessionsService(shared);
   const app = buildApp({
     http: { trustProxyHops: 0 },
     logger,
     readiness: () => Promise.resolve(true),
-    services: { accounts, emailChanges, passwords, profiles, sessions },
+    services: { accounts, consents, emailChanges, passwords, profiles, sessions },
   });
   // A test-only route behind the same guard as `/v1`, to observe authentication without side effects.
   void app.register((scope, _options, done) => {

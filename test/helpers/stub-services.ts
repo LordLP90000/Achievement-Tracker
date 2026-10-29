@@ -12,6 +12,7 @@ export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
   passwords: { change: unavailable, requestReset: unavailable, reset: unavailable },
   emailChanges: { request: unavailable, confirm: unavailable },
   profiles: { get: unavailable, update: unavailable },
+  consents: { list: unavailable, grant: unavailable, withdraw: unavailable },
   sessions: {
     login: unavailable,
     refresh: unavailable,

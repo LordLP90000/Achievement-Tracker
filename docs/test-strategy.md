@@ -104,7 +104,7 @@ one automated test, deterministic tests only.
 | R-LOG-01/02 | `log-leakage.test.ts` (global, after all tests), `request-id.test.ts` |
 | R-LOG-03 | `audit.test.ts` |
 | R-SUP-04 | `config.test.ts` (missing/weak/duplicate secrets, production guards) |
-| R-PRIV-04 | `consent.test.ts` (create content without consent → 403; withdrawal deletes content; versions recorded) |
+| R-PRIV-04 | `integration/consents.test.ts` (M2: explicit, versioned grant → 201 and audited; a second active grant → 409, also for two simultaneous grants; withdrawal keeps the history, is audited and allows a later grant; nobody else's consents visible or withdrawable), `consent.test.ts` (M3/M4: creating goal content without consent → 403; withdrawal deletes all goal content) |
 | R-PRIV-05 | `export.test.ts` (completeness vs seeded data; re-auth; 3rd export in 24 h → 429; audit event) |
 | R-PRIV-06 | `integration/login.test.ts` (M2): a correct password within 30 d reactivates (audited `account_reactivated`, version + 1), at exactly 30 d the account counts as deleted (401, no reactivation) even before the purge job ran; `account-deletion.test.ts` (M4) with injected clock: `DELETE /me` → 202 with `deletion_scheduled_for` = now + 30 d, every session and token revoked, other endpoints unusable, no further email; a wrong password stays an identical 401; at 30 d + 1 s the job hard-deletes (every table empty for the user, wrapped DEK gone, tombstone written); re-registration with the same email works afterwards |
 | R-PRIV-07 | `retention.test.ts` (clock-driven: unverified 7 d, deactivated accounts 30 d, audit 90 d, idempotency 24 h, hashed-IP rate-limit rows 24 h, tokens, tombstones 35 d) |
