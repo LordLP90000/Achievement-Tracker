@@ -2,7 +2,7 @@ import type { FastifyPluginCallback } from 'fastify';
 import { Problems } from '../../platform/http/problem.ts';
 import { parseRequest, ProblemError } from '../../platform/http/validation.ts';
 import { requestContext } from '../audit/context.ts';
-import { loginRequest } from './schemas.ts';
+import { loginRequest, refreshRequest } from './schemas.ts';
 import type { IssuedTokens, SessionsService } from './service.ts';
 
 /** Session endpoints of `openapi/openapi.yaml` (tag `auth`), mounted under `/v1`. */
@@ -30,6 +30,13 @@ export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app
     if (result.outcome === 'invalid_credentials') throw new ProblemError(Problems.invalidCredentials);
     if (result.outcome === 'email_not_verified') throw new ProblemError(Problems.emailNotVerified);
     return reply.code(200).send(tokenPair(result.tokens));
+  });
+
+  app.post('/auth/refresh', async (request, reply) => {
+    const { refresh_token: refreshToken } = parseRequest(refreshRequest, request.body);
+    const tokens = await sessions.refresh(refreshToken, requestContext(request));
+    if (tokens === undefined) throw new ProblemError(Problems.invalidToken);
+    return reply.code(200).send(tokenPair(tokens));
   });
 
   done();

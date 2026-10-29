@@ -5,7 +5,12 @@ import { auditEvents } from '../../platform/db/schema/index.ts';
 /** Security audit events with minimal data (R-LOG-03): no addresses, no content, networks only (C8). */
 
 export type AuditEventType =
-  'email_verified' | 'login_succeeded' | 'login_failed' | 'account_reactivated' | 'session_revoked';
+  | 'email_verified'
+  | 'login_succeeded'
+  | 'login_failed'
+  | 'account_reactivated'
+  | 'session_revoked'
+  | 'refresh_reuse_detected';
 
 export interface AuditEvent {
   /** `null` only for events about unknown accounts; otherwise the transaction's user context must be this user. */

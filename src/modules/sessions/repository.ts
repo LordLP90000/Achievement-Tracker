@@ -115,3 +115,62 @@ export async function insertSession(tx: Transaction, session: NewSession, now: D
 export async function insertTokenGeneration(tx: Transaction, tokens: NewTokenGeneration, now: Date): Promise<void> {
   await tx.insert(sessionTokens).values({ ...tokens, createdAt: now });
 }
+
+export interface TokenGeneration {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly userId: string;
+  readonly generation: number;
+  readonly refreshExpiresAt: Date;
+  readonly rotatedAt: Date | null;
+}
+
+export interface LiveSession {
+  readonly id: string;
+  readonly userId: string;
+  readonly lastReauthAt: Date;
+  readonly absoluteExpiresAt: Date;
+}
+
+/** The generation a refresh token belongs to, locked so that concurrent uses of one token are serialised. */
+export async function lockGenerationByRefreshHash(
+  tx: Transaction,
+  refreshTokenHash: Buffer,
+): Promise<TokenGeneration | undefined> {
+  const [generation] = await tx
+    .select({
+      id: sessionTokens.id,
+      sessionId: sessionTokens.sessionId,
+      userId: sessionTokens.userId,
+      generation: sessionTokens.generation,
+      refreshExpiresAt: sessionTokens.refreshExpiresAt,
+      rotatedAt: sessionTokens.rotatedAt,
+    })
+    .from(sessionTokens)
+    .where(eq(sessionTokens.refreshTokenHash, refreshTokenHash))
+    .for('update');
+  return generation;
+}
+
+export async function markGenerationRotated(tx: Transaction, generationId: string, now: Date): Promise<void> {
+  await tx.update(sessionTokens).set({ rotatedAt: now }).where(eq(sessionTokens.id, generationId));
+}
+
+/** The session unless it was revoked or reached its absolute expiry. */
+export async function findLiveSession(tx: Transaction, sessionId: string, now: Date): Promise<LiveSession | undefined> {
+  const [session] = await tx
+    .select({
+      id: sessions.id,
+      userId: sessions.userId,
+      lastReauthAt: sessions.lastReauthAt,
+      absoluteExpiresAt: sessions.absoluteExpiresAt,
+    })
+    .from(sessions)
+    .where(and(eq(sessions.id, sessionId), isNull(sessions.revokedAt), gt(sessions.absoluteExpiresAt, now)));
+  return session;
+}
+
+/** `last_used_at` follows logins and refreshes (every ≤ 15 minutes while the app is in use), not every request. */
+export async function touchSession(tx: Transaction, sessionId: string, now: Date): Promise<void> {
+  await tx.update(sessions).set({ lastUsedAt: now }).where(eq(sessions.id, sessionId));
+}

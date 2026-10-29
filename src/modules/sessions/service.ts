@@ -3,21 +3,25 @@ import { emailBlindIndex } from '../../platform/crypto/blind-index.ts';
 import type { DataKeys } from '../../platform/crypto/data-keys.ts';
 import { encryptText } from '../../platform/crypto/field-cipher.ts';
 import type { PasswordHasher } from '../../platform/crypto/password.ts';
-import { issueToken } from '../../platform/crypto/tokens.ts';
+import { issueToken, tokenHash } from '../../platform/crypto/tokens.ts';
 import { inTransaction, setUserContext, type Database, type Transaction } from '../../platform/db/database.ts';
 import type { Clock } from '../../platform/time/clock.ts';
 import { requireWrappedKey } from '../accounts/repository.ts';
 import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent, type AuditEvent } from '../audit/repository.ts';
 import {
+  findLiveSession,
   findLoginAccount,
   insertSession,
   insertTokenGeneration,
   liveSessionsByLeastRecentUse,
+  lockGenerationByRefreshHash,
   lockLoginAccount,
+  markGenerationRotated,
   reactivateAccount,
   replacePasswordHash,
   revokeSessions,
+  touchSession,
   type LoginAccount,
 } from './repository.ts';
 import type { LoginRequest } from './schemas.ts';
@@ -60,6 +64,8 @@ export type LoginResult =
 
 export interface SessionsService {
   login(request: LoginRequest, context: RequestContext): Promise<LoginResult>;
+  /** A new token pair for the session, or `undefined` for an unknown, expired, reused or foreign token. */
+  refresh(refreshToken: string, context: RequestContext): Promise<IssuedTokens | undefined>;
 }
 
 const INVALID_CREDENTIALS = Object.freeze({ outcome: 'invalid_credentials' as const });
@@ -245,6 +251,49 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
           now,
         );
         return { outcome: 'signed_in', tokens };
+      });
+    },
+
+    async refresh(refreshToken, context) {
+      const hash = tokenHash('refresh', refreshToken);
+      if (hash === undefined) return undefined;
+      const now = deps.clock.now();
+
+      return inTransaction(deps.db, async (tx) => {
+        const used = await lockGenerationByRefreshHash(tx, hash);
+        if (used === undefined) return undefined;
+        await setUserContext(tx, used.userId);
+        if (used.rotatedAt !== null) {
+          // R-AUTH-04: a rotated token came back, so two parties hold this session — end it for both.
+          await revokeSessions(tx, [used.sessionId], 'refresh_reuse', now);
+          await audit(
+            tx,
+            {
+              userId: used.userId,
+              eventType: 'refresh_reuse_detected',
+              outcome: 'failure',
+              ipPrefix: context.ipPrefix,
+              client: null,
+              sessionId: used.sessionId,
+            },
+            now,
+          );
+          return undefined;
+        }
+        const session = await findLiveSession(tx, used.sessionId, now);
+        if (session === undefined || used.refreshExpiresAt.getTime() <= now.getTime()) return undefined;
+        await markGenerationRotated(tx, used.id, now);
+        await touchSession(tx, session.id, now);
+        return issueGeneration(
+          tx,
+          {
+            sessionId: session.id,
+            userId: session.userId,
+            generation: used.generation + 1,
+            absoluteExpiresAt: session.absoluteExpiresAt,
+          },
+          now,
+        );
       });
     },
   };

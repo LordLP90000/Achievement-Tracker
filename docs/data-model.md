@@ -114,7 +114,7 @@ hourly.
 | `user_id` | uuid → `users` CASCADE | |
 | `client` | text CHECK IN (`ios`, `android`) | Q-09 |
 | `device_label_enc` 🔒 | bytea NULL | user-chosen, ≤ 64 chars (Q-09) |
-| `created_at`, `last_used_at` | timestamptz NOT NULL | |
+| `created_at`, `last_used_at` | timestamptz NOT NULL | `last_used_at` follows logins and refreshes (≤ 15 min apart while the app is in use), not every request |
 | `last_reauth_at` | timestamptz NOT NULL | login or `POST /v1/auth/reauth`; drives R-AUTH-06 |
 | `absolute_expires_at` | timestamptz NOT NULL | created + 180 d (A-10) |
 | `revoked_at` | timestamptz NULL | |
@@ -139,7 +139,10 @@ Revoked/expired session rows are deleted after 7 days (their tokens immediately)
 
 Access-token lookup: `access_token_hash = $1 AND access_expires_at > now()` joined with `sessions.revoked_at IS NULL`.
 Refresh: a hit with `rotated_at IS NOT NULL` = reuse → session revoked (`refresh_reuse`) and audited. Old
-generations stay until the session ends so reuse is always detected.
+generations stay until the session ends so reuse is always detected. The refresh locks its generation row
+(`FOR UPDATE`), so two concurrent uses of one token are serialised: the first rotates, the second is reuse. Access and
+refresh expiries never exceed the session's `absolute_expires_at`; an access token stays valid until it expires (or
+its session is revoked), also after a refresh.
 
 ### 3.2 Consent
 
