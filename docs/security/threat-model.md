@@ -125,7 +125,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | I-07 | Authenticated responses cached by intermediaries or the OS | `Cache-Control: no-store`, `Pragma: no-cache` (R-TLS-02) | `security/headers.test.ts` (every authenticated route from the spec) |
 | I-08 | Traffic interception | TLS 1.2+/1.3 at the edge, HSTS preload, DB `sslmode=verify-full`, client pinning recommendation (M6) | `security/headers.test.ts`, `unit/config.test.ts` (production refuses non-TLS DB URLs), `e2e/tls.test.ts` against staging |
 | I-09 | Offline email guessing against the blind index | Separate HMAC key in the secret store, never in the DB; documented rotation | residual (see §4) |
-| I-10 | Timing side channel on token/secret comparison | `sodium_memcmp` / `crypto.timingSafeEqual` everywhere; hashes compared, not plaintext (R-TLS-04) | `unit/crypto/compare.test.ts` + Semgrep rule banning `===` on token variables |
+| I-10 | Timing side channel on token/secret comparison | `sodium_memcmp` / `crypto.timingSafeEqual` everywhere; hashes compared, not plaintext (R-TLS-04) | `src/platform/crypto/compare.test.ts` + Semgrep rule banning `===` on token variables |
 | I-11 | DEKs exposed via memory dumps or swap | `sodium_malloc` guarded buffers, `sodium_memzero` on eviction, cache TTL ≤ 5 min, no DEK in logs | `unit/crypto/key-service.test.ts` (eviction zeroes buffer; cache misses after TTL) |
 | I-12 | Bulk exfiltration through the export endpoint with a stolen session | Recent re-auth, 2 exports / 24 h, audit event (R-PRIV-05) | `security/export.test.ts` |
 | I-13 | Idempotency replay returns another user's stored response | Keys scoped to (user, route); stored response encrypted with the user's DEK | `integration/idempotency.test.ts` |

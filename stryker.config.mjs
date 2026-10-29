@@ -1,8 +1,6 @@
 // @ts-check
 /**
  * Mutation testing (test strategy §6): break below 80 % on the domain engine and the crypto platform.
- * M1 scaffold: neither src/domain nor src/platform/crypto exists yet, so `allowEmpty` is set; remove it as soon
- * as the first file matches (M2 crypto).
  * @type {import('@stryker-mutator/api/core').PartialStrykerOptions}
  */
 export default {
@@ -14,5 +12,4 @@ export default {
   reporters: ['clear-text', 'progress', 'html'],
   htmlReporter: { fileName: 'reports/mutation/index.html' },
   tempDirName: '.stryker-tmp',
-  allowEmpty: true,
 };

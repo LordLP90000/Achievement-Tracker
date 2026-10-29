@@ -88,10 +88,13 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   (above OWASP's minimum of 19 MiB / t = 2 / p = 1), re-tuned in M2 so a hash takes 150–300 ms on the production
   instance size. Parameters are encoded in the PHC string so they can be raised later with transparent re-hash on
   login.
-- **Consequences:** One native dependency with prebuilds (verified against Node 26 in M1). If prebuilds are
-  missing, fallback is `libsodium-wrappers-sumo` (WASM, same API family) — reported to the PM.
-- **Tests:** `unit/crypto/password.test.ts` (parameters ≥ policy, verify/needs-rehash), `unit/crypto/aead.test.ts`
-  (round-trip, tamper detection, wrong AD fails, nonce uniqueness), known-answer tests from libsodium vectors.
+- **Consequences:** One native dependency with prebuilds. Verified in M2 (5.2.0): the bundled prebuilds load without
+  install scripts on Windows x64, Linux x64 (CI) and in the distroless image, guarded memory included. Version 5
+  loads them through Holepunch's `require-addon`, which brings 19 small transitive packages (reported in the M2
+  report). If prebuilds are missing, fallback is `libsodium-wrappers-sumo` (WASM, same API family) — reported to the PM.
+- **Tests:** `src/platform/crypto/aead.test.ts` (IETF XChaCha20-Poly1305 vector, round-trip, tamper detection, wrong
+  AD fails, nonce uniqueness), `compare.test.ts`, `tokens.test.ts`, `blind-index.test.ts`; `password.test.ts`
+  (parameters ≥ policy, verify/needs-rehash); e2e check that libsodium loads with guarded memory in the image.
 
 ## ADR-0006 · Envelope encryption design and the limits of crypto-shredding
 

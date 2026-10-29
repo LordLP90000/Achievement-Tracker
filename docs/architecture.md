@@ -106,13 +106,13 @@ Rules enforced by lint/tests:
 
 | Component | Responsibility |
 |-----------|---------------|
-| `KeyWrapper` (interface) | `wrap(dek, userId) → {blob, kekId, kekVersion}`, `unwrap(blob, userId, kekId)`. Implementation: `LocalKeyWrapper` (XChaCha20-Poly1305 in-process, AD = user ID) using the KEK from a `KekSource`; a `KmsKeyWrapper` can be added later if the PM's hosting offers a KMS (ADR-0013). |
+| `KeyWrapper` (interface) | `wrap(dek, userId) → {blob, kekId, kekVersion}`, `unwrap(blob, userId, kekId)`. Implementation: `LocalKeyWrapper` (XChaCha20-Poly1305 in-process, AD = `questline|v1|dek|<user_id>`, so a wrapped key never opens as a field value) using the KEK from a `KekSource`; a `KmsKeyWrapper` can be added later if the PM's hosting offers a KMS (ADR-0013). |
 | `KekSource` (interface) | Provides the 32-byte KEK once at startup: `EnvKekSource` (dev/test, `LOCAL_KEK`) and `OnePasswordConnectKekSource` (production: `GET /v1/vaults/{vault}/items/{item}` on the self-hosted Connect server with Node's built-in `fetch`, timeout, ≥ 32-byte check). Any failure → the process refuses to start. The KEK lives only in `sodium_malloc` guarded memory and is never logged (R-ENC-05). |
 | `KeyService` | Creates a DEK at registration, stores the wrapped DEK in `user_keys`, unwraps on demand, caches plaintext DEKs ≤ 5 min in `sodium_malloc` guarded memory, wipes on eviction/shutdown, destroys on account deletion. |
-| `FieldCipher` | `encrypt(dek, {userId, recordId, field}, plaintext)` → `0x01‖nonce‖ct`; `decrypt` verifies AD. Typed helpers for strings and decimals. |
+| `FieldCipher` | `encrypt(dek, {userId, recordId, field}, plaintext)` → `0x01‖nonce‖ct`; `decrypt` verifies AD. Typed helpers for strings and decimals. Built on `aead.ts` (`seal`/`open`, one uniform `DecryptionError` for every failure). |
 | `PasswordHasher` | Argon2id (ADR-0005) with `needsRehash` for parameter upgrades. |
 | `BlindIndex` | HMAC-SHA256(`BLIND_INDEX_KEY`, NFKC-normalised, lower-cased, trimmed email). |
-| `Tokens` | Random tokens with type prefixes, SHA-256 digests, constant-time comparison. |
+| `Tokens` | Random tokens with type prefixes, SHA-256 digests, constant-time comparison. `ql_vt_` serves email verification and email-change confirmation; the stored `purpose` keeps them apart. |
 
 ### 4.4 HTTP utilities (`platform/http`)
 
@@ -244,7 +244,7 @@ reason here and a line in the next milestone report.
 | `zod` | 4.6.7 (M1) | Validation mandated by the stack; also used for config and response allowlisting | – |
 | `drizzle-orm` | 0.45.4 (M1) | Type-safe, parameterized query layer (ADR-0003) | Kysely (equally good; Drizzle named in the brief) |
 | `postgres` (postgres.js) | 3.4.9 (M1) | PostgreSQL driver with zero dependencies, supported by Drizzle | `pg` (more deps) |
-| `sodium-native` | planned (M2) | Argon2id, XChaCha20-Poly1305, constant-time compare, guarded memory (ADR-0005) | `argon2` + `libsodium-wrappers` (two deps) |
+| `sodium-native` | 5.2.0 (M2) | Argon2id, XChaCha20-Poly1305, constant-time compare, guarded memory (ADR-0005). Loads its bundled prebuilds through `require-addon` without install scripts; brings 19 further production packages (Holepunch `bare-*` loader, `streamx` family; MIT/Apache-2.0, none with install scripts). The image keeps only its own platform's prebuild (`docker/keep-native-prebuild.mjs`) | `argon2` + `libsodium-wrappers` (two deps); `libsodium-wrappers-sumo` (WASM: no guarded memory, slower Argon2id) |
 | `pino` | 10.4.0 (M1) | Structured logging (already a Fastify dependency; used directly by the worker) | – |
 | `nodemailer` | planned (M2) | SMTP delivery to the PM's relay with mandatory TLS (ADR-0014); mature, no runtime dependencies of its own | provider HTTP APIs/SDKs (not chosen: the PM decided on custom SMTP, Q-03) |
 

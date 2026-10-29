@@ -16,6 +16,8 @@ FROM ${BUILD_IMAGE} AS production-dependencies
 WORKDIR /build
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY docker/keep-native-prebuild.mjs ./
+RUN node keep-native-prebuild.mjs
 
 FROM ${RUNTIME_IMAGE} AS runtime
 ENV NODE_ENV=production

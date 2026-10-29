@@ -24,6 +24,13 @@ export default {
       to: { path: 'node_modules/(postgres|drizzle-orm|drizzle-kit)/' },
     },
     {
+      name: 'crypto-library-only-in-platform-crypto',
+      comment: 'libsodium is used only behind src/platform/crypto (ADR-0005), so every use is reviewed in one place.',
+      severity: 'error',
+      from: { path: '^src/', pathNot: '^src/platform/crypto/' },
+      to: { path: 'node_modules/sodium-native/' },
+    },
+    {
       name: 'production-code-not-to-tests',
       severity: 'error',
       from: { path: '^src/', pathNot: '\\.test\\.ts$' },

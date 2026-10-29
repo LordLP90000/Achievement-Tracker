@@ -74,6 +74,21 @@ describe('container smoke test', () => {
     await expect(inApi('npm', '--version')).rejects.toThrow();
   });
 
+  it('loads libsodium with guarded memory from the only native prebuild left in the image [ADR-0005]', async () => {
+    const { stdout } = await inApiNode(
+      [
+        "const sodium = require('/app/node_modules/sodium-native');",
+        "const prebuilds = require('node:fs').readdirSync('/app/node_modules/sodium-native/prebuilds');",
+        'const platform = `${process.platform}-${process.arch}`;',
+        'process.stdout.write(JSON.stringify({ secure: sodium.sodium_malloc(32).secure, prebuilds, platform }));',
+      ].join(' '),
+    );
+    const result = JSON.parse(stdout) as { secure: boolean; prebuilds: string[]; platform: string };
+
+    expect(result.secure).toBe(true);
+    expect(result.prebuilds).toEqual([result.platform]);
+  });
+
   it('keeps the database, the API and the worker running', async () => {
     const { stdout } = await compose('ps', '--status', 'running', '--services');
 
