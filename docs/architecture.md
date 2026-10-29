@@ -155,8 +155,8 @@ content-type enforcement.
 - `Clock` interface (`now(): Date`) injected everywhere; tests use `FakeClock` (`test/helpers/fake-clock.ts`), which
   accepts only instants with `Z` or an explicit offset and moves only through `set`/`advance`. ESLint forbids
   `Date.now()`, `new Date()`, `Date()` and `Temporal.Now` in `src/` outside `platform/time`.
-- `tz.ts`: `localDate(instant, timeZone)`, `isValidTimeZone`, ISO-week helpers, all based on `Intl`
-  (ADR-0011) and pure date arithmetic.
+- `time-zones.ts`: `canonicalTimeZone` (A-02) and `localDateOf(instant, timeZone)` — the calendar date of an instant
+  in the user's zone, via `Intl` (ADR-0011); all date arithmetic happens on calendar dates in `src/domain/dates.ts`.
 
 ### 4.7 Background work (`platform/jobs`)
 
@@ -195,6 +195,8 @@ Pure, exhaustively tested functions:
 | File | Functions |
 |------|-----------|
 | `constants.ts` | Every tunable number in one place (ADR-0015): size XP 10/25/50, duration-factor table, level base 100 and factor 3, rank thresholds and multipliers, lateness window 30 d, −10 per lost gamble, back-dating limit 7 d |
+| `dates.ts` | Calendar dates `YYYY-MM-DD` as day numbers (proleptic Gregorian, years 0000–9999): `toDayNumber`, `fromDayNumber`, `addDays`, `daysBetween`, `isoWeekday` — no instants, no `Date` |
+| `check-in-dating.ts` | `checkInDating(localDate, today)` → `counts` (today), `history` (1–7 days back), `too_old`, `future` (R-CHK-04); "today" comes from `platform/time` (`localDateOf`) |
 | `progress.ts` | `oneTimeProgress`, `targetProgress(start, target, current)`, `habitProgress(periods, N, K)` (consecutive met periods of the current run), `achievementProgress(quests)` (weighted by effective XP) |
 | `habit-reset.ts` | `evaluateHabit(config, countingCheckIns, today)` → met periods, reset on a closed period with < N counting check-ins, `needs_restart`; identical result for lazy (read/write) and daily-job evaluation (A-21) |
 | `periods.ts` | `periodKeyFor(localDate, period, weekStart)`, `enumeratePeriods(start, until, period, weekStart)`; weeks start on `monday`, `sunday` or `saturday` (R-QST-09); a habit's first weekly period runs to the end of the first full week (Q-33) and a run keeps the week start it began with (Q-34) |

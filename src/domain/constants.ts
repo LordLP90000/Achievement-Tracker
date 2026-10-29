@@ -22,3 +22,6 @@ export const BASE_DURATION_FACTOR = 1;
 /** Level curve (R-XP-03, Q-05e): reaching level L ≥ 2 takes LEVEL_BASE_XP × LEVEL_GROWTH^(L − 2) XP in total. */
 export const LEVEL_BASE_XP = 100;
 export const LEVEL_GROWTH = 3;
+
+/** How many days back a check-in may be dated; such check-ins are history and never count (R-CHK-04, Q-08). */
+export const BACKDATE_LIMIT_DAYS = 7;

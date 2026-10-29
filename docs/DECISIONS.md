@@ -208,8 +208,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   against `Intl.supportedValuesOf('timeZone')`.
 - **Consequences:** Zero dependencies; DST only affects the mapping instant → local date, which `Intl` handles.
   Test vectors for Europe/Zurich on 2026-03-29 and 2026-10-25 are mandatory.
-- **Tests:** `unit/domain/streak.test.ts`, `unit/time/tz.test.ts` (DST vectors), property tests with
-  `fast-check` for period arithmetic.
+- **Tests:** `src/domain/dates.test.ts` (a whole 400-year cycle against the runtime calendar), `src/domain/periods.test.ts`,
+  `src/platform/time/time-zones.test.ts` (DST vectors), property tests with `fast-check` for period arithmetic;
+  streaks in `src/domain/streak.test.ts` (planned, M3).
 
 ## ADR-0012 · Offline breached-password check via a committed Bloom filter
 

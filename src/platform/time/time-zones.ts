@@ -20,3 +20,21 @@ export function canonicalTimeZone(name: string): string | undefined {
   }
   return SUPPORTED.has(canonical) ? canonical : undefined;
 }
+
+/** One formatter per zone: building them is costly, and the zones in use are few (stored canonical names). */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * The calendar date `YYYY-MM-DD` of `instant` in `timeZone` (ADR-0011): "today" for check-ins and habit periods.
+ * Daylight saving time only changes which instants fall on a date. An unknown zone throws a `RangeError`.
+ */
+export function localDateOf(instant: Date, timeZone: string): string {
+  let formatter = formatters.get(timeZone);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    formatters.set(timeZone, formatter);
+  }
+  const parts = formatter.formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((candidate) => candidate.type === type)?.value ?? '';
+  return `${part('year').padStart(4, '0')}-${part('month')}-${part('day')}`;
+}
