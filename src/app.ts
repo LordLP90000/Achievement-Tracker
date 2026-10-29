@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from 'fastify';
+import { emailChangeRoutes } from './modules/accounts/email-change-routes.ts';
+import type { EmailChangeService } from './modules/accounts/email-change-service.ts';
 import { passwordRoutes } from './modules/accounts/password-routes.ts';
 import type { PasswordsService } from './modules/accounts/password-service.ts';
 import { accountsRoutes } from './modules/accounts/routes.ts';
@@ -19,6 +21,7 @@ export const API_PREFIX = '/v1';
 
 export interface AppServices {
   readonly accounts: AccountsService;
+  readonly emailChanges: EmailChangeService;
   readonly passwords: PasswordsService;
   readonly sessions: SessionsService;
 }
@@ -60,6 +63,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       registerAuthGuard(v1, deps.services.sessions);
       void v1.register(accountsRoutes, { accounts: deps.services.accounts });
       void v1.register(passwordRoutes, { passwords: deps.services.passwords });
+      void v1.register(emailChangeRoutes, { emailChanges: deps.services.emailChanges });
       void v1.register(sessionsRoutes, { sessions: deps.services.sessions });
       done();
     },

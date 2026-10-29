@@ -3,6 +3,7 @@ import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { inject } from 'vitest';
 import { buildApp } from '../../src/app.ts';
 import { loadBreachedPasswordFilter } from '../../src/modules/accounts/password-policy.ts';
+import { createEmailChangeService } from '../../src/modules/accounts/email-change-service.ts';
 import { createPasswordsService } from '../../src/modules/accounts/password-service.ts';
 import { createAccountsService } from '../../src/modules/accounts/service.ts';
 import { createSessionsService } from '../../src/modules/sessions/service.ts';
@@ -108,12 +109,13 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
   const breachedPasswords = loadBreachedPasswordFilter();
   const accounts = createAccountsService({ ...shared, breachedPasswords });
   const passwords = createPasswordsService({ ...shared, breachedPasswords });
+  const emailChanges = createEmailChangeService(shared);
   const sessions = createSessionsService(shared);
   const app = buildApp({
     http: { trustProxyHops: 0 },
     logger,
     readiness: () => Promise.resolve(true),
-    services: { accounts, passwords, sessions },
+    services: { accounts, emailChanges, passwords, sessions },
   });
   // A test-only route behind the same guard as `/v1`, to observe authentication without side effects.
   void app.register((scope, _options, done) => {

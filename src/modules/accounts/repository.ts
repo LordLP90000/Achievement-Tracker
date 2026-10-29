@@ -2,6 +2,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type { WrappedKey } from '../../platform/crypto/key-wrapper.ts';
 import type { Transaction } from '../../platform/db/database.ts';
+import { isUniqueViolation } from '../../platform/db/errors.ts';
 import { increment } from '../../platform/db/expressions.ts';
 import { oneTimeTokens, userKeys, users } from '../../platform/db/schema/index.ts';
 
@@ -123,12 +124,27 @@ export async function requireWrappedKey(tx: Transaction, userId: string): Promis
   return key;
 }
 
+export interface NewOneTimeToken {
+  /** Generated here unless the caller needs it first (as associated data of `newEmailEnc`). */
+  readonly id?: string;
+  readonly userId: string;
+  readonly purpose: OneTimeTokenPurpose;
+  readonly tokenHash: Buffer;
+  readonly expiresAt: Date;
+  /** `change_email` only: the requested address, encrypted with the user's data key, and its blind index. */
+  readonly newEmailEnc?: Buffer;
+  readonly newEmailBlindIndex?: Buffer;
+}
+
+export interface ConsumedToken {
+  readonly id: string;
+  readonly userId: string;
+  readonly newEmailEnc: Buffer | null;
+  readonly newEmailBlindIndex: Buffer | null;
+}
+
 /** Stores a new single-use token; unused tokens of the same purpose stop working (the newest email wins). */
-export async function replaceOneTimeToken(
-  tx: Transaction,
-  token: { userId: string; purpose: OneTimeTokenPurpose; tokenHash: Buffer; expiresAt: Date },
-  now: Date,
-): Promise<void> {
+export async function replaceOneTimeToken(tx: Transaction, token: NewOneTimeToken, now: Date): Promise<void> {
   await tx
     .delete(oneTimeTokens)
     .where(
@@ -138,16 +154,16 @@ export async function replaceOneTimeToken(
         isNull(oneTimeTokens.usedAt),
       ),
     );
-  await tx.insert(oneTimeTokens).values({ id: randomUUID(), ...token, createdAt: now });
+  await tx.insert(oneTimeTokens).values({ ...token, id: token.id ?? randomUUID(), createdAt: now });
 }
 
-/** Marks an unused, unexpired token as used and returns its user; a token can be consumed exactly once. */
+/** Marks an unused, unexpired token as used and returns it; a token can be consumed exactly once. */
 export async function consumeOneTimeToken(
   tx: Transaction,
   purpose: OneTimeTokenPurpose,
   tokenHash: Buffer,
   now: Date,
-): Promise<string | undefined> {
+): Promise<ConsumedToken | undefined> {
   const [consumed] = await tx
     .update(oneTimeTokens)
     .set({ usedAt: now })
@@ -159,8 +175,48 @@ export async function consumeOneTimeToken(
         gt(oneTimeTokens.expiresAt, now),
       ),
     )
-    .returning({ userId: oneTimeTokens.userId });
-  return consumed?.userId;
+    .returning({
+      id: oneTimeTokens.id,
+      userId: oneTimeTokens.userId,
+      newEmailEnc: oneTimeTokens.newEmailEnc,
+      newEmailBlindIndex: oneTimeTokens.newEmailBlindIndex,
+    });
+  return consumed;
+}
+
+/** Voids every unused link of the user, e.g. reset links that went to an address the account no longer has. */
+export async function deleteUnusedOneTimeTokens(tx: Transaction, userId: string): Promise<void> {
+  await tx.delete(oneTimeTokens).where(and(eq(oneTimeTokens.userId, userId), isNull(oneTimeTokens.usedAt)));
+}
+
+/**
+ * Moves the account to a new, verified address. Runs in a savepoint: if the address was registered meanwhile, the
+ * unique blind index refuses it and `false` is returned with the outer transaction still usable.
+ */
+export async function changeEmail(
+  tx: Transaction,
+  userId: string,
+  email: { readonly emailEnc: Buffer; readonly blindIndex: Buffer },
+  now: Date,
+): Promise<boolean> {
+  try {
+    await tx.transaction(async (savepoint) => {
+      await savepoint
+        .update(users)
+        .set({
+          emailEnc: email.emailEnc,
+          emailBlindIndex: email.blindIndex,
+          emailVerifiedAt: now,
+          updatedAt: now,
+          version: increment(users.version),
+        })
+        .where(eq(users.id, userId));
+    });
+    return true;
+  } catch (error) {
+    if (isUniqueViolation(error)) return false;
+    throw error;
+  }
 }
 
 export async function isOneTimeTokenUsed(

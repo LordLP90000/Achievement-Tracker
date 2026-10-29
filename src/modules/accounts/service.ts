@@ -99,7 +99,7 @@ export function createAccountsService(deps: AccountsServiceDependencies): Accoun
       const now = deps.clock.now();
 
       return inTransaction(deps.db, async (tx) => {
-        const userId = await consumeOneTimeToken(tx, 'verify_email', hash, now);
+        const userId = (await consumeOneTimeToken(tx, 'verify_email', hash, now))?.userId;
         if (userId === undefined) {
           // A replayed token changes nothing and is answered like the first use (contract: 204).
           return (await isOneTimeTokenUsed(tx, 'verify_email', hash)) ? 'verified' : 'invalid_token';

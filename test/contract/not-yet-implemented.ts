@@ -7,8 +7,6 @@ export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   // M2 — accounts & sessions
   'getMe',
   'updateMe',
-  'requestEmailChange',
-  'confirmEmailChange',
   'listConsents',
   'grantConsent',
   'withdrawConsent',

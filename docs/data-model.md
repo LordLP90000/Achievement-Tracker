@@ -102,7 +102,7 @@ Deleting this row (with the user) is the crypto-shredding step (ADR-0006).
 | `used_at` | timestamptz NULL | single use |
 | `created_at` | timestamptz NOT NULL | |
 
-Issuing a new token of the same purpose deletes the older unused ones. A completed `reset_password` also sets `users.email_verified_at` if it was empty: the link reached the address (A-30). A used `verify_email` token is kept until the
+Issuing a new token of the same purpose deletes the older unused ones. A completed `reset_password` also sets `users.email_verified_at` if it was empty: the link reached the address (A-30). A `change_email` token keeps the requested address in `new_email_enc` (user's DEK, AD record id = the token's `id`); confirming it re-encrypts the address into `users.email_enc`, sets the new blind index (a savepoint turns a unique violation into `409 email-taken`), marks it verified, bumps `version` and deletes every other unused token of the user, so links sent to the old address stop working. A used `verify_email` token is kept until the
 cleanup, so a repeated verification answers `204` and changes nothing (contract); used/expired rows are deleted
 hourly.
 
@@ -319,7 +319,7 @@ Retention 90 days (worker job). Included in export; deleted with the account.
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | only registered users are ever emailed |
-| `template` | text NOT NULL | `verify_email`, `registration_notice`, `password_reset`, `password_changed_notice`, `email_change_verify`, `email_change_notice`, `account_deleted_notice` |
+| `template` | text NOT NULL | `verify_email`, `registration_notice` (someone tried to register or move an account to this address), `password_reset`, `password_changed_notice`, `email_change_verify` (to the new address), `email_change_notice` (to the old address), `account_deleted_notice` |
 | `payload_enc` 🔒 | bytea NOT NULL | JSON `{to, locale, token?}` encrypted with the user's DEK (AD record id = `id`); the worker builds links from config (A-19) — never in plaintext |
 | `attempts` | integer NOT NULL DEFAULT 0 | |
 | `next_attempt_at` | timestamptz NOT NULL | exponential backoff |

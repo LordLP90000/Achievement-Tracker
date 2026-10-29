@@ -143,7 +143,7 @@ export function createPasswordsService(deps: PasswordsServiceDependencies): Pass
       const next = await deps.hasher.hash(password);
 
       return inTransaction(deps.db, async (tx) => {
-        const userId = await consumeOneTimeToken(tx, 'reset_password', hash, now);
+        const userId = (await consumeOneTimeToken(tx, 'reset_password', hash, now))?.userId;
         if (userId === undefined) return 'invalid_token';
         await setUserContext(tx, userId);
         await changePasswordHash(tx, userId, { next }, now);

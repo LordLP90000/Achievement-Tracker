@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net';
 import type { Logger } from 'pino';
 import { buildApp } from '../app.ts';
 import { loadBreachedPasswordFilter } from '../modules/accounts/password-policy.ts';
+import { createEmailChangeService } from '../modules/accounts/email-change-service.ts';
 import { createPasswordsService } from '../modules/accounts/password-service.ts';
 import { createAccountsService } from '../modules/accounts/service.ts';
 import { createSessionsService } from '../modules/sessions/service.ts';
@@ -47,6 +48,7 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
   const services = {
     accounts: createAccountsService({ ...shared, breachedPasswords }),
     passwords: createPasswordsService({ ...shared, breachedPasswords }),
+    emailChanges: createEmailChangeService(shared),
     sessions: createSessionsService(shared),
   };
   const app = buildApp({ http: config.http, logger, readiness: databaseReadiness(database), services });

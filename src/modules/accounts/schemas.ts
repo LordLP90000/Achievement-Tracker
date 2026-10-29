@@ -46,3 +46,5 @@ export const tokenRequest = z.strictObject({ token: opaqueToken });
 export const changePasswordRequest = z.strictObject({ current_password: password, new_password: password });
 
 export const resetPasswordRequest = z.strictObject({ token: opaqueToken, new_password: password });
+
+export const emailChangeRequest = z.strictObject({ new_email: email });
