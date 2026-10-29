@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { buildApp } from '../../src/app.ts';
 import type { ReadinessProbe } from '../../src/modules/health/routes.ts';
+import { parseRequest } from '../../src/platform/http/validation.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
 import type { LogCapture } from './log-capture.ts';
 
@@ -31,6 +33,7 @@ export async function buildTestApp(options: TestAppOptions = {}): Promise<Fastif
   app.get('/__test/ip', (request) => ({ ip: request.ip }));
   app.get('/__test/items/:id', () => ({ ok: true }));
   app.post('/__test/echo', (request) => ({ received: request.body }));
+  app.post('/__test/validate', (request) => parseRequest(z.strictObject({ email: z.email() }), request.body));
   app.get('/__test/boom', () => {
     throw new Error(LEAKY_ERROR_MESSAGE);
   });

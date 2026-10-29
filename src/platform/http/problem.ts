@@ -23,6 +23,7 @@ export const Problems = {
     title: 'Request validation failed',
     errors: [{ pointer: '', message: 'The request body is not valid JSON.' }],
   },
+  validation: { status: 400, slug: 'validation', title: 'Request validation failed' },
   notFound: { status: 404, slug: 'not-found', title: 'Not Found' },
   payloadTooLarge: { status: 413, slug: 'payload-too-large', title: 'Payload Too Large' },
   unsupportedMediaType: { status: 415, slug: 'unsupported-media-type', title: 'Unsupported Media Type' },

@@ -1,5 +1,6 @@
 import type { FastifyError, FastifyInstance } from 'fastify';
 import { Problems, sendProblem, type ProblemDefinition } from './problem.ts';
+import { ProblemError } from './validation.ts';
 
 function problemFor(error: FastifyError): ProblemDefinition {
   switch (error.statusCode) {
@@ -19,6 +20,7 @@ export function registerErrorHandling(app: FastifyInstance): void {
   app.setNotFoundHandler((request, reply) => sendProblem(request, reply, Problems.notFound));
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
+    if (error instanceof ProblemError) return sendProblem(request, reply, error.problem);
     const problem = problemFor(error);
     if (problem.status >= 500) {
       request.log.error({ err: { name: error.name, code: error.code } }, 'request failed');

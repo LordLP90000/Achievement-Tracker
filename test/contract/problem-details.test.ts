@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, LEAKY_ERROR_MESSAGE, UUID_V4 } from '../helpers/app.ts';
+import { describeErrors, validatorFor } from '../helpers/openapi.ts';
 
 const PROBLEM_CONTENT_TYPE = 'application/problem+json; charset=utf-8';
 const json = { 'content-type': 'application/json' };
@@ -15,6 +16,28 @@ describe('problem details [ADR-0007, R-OUT-01, I-03]', () => {
 
   afterAll(async () => {
     await app.close();
+  });
+
+  it('answers a body that fails validation with a ValidationProblem as documented, echoing nothing [R-IN-01]', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/__test/validate',
+      headers: json,
+      payload: JSON.stringify({ email: 'Secret-Value-4711', 'Secret-Key-4711': 1 }),
+    });
+    const validate = validatorFor({ $ref: '#/components/schemas/ValidationProblem' });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.headers['content-type']).toBe(PROBLEM_CONTENT_TYPE);
+    expect(validate(response.json()), describeErrors(validate)).toBe(true);
+    expect(response.json()).toMatchObject({
+      type: 'urn:questline:problem:validation',
+      errors: [
+        { pointer: '/email', message: 'has an invalid format' },
+        { pointer: '', message: 'has a property that is not allowed' },
+      ],
+    });
+    expect(response.body).not.toContain('Secret');
   });
 
   it('answers unknown routes with a 404 problem whose instance omits the query string', async () => {
