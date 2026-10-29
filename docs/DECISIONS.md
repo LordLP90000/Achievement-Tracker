@@ -178,8 +178,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Consequences:** One fewer component to secure and pay for; slightly more DB load (negligible at v1 scale);
   rate-limit precision is per-second, which is sufficient.
 - **Tests:** `security/rate-limit.test.ts` (per-IP and per-account limits, progressive backoff, `Retry-After`,
-  multi-instance consistency using two app instances on one DB), `integration/outbox.test.ts`,
-  `integration/retention.test.ts` (with injected clock).
+  multi-instance consistency using two app instances on one DB), `integration/outbox-delivery.test.ts` (two workers
+  draining at once, leases, retries, dead letters), `integration/retention.test.ts` (with injected clock).
 
 ## ADR-0010 · Spec-first OpenAPI 3.1 enforced by Ajv contract tests and a spec-coverage test
 
@@ -265,8 +265,21 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   the relay's daily quota. The relay operator is a processor for email addresses and must be named in
   `processors.md` (Google = US jurisdiction → DPIA R-9).
 - **Consequences:** No provider SDK; delivery feedback limited to SMTP responses (no bounce webhooks in v1).
-- **Tests:** `unit/email/smtp-sender.test.ts` against a local SMTP test server (TLS enforced, auth failure → outbox
-  retry/dead-letter), `unit/email/templates.test.ts` (no goal content).
+- **Implementation (M2, 2026-10-29):** `nodemailer` 10.2.1 behind `EmailSender` (`platform/email/smtp-sender.ts`, the
+  only file allowed to import it — dependency rule). Always `requireTLS` (STARTTLS that must succeed; Nodemailer
+  then sends STARTTLS even when it is not advertised, and fails rather than continuing in plaintext) or implicit TLS;
+  certificate verified against the system CAs; TLS ≥ 1.2; the client announces the sender domain, so no internal
+  host name appears in `EHLO` or `Message-ID`; file and URL access off; timeouts 10 s connect/greeting, 30 s socket.
+  Failures are classified by step and reply code only, never reply text (it can contain the address):
+  `smtp_eenvelope_550`, `smtp_etls_500`, `smtp_eauth_535`, `smtp_etimedout`. A recipient or message refused with a
+  5yz reply is dead-lettered at once; every other failure is retried (architecture §4.7); failures of the relay
+  itself (connection, TLS, authentication, sender address refused) also pause all delivery for 60 s.
+- **Tests:** `test/integration/smtp-sender.test.ts` against a local `smtp-server` stand-in (Q-27) whose certificate
+  is generated per run (`test/helpers/tls-certificate.ts`, no committed key): STARTTLS and implicit TLS, a relay
+  without STARTTLS and an untrusted certificate refused before any credentials are sent (with a control test that
+  the stand-in does accept a lenient client in plaintext), refusal classes; `src/platform/email/smtp-sender.test.ts`
+  (classification), `src/platform/email/templates.test.ts` (no goal content), `test/integration/outbox-delivery.test.ts`
+  (auth failure → retry, pause, dead letter).
 
 ## ADR-0015 · Gamification model: resets, ranks, duration factor, gambles
 

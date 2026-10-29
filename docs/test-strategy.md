@@ -53,8 +53,8 @@ one automated test, deterministic tests only.
   spec-coverage report. Routes not in the spec fail the test.
 - **Two-instance mode** — `buildTestApp({instances: 2})` for multi-instance tests (rate limiting, advisory locks).
 - **Connect stub and SMTP test server** — a local HTTP stub of the 1Password Connect API (`kek-source.test.ts`) and an
-  in-process SMTP server with a test certificate (`smtp-sender.test.ts`); no test ever reaches a real 1Password or
-  SMTP service.
+  in-process SMTP server (`smtp-server`) with a certificate generated per run (`test/helpers/tls-certificate.ts`,
+  so no private key is committed; `smtp-sender.test.ts`); no test ever reaches a real 1Password or SMTP service.
 
 ## 4. Domain engine test plan (≥ 95 % branch, Stryker ≥ 80 %)
 
@@ -126,7 +126,7 @@ one automated test, deterministic tests only.
 | T-17 | `integration/gamble.test.ts` (parallel placement and settlement → exactly one; `target_date` change while a gamble is pending → 409, A-26), `security/mass-assignment.test.ts` (client `stake`, `status`, `attempt` → 400) |
 | T-18 | `rank.test.ts`, `integration/check-ins.test.ts` (back-dated check-ins never change score or rank; a timezone change re-buckets no closed period) |
 | E-11 | `kek-source.test.ts` (unreachable or unauthorised Connect server → refuse to start; token and KEK never logged); KEK rotation drill in M6 |
-| E-12 | `smtp-sender.test.ts` (plaintext SMTP refused, TLS required, auth failure → retry then dead letter), `config.test.ts` (SMTP credentials required and strength-checked), `email-abuse.test.ts` (per-account send limit) |
+| E-12 | `integration/smtp-sender.test.ts` (plaintext relay and untrusted certificate refused before any credentials are sent, TLS required), `integration/outbox-delivery.test.ts` (auth failure → retry, pause, then dead letter), `config.test.ts` (SMTP credentials required and strength-checked, no plaintext mode), `security/rate-limit.test.ts` (per-account send limit) |
 | E-13 | `security/deactivation.test.ts` (after `DELETE /me`: access and refresh tokens → 401; forgot-password → uniform 202 without email; only a password login reactivates, rate-limited and audited) |
 
 ## 6. Coverage, mutation and quality gates

@@ -12,6 +12,9 @@ export const TOKEN_KINDS = {
 
 export type TokenKind = keyof typeof TOKEN_KINDS;
 
+/** R-AUTH-03: verification, reset and email-change links work for at most 30 minutes (the emails say so too). */
+export const ONE_TIME_TOKEN_LIFETIME_MS = 30 * 60 * 1000;
+
 export interface IssuedToken {
   /** Handed to the client exactly once; never stored or logged. */
   readonly token: string;

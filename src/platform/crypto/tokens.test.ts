@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { issueToken, TOKEN_KINDS, tokenHash, type TokenKind } from './tokens.ts';
+import { issueToken, ONE_TIME_TOKEN_LIFETIME_MS, TOKEN_KINDS, tokenHash, type TokenKind } from './tokens.ts';
 
 /** `OpaqueToken.pattern` in openapi/openapi.yaml (`[A-Za-z0-9_-]` written as `[\w-]`). */
 const CONTRACT_PATTERN = /^ql_[a-z]{2}_[\w-]{43}$/;
@@ -68,5 +68,11 @@ describe('tokenHash', () => {
     `${valid.slice(0, -1)}é`,
   ])('refuses the malformed access token %j', (presented) => {
     expect(tokenHash('access', presented)).toBeUndefined();
+  });
+});
+
+describe('ONE_TIME_TOKEN_LIFETIME_MS', () => {
+  it('keeps verification, reset and email-change links valid for exactly 30 minutes [R-AUTH-03]', () => {
+    expect(ONE_TIME_TOKEN_LIFETIME_MS).toBe(1_800_000);
   });
 });

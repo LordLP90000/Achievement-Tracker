@@ -85,7 +85,8 @@ describe('entrypoints against a real database', () => {
   it('starts the worker with the worker role and stops it', async () => {
     const logs = new LogCapture();
     const worker = await startWorker(
-      { appEnv: 'test', logLevel: 'info', databaseUrl: database.urls.worker },
+      { appEnv: 'test', logLevel: 'info', databaseUrl: database.urls.worker, email: undefined },
+      { kek: (await keys()).kek },
       loggerFor(logs),
     );
 
@@ -96,7 +97,13 @@ describe('entrypoints against a real database', () => {
   it('refuses to start the worker when its database is unreachable', async () => {
     await expect(
       startWorker(
-        { appEnv: 'test', logLevel: 'info', databaseUrl: 'postgres://nobody:nothing@127.0.0.1:1/none' },
+        {
+          appEnv: 'test',
+          logLevel: 'info',
+          databaseUrl: 'postgres://nobody:nothing@127.0.0.1:1/none',
+          email: undefined,
+        },
+        { kek: (await keys()).kek },
         loggerFor(new LogCapture()),
       ),
     ).rejects.toThrow();

@@ -321,13 +321,14 @@ Retention 90 days (worker job). Included in export; deleted with the account.
 | `user_id` | uuid → `users` CASCADE | only registered users are ever emailed |
 | `template` | text NOT NULL | `verify_email`, `registration_notice` (someone tried to register or move an account to this address), `password_reset`, `password_changed_notice`, `email_change_verify` (to the new address), `email_change_notice` (to the old address), `account_deleted_notice` |
 | `payload_enc` 🔒 | bytea NOT NULL | JSON `{to, locale, token?}` encrypted with the user's DEK (AD record id = `id`); the worker builds links from config (A-19) — never in plaintext |
-| `attempts` | integer NOT NULL DEFAULT 0 | |
-| `next_attempt_at` | timestamptz NOT NULL | exponential backoff |
-| `last_error_code` | text NULL | provider error class only, no message text |
+| `attempts` | integer NOT NULL DEFAULT 0 | counted when the worker claims the email, so a crash loop still reaches the limit (8) |
+| `next_attempt_at` | timestamptz NOT NULL | exponential backoff (1, 2, 4 … 64 min); while an email is being sent, the end of the worker's 5-minute lease |
+| `last_error_code` | text NULL | error class only (`smtp_eenvelope_550`, `smtp_etls_500`, `payload_unreadable`), no message text |
 | `sent_at`, `dead_at` | timestamptz NULL | |
 | `created_at` | timestamptz NOT NULL | |
 
-Sent rows are deleted immediately; dead letters after 7 days.
+Sent rows are deleted immediately; dead letters after 7 days. A link email whose token no longer works (used,
+replaced by a newer one or expired) is deleted unsent (D-05); notices are always sent.
 
 #### `rate_limit_buckets` (UNLOGGED, no user relation)
 

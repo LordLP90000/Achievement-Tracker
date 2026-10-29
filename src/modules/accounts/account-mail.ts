@@ -1,14 +1,11 @@
 import type { FieldContext } from '../../platform/crypto/aead.ts';
 import type { DataKeys } from '../../platform/crypto/data-keys.ts';
-import { issueToken, type TokenKind } from '../../platform/crypto/tokens.ts';
+import { issueToken, ONE_TIME_TOKEN_LIFETIME_MS, type TokenKind } from '../../platform/crypto/tokens.ts';
 import { setUserContext, type Transaction } from '../../platform/db/database.ts';
 import { enqueueEmail, type EmailTemplate } from '../../platform/email/outbox-repository.ts';
 import { replaceOneTimeToken, requireWrappedKey, type OneTimeTokenPurpose } from './repository.ts';
 
 /** Helpers shared by the account flows that read the encrypted address or email a single-use link. */
-
-/** R-AUTH-03: verification, reset and email-change links work for at most 30 minutes. */
-export const ONE_TIME_TOKEN_LIFETIME_MS = 30 * 60 * 1000;
 
 export interface Recipient {
   readonly userId: string;

@@ -96,6 +96,8 @@ services:
   worker:
     <<: *app
     command: ['dist/worker.js']
+    # No SMTP settings here: locally the worker leaves emails queued (it logs "email delivery off"). Production
+    # requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM and PUBLIC_LINK_BASE_URL (architecture §4.1).
     environment:
       APP_ENV: development
       DATABASE_URL_WORKER: postgres://questline_worker:${DB_PASSWORD_WORKER}@db:5432/questline

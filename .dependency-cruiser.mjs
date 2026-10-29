@@ -40,6 +40,15 @@ export default {
       to: { path: 'node_modules/sodium-native/' },
     },
     {
+      name: 'smtp-client-only-in-smtp-sender',
+      comment:
+        'Nodemailer is used only by the SMTP sender (ADR-0014), where TLS is enforced and file/URL access is off; ' +
+        'everything else depends on the EmailSender interface.',
+      severity: 'error',
+      from: { path: '^src/', pathNot: '^src/platform/email/smtp-sender\\.ts$' },
+      to: { path: 'node_modules/nodemailer/' },
+    },
+    {
       name: 'production-code-not-to-tests',
       severity: 'error',
       from: { path: '^src/', pathNot: '\\.test\\.ts$' },

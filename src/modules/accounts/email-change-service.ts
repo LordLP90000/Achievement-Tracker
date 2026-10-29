@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { emailBlindIndex } from '../../platform/crypto/blind-index.ts';
 import type { DataKeys } from '../../platform/crypto/data-keys.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
-import { issueToken, tokenHash } from '../../platform/crypto/tokens.ts';
+import { issueToken, ONE_TIME_TOKEN_LIFETIME_MS, tokenHash } from '../../platform/crypto/tokens.ts';
 import { inTransaction, setUserContext, type Database, type Transaction } from '../../platform/db/database.ts';
 import { enqueueEmail } from '../../platform/email/outbox-repository.ts';
 import type { Clock } from '../../platform/time/clock.ts';
 import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent, type AuditEvent } from '../audit/repository.ts';
 import { hasRecentReauth, type Principal } from '../sessions/guard.ts';
-import { emailField, ONE_TIME_TOKEN_LIFETIME_MS, withAccountKey } from './account-mail.ts';
+import { emailField, withAccountKey } from './account-mail.ts';
 import {
   changeEmail,
   consumeOneTimeToken,

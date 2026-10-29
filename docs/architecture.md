@@ -98,6 +98,10 @@ Rules enforced by lint/tests:
   `OP_KEK_VAULT_ID`, `OP_KEK_ITEM_ID`, `BLIND_INDEX_KEY`, `RATE_LIMIT_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`
   (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`. Secrets are injected as environment
   variables (from 1Password or the host's secret store); only the KEK is fetched from Connect at runtime.
+- The worker's email variables (`SMTP_*`, `EMAIL_FROM`, `PUBLIC_LINK_BASE_URL`) are all or none. Outside production,
+  none set means email delivery is off and emails stay queued (the local Compose stack has no relay); production
+  requires them, a strong `SMTP_PASSWORD` and an `https` `PUBLIC_LINK_BASE_URL` without credentials, query or
+  fragment. `SMTP_TLS` has no plaintext value; its port defaults to 587 (`starttls`) or 465 (`implicit`).
 
 ### 4.2 Database (`platform/db`)
 
@@ -137,6 +141,8 @@ content-type enforcement.
 - Fastify's own "Server listening at <address>" announcements (one per network interface, with internal IP
   addresses) are dropped by a pino `logMethod` hook; the API logs one `api listening` line with the port (Q-28).
 - Audit events are **not** logs: they are rows in `audit_events` with minimal, allowlisted metadata.
+- Worker lines carry only `template`, `attempt`, `error_code`, `pause_ms` and `email_delivery` besides the message:
+  never an address, token or account ID.
 - Test harness captures every log line of the whole run (API + worker) and asserts that no seeded secret or
   personal value appears (R-LOG-02).
 
@@ -150,8 +156,17 @@ content-type enforcement.
 
 ### 4.7 Background work (`platform/jobs`)
 
-- `Outbox`: rows inserted inside business transactions; the worker drains with `FOR UPDATE SKIP LOCKED`,
-  exponential retry (max 8 attempts), then dead-letter (encrypted payload, 7-day retention).
+- `Outbox`: rows inserted inside business transactions; the worker polls every 5 s (`platform/jobs/poller.ts`, a
+  round never overlaps the previous one) and claims one due email at a time with `FOR UPDATE SKIP LOCKED`. The claim
+  counts the attempt and leases the row for 5 min (`next_attempt_at`), so an email whose worker died is retried when
+  the lease ends and a crash loop still reaches the attempt limit. The payload is decrypted with the user's data key
+  and rendered from fixed templates (`platform/email/templates.ts`). A link email is sent only while its token still
+  works — a replaced, used or expired link is deleted unsent (D-05) — while security notices are always sent. After
+  sending, the row is deleted; a failure is retried after 1, 2, 4 … 64 min and dead-lettered after the 8th attempt
+  (dead letters keep the encrypted payload for 7 days); a permanent refusal of the recipient or message, or an
+  unreadable payload, is dead-lettered at once. A failure of the relay itself pauses all delivery for 60 s, so a
+  broken relay or wrong credentials are not hammered (D-07). `last_error_code` holds only a class such as
+  `smtp_eenvelope_550`, `payload_unreadable` or `send_failed`.
 - `Scheduler`: fixed-interval jobs guarded by `pg_try_advisory_lock` so only one worker instance runs a job.
   Jobs: unverified-account purge (7 d), expired one-time tokens, expired/revoked sessions & tokens,
   idempotency keys (24 h), audit events (90 d), tombstones (35 d), stale rate-limit buckets, dead letters (7 d),
@@ -205,9 +220,9 @@ settlement exactly-once under concurrency.
 │   │   ├── config/
 │   │   ├── crypto/
 │   │   ├── db/{bootstrap.ts, client.ts, migrate.ts, schema/, migrations/}   # roles, grants, RLS helpers
-│   │   ├── email/                     # EmailSender, SmtpEmailSender (nodemailer), templates
+│   │   ├── email/                     # EmailSender, SmtpEmailSender (nodemailer), templates, outbox repository + delivery
 │   │   ├── http/
-│   │   ├── jobs/
+│   │   ├── jobs/                      # poller (outbox); scheduler for retention and settlement jobs
 │   │   ├── logging/
 │   │   └── time/
 │   └── modules/
@@ -252,14 +267,14 @@ reason here and a line in the next milestone report.
 | `postgres` (postgres.js) | 3.4.9 (M1) | PostgreSQL driver with zero dependencies, supported by Drizzle | `pg` (more deps) |
 | `sodium-native` | 5.2.0 (M2) | Argon2id, XChaCha20-Poly1305, constant-time compare, guarded memory (ADR-0005). Loads its bundled prebuilds through `require-addon` without install scripts; brings 19 further production packages (Holepunch `bare-*` loader, `streamx` family; MIT/Apache-2.0, none with install scripts). The image keeps only its own platform's prebuild (`docker/keep-native-prebuild.mjs`) | `argon2` + `libsodium-wrappers` (two deps); `libsodium-wrappers-sumo` (WASM: no guarded memory, slower Argon2id) |
 | `pino` | 10.4.0 (M1) | Structured logging (already a Fastify dependency; used directly by the worker) | – |
-| `nodemailer` | planned (M2) | SMTP delivery to the PM's relay with mandatory TLS (ADR-0014); mature, no runtime dependencies of its own | provider HTTP APIs/SDKs (not chosen: the PM decided on custom SMTP, Q-03) |
+| `nodemailer` | 10.2.1 (M2) | SMTP delivery to the PM's relay with mandatory TLS (ADR-0014); mature, no runtime dependencies of its own. Imported only by `platform/email/smtp-sender.ts` (dependency rule) | provider HTTP APIs/SDKs (not chosen: the PM decided on custom SMTP, Q-03) |
 
 No 1Password SDK: the Connect API is called with Node's built-in `fetch` (ADR-0013).
 
 Everything else (`vitest`, `testcontainers`, `drizzle-kit`, `typescript`, `eslint`, `@stryker-mutator/*`, `ajv`,
 `ajv-formats`, `yaml`, `@redocly/cli`, `fast-check`, `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
-`@commitlint/*`, `lefthook`, and `smtp-server` as the local SMTP test server — to be confirmed in M2) is a dev
-dependency and never ships in the container.
+`@commitlint/*`, `lefthook`, and `smtp-server` 3.21.1 as the local SMTP stand-in, with `punycode.js` and
+`ipv6-normalize`, confirmed in M2) is a dev dependency and never ships in the container.
 
 ## 8. Deployment & operations view (details in M6 runbook)
 

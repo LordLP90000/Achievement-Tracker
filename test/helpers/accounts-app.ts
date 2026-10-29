@@ -12,9 +12,9 @@ import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
 import { createSessionsService, type SessionsService } from '../../src/modules/sessions/service.ts';
 import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
 import { emailBlindIndex } from '../../src/platform/crypto/blind-index.ts';
-import { createDataKeys } from '../../src/platform/crypto/data-keys.ts';
+import { createDataKeys, type DataKeys } from '../../src/platform/crypto/data-keys.ts';
 import { decryptText } from '../../src/platform/crypto/field-cipher.ts';
-import { envKekSource } from '../../src/platform/crypto/kek-source.ts';
+import { envKekSource, type Kek } from '../../src/platform/crypto/kek-source.ts';
 import { localKeyWrapper } from '../../src/platform/crypto/key-wrapper.ts';
 import { createArgon2idHasher, type PasswordHasher } from '../../src/platform/crypto/password.ts';
 import { databaseUrl } from '../../src/platform/db/bootstrap.ts';
@@ -47,6 +47,10 @@ export interface AccountsApp {
   readonly worker: DatabaseClient;
   /** Superuser, bypasses row-level security: arranges states the API cannot create (deactivation, a lost key). */
   readonly admin: DatabaseClient;
+  /** Data keys under the same KEK as the API, as the worker holds them. */
+  readonly dataKeys: DataKeys;
+  /** The KEK of the API instances, for starting a worker on the same database. */
+  readonly kek: Kek;
   /** Runs after every successful or failed password verification, before the login continues (race tests). */
   afterPasswordVerified: (() => Promise<void>) | undefined;
   blindIndex(email: string): Buffer;
@@ -91,7 +95,8 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
     role(databaseUrl(inject('database').adminUrl, database.name)),
   ];
   const clock = new FakeClock('2026-10-29T12:00:00Z');
-  const wrapper = localKeyWrapper(await envKekSource(randomBytes(32))());
+  const kek = await envKekSource(randomBytes(32))();
+  const wrapper = localKeyWrapper(kek);
   const blindIndexKey = randomBytes(32);
   const rateLimitKey = randomBytes(32);
   const argon2 = await createArgon2idHasher(options.hashing ?? { maxConcurrent: 4, maxQueued: 64 });
@@ -200,6 +205,8 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
     database,
     worker,
     admin,
+    dataKeys: createDataKeys(wrapper),
+    kek,
     afterPasswordVerified: undefined,
     blindIndex: (email) => emailBlindIndex(blindIndexKey, email),
     hashCount: () => hashes,

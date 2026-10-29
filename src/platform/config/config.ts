@@ -26,7 +26,31 @@ export interface ProcessConfig {
   readonly databaseUrl: string;
 }
 
-export type WorkerConfig = ProcessConfig;
+export const SMTP_TLS_MODES = ['starttls', 'implicit'] as const;
+export type SmtpTlsMode = (typeof SMTP_TLS_MODES)[number];
+
+/** The relay the worker sends through (ADR-0014). TLS is not optional: there is no plaintext mode. */
+export interface SmtpConfig {
+  readonly host: string;
+  readonly port: number;
+  readonly tls: SmtpTlsMode;
+  readonly user: string;
+  readonly password: string;
+  /** Plain sender address; the display name is fixed. */
+  readonly from: string;
+}
+
+export interface EmailConfig {
+  readonly smtp: SmtpConfig;
+  /** Base URL of the links in emails (A-19), without a trailing slash. */
+  readonly linkBaseUrl: string;
+}
+
+export interface WorkerConfig extends ProcessConfig {
+  /** `undefined` only outside production when no email variable is set: emails then stay queued. */
+  readonly email: EmailConfig | undefined;
+}
+
 export type MigrateConfig = ProcessConfig;
 
 export interface BootstrapConfig {
@@ -100,6 +124,63 @@ const databaseNameSchema = z.preprocess(
 );
 const requiredSecretSchema = z.preprocess(blankToUndefined, z.string({ error: 'is required' }));
 
+const HOST_RULE = 'must be a host name or IPv4 address';
+const LINK_BASE_RULE = 'must be an http(s) URL without credentials, query or fragment';
+const HOST_NAME = /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)*$/i;
+const DEFAULT_SMTP_PORTS: Readonly<Record<SmtpTlsMode, number>> = { starttls: 587, implicit: 465 };
+const EMAIL_VARIABLES = [
+  'SMTP_HOST',
+  'SMTP_PORT',
+  'SMTP_TLS',
+  'SMTP_USER',
+  'SMTP_PASSWORD',
+  'EMAIL_FROM',
+  'PUBLIC_LINK_BASE_URL',
+];
+
+const emailSchema = z.object({
+  SMTP_HOST: z.preprocess(
+    blankToUndefined,
+    z
+      .string({ error: requiredOr(HOST_RULE) })
+      .max(253, { error: HOST_RULE })
+      .regex(HOST_NAME, { error: HOST_RULE }),
+  ),
+  SMTP_PORT: z.preprocess(
+    blankToUndefined,
+    z.coerce
+      .number({ error: PORT_RULE })
+      .int({ error: PORT_RULE })
+      .min(1, { error: PORT_RULE })
+      .max(65535, { error: PORT_RULE })
+      .optional(),
+  ),
+  SMTP_TLS: z.preprocess(
+    blankToUndefined,
+    z
+      .enum(SMTP_TLS_MODES, {
+        error: `must be one of ${SMTP_TLS_MODES.join(', ')} (plaintext SMTP is not supported)`,
+      })
+      .default('starttls'),
+  ),
+  SMTP_USER: requiredSecretSchema,
+  SMTP_PASSWORD: requiredSecretSchema,
+  EMAIL_FROM: z.preprocess(blankToUndefined, z.email({ error: requiredOr('must be a plain email address') })),
+  PUBLIC_LINK_BASE_URL: z.preprocess(
+    blankToUndefined,
+    z
+      .string({ error: requiredOr(LINK_BASE_RULE) })
+      .refine(isLinkBase, { error: LINK_BASE_RULE })
+      .transform((value) => new URL(value).href.replace(/\/+$/, '')),
+  ),
+});
+
+function isLinkBase(value: string): boolean {
+  if (!URL.canParse(value) || value.includes('?') || value.includes('#')) return false;
+  const url = new URL(value);
+  return ['http:', 'https:'].includes(url.protocol) && url.username === '' && url.password === '';
+}
+
 function isPostgresUrl(value: string): boolean {
   return URL.canParse(value) && ['postgres:', 'postgresql:'].includes(new URL(value).protocol);
 }
@@ -135,11 +216,13 @@ function productionDatabaseIssues(variable: string, value: string): string[] {
   return issues;
 }
 
+function issuesOf(error: z.ZodError): string[] {
+  return error.issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`);
+}
+
 function parseEnv<Shape extends z.ZodRawShape>(shape: Shape, env: Env): z.infer<z.ZodObject<Shape>> {
   const result = z.object(shape).safeParse(env);
-  if (!result.success) {
-    throw new ConfigError(result.error.issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`));
-  }
+  if (!result.success) throw new ConfigError(issuesOf(result.error));
   return result.data;
 }
 
@@ -194,12 +277,63 @@ export function loadApiConfig(env: Env): ApiConfig {
   });
 }
 
+interface EmailSettings {
+  readonly email: EmailConfig | undefined;
+  readonly issues: readonly string[];
+}
+
+/** The worker's relay and link settings (ADR-0014, A-19): all or none, and required in production (E-12). */
+function loadEmailConfig(env: Env, appEnv: AppEnv): EmailSettings {
+  const production = appEnv === 'production';
+  if (!production && EMAIL_VARIABLES.every((name) => blankToUndefined(env[name]) === undefined)) {
+    return { email: undefined, issues: [] };
+  }
+  const result = emailSchema.safeParse(env);
+  if (!result.success) return { email: undefined, issues: issuesOf(result.error) };
+  const parsed = result.data;
+  const email: EmailConfig = Object.freeze({
+    smtp: Object.freeze({
+      host: parsed.SMTP_HOST,
+      port: parsed.SMTP_PORT ?? DEFAULT_SMTP_PORTS[parsed.SMTP_TLS],
+      tls: parsed.SMTP_TLS,
+      user: parsed.SMTP_USER,
+      password: parsed.SMTP_PASSWORD,
+      from: parsed.EMAIL_FROM,
+    }),
+    linkBaseUrl: parsed.PUBLIC_LINK_BASE_URL,
+  });
+  const issues = production
+    ? [
+        ...(isStrongPassword(email.smtp.password, email.smtp.user)
+          ? []
+          : ['SMTP_PASSWORD: is too weak for production']),
+        ...(email.linkBaseUrl.startsWith('https://') ? [] : ['PUBLIC_LINK_BASE_URL: must use https in production']),
+      ]
+    : [];
+  return { email, issues };
+}
+
 export function loadWorkerConfig(env: Env): WorkerConfig {
   const parsed = parseEnv(
     { APP_ENV: appEnvSchema, LOG_LEVEL: logLevelSchema, DATABASE_URL_WORKER: databaseUrlSchema },
     env,
   );
-  return processConfig(parsed.APP_ENV, parsed.LOG_LEVEL, 'DATABASE_URL_WORKER', parsed.DATABASE_URL_WORKER);
+  const { email, issues } = loadEmailConfig(env, parsed.APP_ENV);
+  assertNoIssues([
+    ...(parsed.APP_ENV === 'production'
+      ? [
+          ...logLevelIssues(parsed.LOG_LEVEL),
+          ...productionDatabaseIssues('DATABASE_URL_WORKER', parsed.DATABASE_URL_WORKER),
+        ]
+      : []),
+    ...issues,
+  ]);
+  return Object.freeze({
+    appEnv: parsed.APP_ENV,
+    logLevel: parsed.LOG_LEVEL,
+    databaseUrl: parsed.DATABASE_URL_WORKER,
+    email,
+  });
 }
 
 export function loadMigrateConfig(env: Env): MigrateConfig {

@@ -12,8 +12,8 @@ process.exitCode = await runCli(
     const keys = loadWorkerKeys(process.env, config.appEnv);
     const logger = createLogger({ service: 'questline-worker', level: config.logLevel });
     // The worker decrypts queued email payloads with user data keys: without the KEK it does not start.
-    await kekSourceFor(keys.kek)();
-    stopOnSignals(process, await startWorker(config, logger), logger);
+    const kek = await kekSourceFor(keys.kek)();
+    stopOnSignals(process, await startWorker(config, { kek }, logger), logger);
   },
   (line) => process.stderr.write(`${line}\n`),
 );

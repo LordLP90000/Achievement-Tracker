@@ -162,23 +162,152 @@ describe('loadApiConfig', () => {
 });
 
 describe('loadWorkerConfig', () => {
-  it('needs only the worker database URL', () => {
-    const url = devUrl.replace('questline_app', 'questline_worker');
+  const workerUrl = devUrl.replace('questline_app', 'questline_worker');
+  const smtpEnv = {
+    SMTP_HOST: 'smtp.relay.test',
+    SMTP_USER: 'relay-user@questline.test',
+    SMTP_PASSWORD: STRONG_PASSWORD,
+    EMAIL_FROM: 'no-reply@questline.test',
+    PUBLIC_LINK_BASE_URL: 'https://app.questline.test',
+  };
+  const developmentEnv = { APP_ENV: 'development', DATABASE_URL_WORKER: workerUrl };
+  const productionEnv = { APP_ENV: 'production', DATABASE_URL_WORKER: prodUrl('questline_worker') };
 
-    expect(loadWorkerConfig({ APP_ENV: 'development', DATABASE_URL_WORKER: url })).toEqual({
+  it('needs only the worker database URL: without SMTP settings, emails stay queued (development and tests)', () => {
+    expect(loadWorkerConfig(developmentEnv)).toEqual({
       appEnv: 'development',
       logLevel: 'info',
-      databaseUrl: url,
+      databaseUrl: workerUrl,
+      email: undefined,
     });
+    expect(loadWorkerConfig({ ...developmentEnv, APP_ENV: 'test', SMTP_HOST: '' }).email).toBeUndefined();
   });
 
   it('applies the production guards to its database URL', () => {
-    const error = configErrorOf(() => loadWorkerConfig({ APP_ENV: 'production', DATABASE_URL_WORKER: devUrl }));
+    const error = configErrorOf(() =>
+      loadWorkerConfig({ ...smtpEnv, APP_ENV: 'production', DATABASE_URL_WORKER: devUrl }),
+    );
 
     expect(error.issues).toEqual([
       'DATABASE_URL_WORKER: must use sslmode=verify-full in production',
       'DATABASE_URL_WORKER: password is missing or too weak for production',
     ]);
+  });
+
+  it('parses the SMTP settings: STARTTLS on port 587 unless configured otherwise [ADR-0014]', () => {
+    expect(loadWorkerConfig({ ...developmentEnv, ...smtpEnv }).email).toEqual({
+      smtp: {
+        host: 'smtp.relay.test',
+        port: 587,
+        tls: 'starttls',
+        user: 'relay-user@questline.test',
+        password: STRONG_PASSWORD,
+        from: 'no-reply@questline.test',
+      },
+      linkBaseUrl: 'https://app.questline.test',
+    });
+  });
+
+  it('uses port 465 for implicit TLS and accepts an explicit port', () => {
+    expect(loadWorkerConfig({ ...developmentEnv, ...smtpEnv, SMTP_TLS: 'implicit' }).email?.smtp).toMatchObject({
+      tls: 'implicit',
+      port: 465,
+    });
+    expect(loadWorkerConfig({ ...developmentEnv, ...smtpEnv, SMTP_PORT: '2525' }).email?.smtp).toMatchObject({
+      tls: 'starttls',
+      port: 2525,
+    });
+  });
+
+  it('keeps the path of the link base and drops a trailing slash', () => {
+    const email = (base: string) =>
+      loadWorkerConfig({ ...developmentEnv, ...smtpEnv, PUBLIC_LINK_BASE_URL: base }).email;
+
+    expect(email('https://questline.test/app/')?.linkBaseUrl).toBe('https://questline.test/app');
+    expect(email('http://localhost:8080')?.linkBaseUrl).toBe('http://localhost:8080');
+  });
+
+  it('requires every SMTP setting once one is given, naming each missing variable', () => {
+    const error = configErrorOf(() => loadWorkerConfig({ ...developmentEnv, SMTP_HOST: 'smtp.relay.test' }));
+
+    expect(error.issues).toEqual([
+      'SMTP_USER: is required',
+      'SMTP_PASSWORD: is required',
+      'EMAIL_FROM: is required',
+      'PUBLIC_LINK_BASE_URL: is required',
+    ]);
+  });
+
+  it('refuses plaintext SMTP and malformed settings without echoing them [E-12]', () => {
+    const error = configErrorOf(() =>
+      loadWorkerConfig({
+        ...developmentEnv,
+        ...smtpEnv,
+        SMTP_HOST: 'smtp://relay.test',
+        SMTP_PORT: '70000',
+        SMTP_TLS: 'none',
+        EMAIL_FROM: 'Questline <no-reply@questline.test>',
+        PUBLIC_LINK_BASE_URL: 'ftp://app.questline.test',
+      }),
+    );
+
+    expect(error.issues).toEqual([
+      'SMTP_HOST: must be a host name or IPv4 address',
+      'SMTP_PORT: must be an integer between 1 and 65535',
+      'SMTP_TLS: must be one of starttls, implicit (plaintext SMTP is not supported)',
+      'EMAIL_FROM: must be a plain email address',
+      'PUBLIC_LINK_BASE_URL: must be an http(s) URL without credentials, query or fragment',
+    ]);
+    expect(error.message).not.toContain('relay.test');
+  });
+
+  it('refuses a link base with credentials, a query or a fragment', () => {
+    for (const base of [
+      'https://user:pw@app.questline.test',
+      'https://app.questline.test/?ref=mail',
+      'https://app.questline.test/#x',
+      'not a url',
+    ]) {
+      const error = configErrorOf(() =>
+        loadWorkerConfig({ ...developmentEnv, ...smtpEnv, PUBLIC_LINK_BASE_URL: base }),
+      );
+      expect(error.issues).toEqual([
+        'PUBLIC_LINK_BASE_URL: must be an http(s) URL without credentials, query or fragment',
+      ]);
+    }
+  });
+
+  it('requires SMTP in production [E-12]', () => {
+    const error = configErrorOf(() => loadWorkerConfig(productionEnv));
+
+    expect(error.issues).toEqual([
+      'SMTP_HOST: is required',
+      'SMTP_USER: is required',
+      'SMTP_PASSWORD: is required',
+      'EMAIL_FROM: is required',
+      'PUBLIC_LINK_BASE_URL: is required',
+    ]);
+  });
+
+  it('requires a strong SMTP password and an https link base in production [E-12]', () => {
+    const error = configErrorOf(() =>
+      loadWorkerConfig({
+        ...productionEnv,
+        ...smtpEnv,
+        SMTP_PASSWORD: 'change-me-please-now',
+        PUBLIC_LINK_BASE_URL: 'http://app.questline.test',
+      }),
+    );
+
+    expect(error.issues).toEqual([
+      'SMTP_PASSWORD: is too weak for production',
+      'PUBLIC_LINK_BASE_URL: must use https in production',
+    ]);
+    expect(error.message).not.toContain('change-me');
+  });
+
+  it('accepts a complete production configuration', () => {
+    expect(loadWorkerConfig({ ...productionEnv, ...smtpEnv }).email?.smtp.host).toBe('smtp.relay.test');
   });
 });
 
@@ -193,6 +322,14 @@ describe('loadMigrateConfig', () => {
     const config = loadMigrateConfig({ APP_ENV: 'production', DATABASE_URL_MIGRATOR: prodUrl('questline_migrator') });
 
     expect(config.databaseUrl).toBe(prodUrl('questline_migrator'));
+  });
+
+  it('skips the production guards outside production', () => {
+    expect(loadMigrateConfig({ APP_ENV: 'development', DATABASE_URL_MIGRATOR: devUrl })).toEqual({
+      appEnv: 'development',
+      logLevel: 'info',
+      databaseUrl: devUrl,
+    });
   });
 });
 
