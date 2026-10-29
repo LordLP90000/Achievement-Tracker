@@ -183,7 +183,7 @@ when it records an author, so past commits show `Laurent <laurent_scherrer@sluz.
 public, which Q-26 addresses for future commits.
 
 **Status**: review completed by the PM on 2026-10-23; the follow-ups below are pushed and green. M1 stays in REVIEW
-until the PM gives the "go" for M2.
+until the PM gives the "go" for M2. **Closed on 2026-10-29: the PM gave the "go" for M2; M1 is DONE.**
 
 **Follow-ups done the same morning** (each test-first, pushed to `master`): `2090e43` decisions recorded ·
 `7d719f0` contract 0.2.1-draft with `413`/`415` on all 19 operations with a body (Q-25; 5 new tests) · `66a2a27`

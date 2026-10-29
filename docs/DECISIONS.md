@@ -275,7 +275,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0016 · Supply-chain controls and CI gates
 
-- **Status:** proposed (M1, 2026-10-22; accepted with the PM's "go" for M2)
+- **Status:** accepted (2026-10-29, PM "go" for M2; proposed in M1 on 2026-10-22)
 - **Context:** Work is pushed straight to `master` (ADR-0001), so nothing reviews a dependency or a commit before it
   lands. R-SUP-01/02 and threats T-10 (malicious dependency), T-11 (tampered image) and E-07 (committed secrets)
   need controls that act before install, before commit, before push and on every CI run.
@@ -301,7 +301,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0017 · Runtime image: distroless Node.js 26 on Debian 13
 
-- **Status:** proposed (M1, 2026-10-22; accepted with the PM's "go" for M2)
+- **Status:** accepted (2026-10-29, PM "go" for M2; proposed in M1 on 2026-10-22)
 - **Context:** The plan allowed "distroless or Alpine"; threat E-06 lists "no shell in distroless image" as a
   mitigation. The first M1 image (Alpine) still contained a busybox shell.
 - **Decision:** Runtime stage `gcr.io/distroless/nodejs26-debian13:nonroot`, build stages `node:26-trixie-slim`

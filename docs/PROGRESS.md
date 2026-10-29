@@ -7,8 +7,8 @@ Updated after every completed task (date, task, tests, commit). Newest entries a
 | Milestone | Name | Status | Branch | Report |
 |-----------|------|--------|--------|--------|
 | M0 | Plan | DONE | `m0-plan`, merged into `master` as `5d41b7d` | [docs/reports/M0-status-report.md](reports/M0-status-report.md) |
-| M1 | Walking skeleton | REVIEW | `master` (direct pushes, ADR-0001 as amended) | [docs/reports/M1-status-report.md](reports/M1-status-report.md) |
-| M2 | Accounts & sessions | not started | – | – |
+| M1 | Walking skeleton | DONE | `master` (direct pushes, ADR-0001 as amended) | [docs/reports/M1-status-report.md](reports/M1-status-report.md) |
+| M2 | Accounts & sessions | IN PROGRESS | `master` | – |
 | M3 | Core domain | not started | – | – |
 | M4 | Privacy rights | not started | – | – |
 | M5 | Auth hardening | not started | – | – |
@@ -69,4 +69,17 @@ Testcontainers + contract harness, Docker image + Compose, CI with all gates. Sc
 | 2026-10-23 | Fastify's listening announcements dropped (Q-28, demo finding 2): a pino `logMethod` hook in `createLogger` drops exactly `Server listening at <address>` messages (Fastify logs one per network interface, with internal IP addresses, and has no switch for it); the single structured `api listening` line with the port stays; architecture §4.5; M1 report addendum lists the review follow-ups | Red → green: unit test (announcements for IPv4 and IPv6 dropped, structured line and an unrelated message starting with the same words kept) and integration test on a real socket (exactly one `api listening` with a port, no `Server listening`, no IPv4 address anywhere in the startup log); total 154; e2e 7/7; rebuilt Compose stack: the API logged 2 lines in 15 s (startup + one 404) instead of a line every 3 s plus two address lines | `8380a21` |
 | 2026-10-23 | Corrections to the review notes: the first nightly CI run did fire (5 h late, passed) — the earlier "not fired yet" was checked minutes too early; the stray apostrophes of the PM's git identity were never in commits (git strips them), only in the global config | n/a (docs); CI runs #5–#9 green | `92562d5` |
 | 2026-10-23 | CI without the Actions dependency cache: in runs #9 and #10 the npm cache restore (75 MB) stalled at 60.8 % until GitHub's 10-minute cache timeout in all four Node jobs, while `npm ci` from the registry then took 6 s; `setup-node` now runs with `package-manager-cache: false` (ADR-0016 bullet) — fewer moving parts, integrity still checked against the lockfile | actionlint clean; run #9 was green after the stall (11 min instead of ~1.5 min) | `f8b000c` |
-| 2026-10-23 | M1 review closed by the PM ("review done, no go yet"): report addendum completed (all follow-up commits, status); demo stack removed incl. its volume, local `docker/.env` deleted | CI run #11 green in 1 min 27 s without the cache | this commit |
+| 2026-10-23 | M1 review closed by the PM ("review done, no go yet"): report addendum completed (all follow-up commits, status); demo stack removed incl. its volume, local `docker/.env` deleted | CI run #11 green in 1 min 27 s without the cache | `109f243` |
+| 2026-10-29 | M1 closed: PM "go" for M2. ADR-0016 (supply-chain controls) and ADR-0017 (distroless runtime) accepted; assumptions A-26…A-28 accepted (not objected) | Nightly CI runs #13–#18 (2026-10-24…29) all green — no new advisories in six days | this commit |
+
+## M2 – Accounts & sessions
+
+Goal: `platform/crypto` (AEAD, envelope encryption, KEK source, Argon2id, blind index, tokens), account tables,
+register → verify → login → refresh → logout, sessions, re-auth, password change/reset, two-step email change,
+settings and consents, audit events, rate limiting, outbox + worker + SMTP sender, retention jobs. SMTP relay and
+1Password Connect are local stand-ins until O-02/O-03 are answered (Q-27). Scope and exit criteria:
+`docs/plan.md` → M2. All commits are pushed directly to `master`.
+
+| Date | Task | Tests | Commit |
+|------|------|-------|--------|
+| 2026-10-29 | Kickoff: `.nvmrc` pinned to the exact runtime version `26.12.1` (it said `26`, so CI already picked newer 26.x patches than the image and the dev machine). Node 26.13.0, the first LTS release of Node 26, came out on 2026-10-28; local, CI and image pins move to it once it is 7 days old (≥ 2026-11-04), following the spirit of the 7-day rule in ADR-0016 | n/a (status and pin) | this commit |

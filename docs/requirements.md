@@ -5,6 +5,7 @@ Status: M0 **v2** (2026-10-22) — updated with the PM's answers to all open que
 PM has not objected to. Where a PM decision changed the original brief, the row is marked **[PM 2026-10-22]**.
 Later on 2026-10-22: R-TLS/R-LOG/R-SUP rows restored from v1 (R-SUP-04 adapted to ADR-0013), A-26…A-28 proposed,
 open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.1); O-02/O-03 moved to "before M6".
+2026-10-29: A-26…A-28 accepted with the PM's "go" for M2.
 
 ## 1. Product summary
 
@@ -218,9 +219,9 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | A-23 | `week_start` change does not retroactively re-bucket already closed periods. |
 | A-24 | The PM's own hosting must satisfy H-1…H-7 in `docs/hosting-options.md`; until named, deployment artefacts stay provider-neutral (Docker image + Compose). |
 | A-25 | SMTP sender uses `nodemailer` with TLS required (STARTTLS or implicit TLS), credentials from 1Password/env, per-account send limit 3/h, outbox dedupe. |
-| A-26 | **[proposed 2026-10-22, PM may object]** While a gamble is pending, the achievement's `target_date` cannot be changed or removed (`409 gamble-pending`); otherwise a loss could be avoided by moving the date (T-17). |
-| A-27 | **[proposed 2026-10-22, PM may object]** After a lost gamble, no new gamble can be placed on the same achievement in the same attempt (`409 gamble-lost-this-attempt`, T-16). |
-| A-28 | **[proposed 2026-10-22, PM may object]** A habit `start_date` (on creation and on restart) must be today or later (`422`): a period before today could never be met because back-dated check-ins never count (R-CHK-04). |
+| A-26 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** While a gamble is pending, the achievement's `target_date` cannot be changed or removed (`409 gamble-pending`); otherwise a loss could be avoided by moving the date (T-17). |
+| A-27 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** After a lost gamble, no new gamble can be placed on the same achievement in the same attempt (`409 gamble-lost-this-attempt`, T-16). |
+| A-28 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** A habit `start_date` (on creation and on restart) must be today or later (`422`): a period before today could never be met because back-dated check-ins never count (R-CHK-04). |
 
 ## 6. Decisions taken by the PM (2026-10-22)
 
