@@ -8,6 +8,7 @@ const run = promisify(execFile);
 const COMPOSE = ['compose', '-f', 'docker/compose.yml', '-p', 'questline-e2e'];
 const MAX_BUFFER = 64 * 1024 * 1024;
 const secret = () => randomBytes(24).toString('base64url');
+const key = () => randomBytes(32).toString('base64');
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -29,6 +30,9 @@ describe('container smoke test', () => {
     DB_PASSWORD_MIGRATOR: secret(),
     DB_PASSWORD_APP: secret(),
     DB_PASSWORD_WORKER: secret(),
+    LOCAL_KEK: key(),
+    BLIND_INDEX_KEY: key(),
+    RATE_LIMIT_KEY: key(),
   };
   const env: NodeJS.ProcessEnv = { ...process.env, ...secrets };
   let baseUrl = '';
@@ -118,5 +122,23 @@ describe('container smoke test', () => {
     expect(failure.code).toBe(1);
     expect(failure.stderr).toContain('Invalid configuration');
     expect(`${failure.stdout ?? ''}${failure.stderr ?? ''}`).not.toContain(weak);
+  });
+
+  it('refuses to start when the KEK cannot be obtained, naming the reason but never the token [E-11, R-ENC-05]', async () => {
+    const token = secret();
+    const failure = (await run('docker', [
+      'run',
+      '--rm',
+      ...['-e', 'APP_ENV=development', '-e', 'DATABASE_URL_APP=postgres://questline_app:x@db/questline'],
+      ...['-e', 'KEK_SOURCE=onepassword-connect', '-e', 'OP_CONNECT_URL=http://127.0.0.1:9'],
+      ...['-e', `OP_CONNECT_TOKEN=${token}`, '-e', 'OP_KEK_VAULT_ID=a1b2c3d4e5f6g7h8i9j0k1l2m3'],
+      ...['-e', 'OP_KEK_ITEM_ID=z9y8x7w6v5u4t3s2r1q0p9o8n7'],
+      ...['-e', `BLIND_INDEX_KEY=${key()}`, '-e', `RATE_LIMIT_KEY=${key()}`],
+      'questline-api:local',
+    ]).catch((error: unknown) => error)) as { code?: number; stdout?: string; stderr?: string };
+
+    expect(failure.code).toBe(1);
+    expect(failure.stderr?.trim()).toBe('Startup failed (KekSourceError: connect_unreachable).');
+    expect(`${failure.stdout ?? ''}${failure.stderr ?? ''}`).not.toContain(token);
   });
 });

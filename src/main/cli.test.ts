@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigError } from '../platform/config/config.ts';
+import { KekSourceError } from '../platform/crypto/kek-source.ts';
 import { runCli } from './cli.ts';
 
 describe('runCli', () => {
@@ -30,4 +31,19 @@ describe('runCli', () => {
 
     expect(result).toEqual({ code: 1, lines: ['Startup failed (Error).'] });
   });
+
+  it('adds the code of an error that carries one, e.g. why the KEK could not be loaded [E-11]', async () => {
+    const result = await run(() => Promise.reject(new KekSourceError('connect_timeout')));
+
+    expect(result).toEqual({ code: 1, lines: ['Startup failed (KekSourceError: connect_timeout).'] });
+  });
+
+  it.each([42, 'user=alice password=hunter2', 'x'.repeat(41)])(
+    'leaves out a code that is not a short identifier: %j',
+    async (code) => {
+      const result = await run(() => Promise.reject(Object.assign(new Error('boom'), { code })));
+
+      expect(result).toEqual({ code: 1, lines: ['Startup failed (Error).'] });
+    },
+  );
 });

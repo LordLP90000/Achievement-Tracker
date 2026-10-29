@@ -72,6 +72,11 @@ services:
       HOST: 0.0.0.0
       PORT: '3000'
       DATABASE_URL_APP: postgres://questline_app:${DB_PASSWORD_APP}@db:5432/questline
+      # Local development only: production refuses KEK_SOURCE=env and reads the KEK from 1Password Connect.
+      KEK_SOURCE: env
+      LOCAL_KEK: ${LOCAL_KEK:?set LOCAL_KEK in docker/.env}
+      BLIND_INDEX_KEY: ${BLIND_INDEX_KEY:?set BLIND_INDEX_KEY in docker/.env}
+      RATE_LIMIT_KEY: ${RATE_LIMIT_KEY:?set RATE_LIMIT_KEY in docker/.env}
     ports:
       - 127.0.0.1:${API_PORT:-3000}:3000
     healthcheck:
@@ -94,6 +99,8 @@ services:
     environment:
       APP_ENV: development
       DATABASE_URL_WORKER: postgres://questline_worker:${DB_PASSWORD_WORKER}@db:5432/questline
+      KEK_SOURCE: env
+      LOCAL_KEK: ${LOCAL_KEK:?set LOCAL_KEK in docker/.env}
     depends_on:
       migrate:
         condition: service_completed_successfully
