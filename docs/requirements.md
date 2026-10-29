@@ -262,6 +262,12 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | Q-27 | M2 is built and tested against local stand-ins for the SMTP relay and the 1Password Connect server; the real services are wired in when O-02/O-03 are answered, before staging (M6). |
 | Q-28 | Two findings of the M1 demo are fixed before M2: successful health probes are no longer logged (failures still are), and Fastify's per-address "Server listening at …" lines are dropped (one structured `api listening` line remains). |
 
+### 6.2 Decisions during M2 (PM)
+
+| ID | Decision |
+|----|----------|
+| Q-29 | **Session limit (2026-10-29):** a login that would create a 21st live session logs out the least recently used session automatically (revoked with reason `session_limit`, audited as `session_revoked`); the login itself always succeeds, so the contract is unchanged. Refusing the 21st login was rejected: it needs a contract change and could lock out a user without another logged-in device. |
+
 ## 7. Open items (non-blocking)
 
 | ID | Item | Needed by |

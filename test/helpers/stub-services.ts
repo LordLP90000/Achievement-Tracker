@@ -6,4 +6,5 @@ const unavailable = (): Promise<never> =>
 /** Services for apps built without a database: routes exist (spec coverage), but any call fails loudly. */
 export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
   accounts: { register: unavailable, verifyEmail: unavailable, resendVerification: unavailable },
+  sessions: { login: unavailable },
 });

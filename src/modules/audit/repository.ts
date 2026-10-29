@@ -4,7 +4,8 @@ import { auditEvents } from '../../platform/db/schema/index.ts';
 
 /** Security audit events with minimal data (R-LOG-03): no addresses, no content, networks only (C8). */
 
-export type AuditEventType = 'email_verified';
+export type AuditEventType =
+  'email_verified' | 'login_succeeded' | 'login_failed' | 'account_reactivated' | 'session_revoked';
 
 export interface AuditEvent {
   /** `null` only for events about unknown accounts; otherwise the transaction's user context must be this user. */
@@ -13,6 +14,9 @@ export interface AuditEvent {
   readonly outcome: 'success' | 'failure';
   readonly ipPrefix: string | null;
   readonly client: 'ios' | 'android' | null;
+  readonly sessionId?: string;
+  /** Short codes only (e.g. `reason: session_limit`), never user input. */
+  readonly metadata?: Readonly<Record<string, string>>;
 }
 
 /** Appends an event. The API may only insert (no SELECT grant), so nothing is read back. */

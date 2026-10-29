@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { Problems } from './problem.ts';
-import { parseRequest, ProblemError } from './validation.ts';
+import { boundedText, parseRequest, ProblemError } from './validation.ts';
 
 const schema = z.strictObject({
   email: z.email().max(254),
@@ -102,5 +102,31 @@ describe('parseRequest (ADR-0007, ValidationProblem in the contract)', () => {
     expect(error.name).toBe('ProblemError');
     expect(error.problem).toBe(Problems.notFound);
     expect(error.message).toBe('not-found');
+  });
+});
+
+describe('boundedText: length in characters, as JSON Schema counts them [R-IN-01]', () => {
+  const issuesOf = (value: string) => {
+    const result = boundedText(2, 4).safeParse(value);
+    return result.success ? [] : result.error.issues.map((issue) => issue.message);
+  };
+
+  it.each(['ab', 'abcd', '😀😀', '😀😀😀😀', 'e\u0301e\u0301'])('accepts %j', (value) => {
+    expect(issuesOf(value)).toEqual([]);
+  });
+
+  it.each([
+    ['', 'is too short'],
+    ['a', 'is too short'],
+    ['😀', 'is too short'],
+    ['abcde', 'is too long'],
+    ['😀😀😀😀😀', 'is too long'],
+    ['x'.repeat(10_000), 'is too long'],
+  ])('refuses %j: %s', (value, message) => {
+    expect(issuesOf(value)).toEqual([message]);
+  });
+
+  it('refuses anything but a string', () => {
+    expect(boundedText(1, 2).safeParse(12).success).toBe(false);
   });
 });

@@ -87,13 +87,13 @@ one automated test, deterministic tests only.
 | R-AUTH-06 | `reauth.test.ts` (each sensitive endpoint without recent re-auth → 403) |
 | R-AUTH-07 | `security/enumeration.test.ts` (status, headers minus `date` and body identical for new/existing/deactivated registrations and for resend to unknown/unverified/verified/deactivated addresses; hasher spy: exactly one hash per registration, none for a breached password; one email per registration either way) |
 | R-AUTH-08 | `rate-limit.test.ts` (per IP, per account, backoff progression, Retry-After, two instances share state) |
-| R-AUTH-09 | `login-unverified.test.ts` (correct password on an unverified account → 403, wrong password → identical 401), `retention.test.ts` (unverified accounts purged after 7 d) |
+| R-AUTH-09 | `integration/login.test.ts` (correct password on an unverified account → 403, wrong password → 401), `security/enumeration.test.ts` (unknown address, wrong password and unverified account with a wrong password: identical 401, one Argon2id verification each), `retention.test.ts` (unverified accounts purged after 7 d) |
 | R-AUTH-10 | `token-ttl.test.ts` with injected clock: access token at 15 min + 1 s → 401; refresh after 30 d without use → 401, each use slides the window; a session older than 180 d → 401 even with a fresh refresh token |
 | R-AUTH-11 | `integration/registration.test.ts`: missing or `false` `age_confirmed` → 400 with no account and no email; `true` → 202 and the flag stored; schema introspection proves no date-of-birth column exists |
 | R-AUTHZ-01 | `deny-by-default.test.ts` (spec-driven) |
 | R-AUTHZ-02/03 | `ownership.test.ts` (spec-driven: every operation with an ID, user A vs user B → 404, no side effects) ; `rls.test.ts` |
 | R-AUTHZ-04 | `mass-assignment.test.ts` |
-| R-IN-01 | `contract/problem-details.test.ts` + `contract/body-errors.test.ts` (body 64 KiB + 1 → 413, non-JSON → 415, both as documented on every operation with a body — Q-25), `limits.test.ts` (limit=101 → 400, 201st achievement → 422, unknown field → 400) |
+| R-IN-01 | `contract/problem-details.test.ts` + `contract/body-errors.test.ts` (body 64 KiB + 1 → 413, non-JSON → 415, both as documented on every operation with a body — Q-25), `limits.test.ts` (limit=101 → 400, 201st achievement → 422, unknown field → 400), `integration/login.test.ts` (21st login logs out the least recently used session, tokens deleted, audited — Q-29); text limits count characters like JSON Schema (`validation.test.ts`: emoji, combining marks) |
 | R-IN-02 | ESLint rule test + `injection.test.ts` |
 | R-OUT-01/03 | `problem-details.test.ts`, `idempotency.test.ts`, `concurrency.test.ts` |
 | R-OUT-02 | `ids.test.ts` (UUID v4 format, 10⁴ IDs unique) |
@@ -106,7 +106,7 @@ one automated test, deterministic tests only.
 | R-SUP-04 | `config.test.ts` (missing/weak/duplicate secrets, production guards) |
 | R-PRIV-04 | `consent.test.ts` (create content without consent → 403; withdrawal deletes content; versions recorded) |
 | R-PRIV-05 | `export.test.ts` (completeness vs seeded data; re-auth; 3rd export in 24 h → 429; audit event) |
-| R-PRIV-06 | `account-deletion.test.ts` with injected clock: `DELETE /me` → 202 with `deletion_scheduled_for` = now + 30 d, every session and token revoked, other endpoints unusable, no further email; password login within 30 d reactivates (audited), a wrong password stays an identical 401; at 30 d + 1 s the job hard-deletes (every table empty for the user, wrapped DEK gone, tombstone written); re-registration with the same email works afterwards |
+| R-PRIV-06 | `integration/login.test.ts` (M2): a correct password within 30 d reactivates (audited `account_reactivated`, version + 1), at exactly 30 d the account counts as deleted (401, no reactivation) even before the purge job ran; `account-deletion.test.ts` (M4) with injected clock: `DELETE /me` → 202 with `deletion_scheduled_for` = now + 30 d, every session and token revoked, other endpoints unusable, no further email; a wrong password stays an identical 401; at 30 d + 1 s the job hard-deletes (every table empty for the user, wrapped DEK gone, tombstone written); re-registration with the same email works afterwards |
 | R-PRIV-07 | `retention.test.ts` (clock-driven: unverified 7 d, deactivated accounts 30 d, audit 90 d, idempotency 24 h, hashed-IP rate-limit rows 24 h, tokens, tombstones 35 d) |
 | R-PRIV-08 | `data-inventory-guard.test.ts` (§6 of the data inventory) |
 | R-XP-02 | `duration.test.ts` (factor table at every boundary for daily and weekly spans, rounding, one_time/target ×1), `quests.test.ts` (client cannot set `xp` or `duration_factor` → 400) |

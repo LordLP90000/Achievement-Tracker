@@ -114,7 +114,7 @@ export const sessions = pgTable(
     check(
       'sessions_revoked_reason_check',
       sql`${table.revokedReason} in ('logout', 'logout_all', 'user_revoked', 'password_changed', 'password_reset',
-        'refresh_reuse', 'expired', 'account_deleted')`,
+        'refresh_reuse', 'expired', 'account_deleted', 'session_limit')`,
     ),
     check('sessions_revoked_check', sql`(${table.revokedAt} is null) = (${table.revokedReason} is null)`),
     check(

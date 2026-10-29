@@ -9,6 +9,7 @@ import { enqueueEmail } from '../../platform/email/outbox-repository.ts';
 import { DEFAULT_LOCALE } from '../../platform/i18n/locales.ts';
 import type { Clock } from '../../platform/time/clock.ts';
 import { DEFAULT_TIME_ZONE } from '../../platform/time/time-zones.ts';
+import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent } from '../audit/repository.ts';
 import { checkPassword, type BreachedPasswordFilter } from './password-policy.ts';
 import {
@@ -35,11 +36,6 @@ export interface AccountsServiceDependencies {
   readonly breachedPasswords: BreachedPasswordFilter;
   readonly blindIndexKey: Uint8Array;
   readonly dataKeys: DataKeys;
-}
-
-/** What the audit log may learn about a request. */
-export interface RequestContext {
-  readonly ipPrefix: string | null;
 }
 
 export type RegisterResult = 'accepted' | 'weak_password';

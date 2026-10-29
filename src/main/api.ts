@@ -3,6 +3,7 @@ import type { Logger } from 'pino';
 import { buildApp } from '../app.ts';
 import { loadBreachedPasswordFilter } from '../modules/accounts/password-policy.ts';
 import { createAccountsService } from '../modules/accounts/service.ts';
+import { createSessionsService } from '../modules/sessions/service.ts';
 import type { ApiConfig } from '../platform/config/config.ts';
 import { createDataKeys } from '../platform/crypto/data-keys.ts';
 import type { Kek } from '../platform/crypto/kek-source.ts';
@@ -35,15 +36,18 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
   const hasher = await createArgon2idHasher(PASSWORD_HASHING);
   const breachedPasswords = loadBreachedPasswordFilter();
   const database = createDatabaseClient({ url: config.databaseUrl, applicationName: 'questline-api' });
-  const accounts = createAccountsService({
+  const shared = {
     db: createDatabase(database),
     clock: systemClock,
     hasher,
-    breachedPasswords,
     blindIndexKey: keys.blindIndexKey,
     dataKeys: createDataKeys(localKeyWrapper(keys.kek)),
-  });
-  const app = buildApp({ http: config.http, logger, readiness: databaseReadiness(database), services: { accounts } });
+  };
+  const services = {
+    accounts: createAccountsService({ ...shared, breachedPasswords }),
+    sessions: createSessionsService(shared),
+  };
+  const app = buildApp({ http: config.http, logger, readiness: databaseReadiness(database), services });
   try {
     const url = await app.listen({ host: config.http.host, port: config.http.port });
     logger.info({ port: (app.server.address() as AddressInfo).port }, 'api listening');

@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import { z } from 'zod';
 import { Problems, type ProblemDefinition, type ProblemFieldError } from './problem.ts';
 
 /** At most this many field errors per response (`ValidationProblem.errors.maxItems` in the contract). */
@@ -55,4 +55,17 @@ export function parseRequest<T>(schema: z.ZodType<T>, value: unknown): T {
     .slice(0, MAX_ERRORS)
     .map((issue) => ({ pointer: pointerOf(issue.path), message: messageOf(issue) }));
   throw new ProblemError({ ...Problems.validation, errors });
+}
+
+/**
+ * A string of `min`–`max` Unicode code points, as JSON Schema's `minLength`/`maxLength` count them; Zod's own length
+ * checks count UTF-16 code units, which would refuse 64 emoji where the contract allows 64 characters.
+ */
+export function boundedText(min: number, max: number) {
+  return z.string().superRefine((value, ctx) => {
+    // More than twice `max` code units is more than `max` code points: no need to count them all.
+    const length = value.length > 2 * max ? Number.POSITIVE_INFINITY : Array.from(value).length;
+    if (length < min) ctx.addIssue({ code: 'custom', message: 'is too short' });
+    if (length > max) ctx.addIssue({ code: 'custom', message: 'is too long' });
+  });
 }

@@ -3,6 +3,8 @@ import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } 
 import { accountsRoutes } from './modules/accounts/routes.ts';
 import type { AccountsService } from './modules/accounts/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
+import { sessionsRoutes } from './modules/sessions/routes.ts';
+import type { SessionsService } from './modules/sessions/service.ts';
 import { registerErrorHandling } from './platform/http/errors.ts';
 import { registerRequestLogging } from './platform/http/request-logging.ts';
 import { registerSecurityHeaders } from './platform/http/security-headers.ts';
@@ -14,6 +16,7 @@ export const API_PREFIX = '/v1';
 
 export interface AppServices {
   readonly accounts: AccountsService;
+  readonly sessions: SessionsService;
 }
 
 export interface AppDependencies {
@@ -48,5 +51,6 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
     readinessTimeoutMs: deps.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
   });
   void app.register(accountsRoutes, { prefix: API_PREFIX, accounts: deps.services.accounts });
+  void app.register(sessionsRoutes, { prefix: API_PREFIX, sessions: deps.services.sessions });
   return app;
 }

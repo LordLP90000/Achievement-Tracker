@@ -105,4 +105,29 @@ describe('no account enumeration [R-AUTH-07, S-02]', () => {
     expect(answers[0]).toMatchObject({ status: 202 });
     for (const answer of answers.slice(1)) expect(answer).toEqual(answers[0]);
   });
+
+  it('answers a failed login identically for an unknown address, a wrong password and an unverified account, verifying once each [I-05]', async () => {
+    const verified = await verifiedAccount();
+    const unverified = email();
+    await register(unverified);
+    const attempts = [email(), verified, unverified];
+
+    const answers = [];
+    const verifications = [];
+    for (const address of attempts) {
+      const before = ctx.verifyCount();
+      const response = await post('/v1/auth/login', {
+        email: address,
+        password: 'wrong but long enough',
+        client: 'ios',
+      });
+      verifications.push(ctx.verifyCount() - before);
+      const body = { ...response.json<Record<string, unknown>>(), request_id: undefined };
+      answers.push({ ...observable(response), body });
+    }
+
+    expect(answers[0]).toMatchObject({ status: 401, body: { type: 'urn:questline:problem:invalid-credentials' } });
+    for (const answer of answers.slice(1)) expect(answer).toEqual(answers[0]);
+    expect(verifications).toEqual([1, 1, 1]);
+  });
 });

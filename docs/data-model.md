@@ -118,7 +118,7 @@ hourly.
 | `last_reauth_at` | timestamptz NOT NULL | login or `POST /v1/auth/reauth`; drives R-AUTH-06 |
 | `absolute_expires_at` | timestamptz NOT NULL | created + 180 d (A-10) |
 | `revoked_at` | timestamptz NULL | |
-| `revoked_reason` | text NULL CHECK IN (`logout`, `logout_all`, `user_revoked`, `password_changed`, `password_reset`, `refresh_reuse`, `expired`, `account_deleted`) | |
+| `revoked_reason` | text NULL CHECK IN (`logout`, `logout_all`, `user_revoked`, `password_changed`, `password_reset`, `refresh_reuse`, `expired`, `account_deleted`, `session_limit`) | `session_limit`: logged out to make room for a new login (Q-29, migration 0003) |
 
 Revoked/expired session rows are deleted after 7 days (their tokens immediately).
 
