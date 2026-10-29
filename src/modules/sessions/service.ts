@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { emailBlindIndex } from '../../platform/crypto/blind-index.ts';
+import { constantTimeEqual } from '../../platform/crypto/compare.ts';
 import type { DataKeys } from '../../platform/crypto/data-keys.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
 import type { PasswordHasher } from '../../platform/crypto/password.ts';
@@ -228,7 +229,10 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
         await setUserContext(tx, account.id);
         const current = await lockLoginAccount(tx, account.id);
         // The password was changed (or the account deleted) while it was being verified: the old one is void.
-        if (current?.passwordHash !== account.passwordHash || isGone(current, now)) return INVALID_CREDENTIALS;
+        const unchanged =
+          current !== undefined &&
+          constantTimeEqual(Buffer.from(current.passwordHash), Buffer.from(account.passwordHash));
+        if (!unchanged || isGone(current, now)) return INVALID_CREDENTIALS;
         if (current.deactivatedAt !== null) {
           await reactivateAccount(tx, account.id, now);
           await audit(
