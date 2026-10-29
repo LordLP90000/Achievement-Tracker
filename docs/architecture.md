@@ -52,10 +52,16 @@ Rules enforced by lint/tests:
 
 - `src/domain/**` imports nothing from `src/platform` or `src/modules` (dependency-cruiser rule) and has no side
   effects — this is the part covered by Stryker mutation testing.
-- Repositories are created per request via `repos.forUser(userId)`; there is no API to build a repository without
-  a user ID. Cross-user access exists only in `src/modules/privacy/retention/*` (worker role).
-- Every transaction begins with `SET LOCAL app.user_id = $1` (RLS, ADR-0003). Worker transactions set
-  `app.user_id` to the user being processed, or run as `questline_worker` for cross-user retention.
+- Only `src/platform/db` and repository files (`*repository.ts`) use the query builder (`drizzle-orm`); the drivers
+  and every SQL fragment stay in `src/platform/db` (dependency-cruiser + ESLint, ADR-0003 amendment). Services and
+  routes call repositories.
+- Goal-content repositories (M3) are created per request via `repos.forUser(userId)`; there is no API to build one
+  without a user ID. Before a user is known (registration, verification, login, password reset) the account
+  repositories read only the RLS-exempt tables — `users` by email blind index, `one_time_tokens` and
+  `session_tokens` by token hash. Cross-user access exists only in `src/modules/privacy/retention/*` (worker role).
+- Every transaction is bound to its user with a transaction-local `app.user_id` (RLS, ADR-0003) before it reads or
+  writes an RLS table; pre-authentication transactions bind as soon as the account is identified. Worker
+  transactions set `app.user_id` to the user being processed, or run as `questline_worker` for cross-user retention.
 - Output goes through a Zod response schema (`.strict().parse`) before serialisation, so a new column can never
   leak into a response by accident.
 

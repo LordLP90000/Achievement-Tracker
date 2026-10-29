@@ -14,6 +14,8 @@ export interface ProblemDefinition {
   readonly slug: string;
   readonly title: string;
   readonly errors?: readonly ProblemFieldError[];
+  /** Sent as `Retry-After` (whole seconds, ≥ 1), required on every `429` by the contract. */
+  readonly retryAfterSeconds?: number;
 }
 
 export const Problems = {
@@ -24,9 +26,13 @@ export const Problems = {
     errors: [{ pointer: '', message: 'The request body is not valid JSON.' }],
   },
   validation: { status: 400, slug: 'validation', title: 'Request validation failed' },
+  invalidToken: { status: 401, slug: 'invalid-token', title: 'Invalid or expired token' },
   notFound: { status: 404, slug: 'not-found', title: 'Not Found' },
   payloadTooLarge: { status: 413, slug: 'payload-too-large', title: 'Payload Too Large' },
   unsupportedMediaType: { status: 415, slug: 'unsupported-media-type', title: 'Unsupported Media Type' },
+  weakPassword: { status: 422, slug: 'weak-password', title: 'Password is too easy to guess' },
+  /** Password hashing is saturated (D-01): the client retries shortly instead of the server queueing forever. */
+  busy: { status: 429, slug: 'rate-limited', title: 'Too Many Requests', retryAfterSeconds: 1 },
   internal: { status: 500, slug: 'internal', title: 'Internal Server Error' },
 } as const satisfies Record<string, ProblemDefinition>;
 
@@ -37,6 +43,7 @@ function instanceOf(url: string): string {
 }
 
 export function sendProblem(request: FastifyRequest, reply: FastifyReply, problem: ProblemDefinition): FastifyReply {
+  if (problem.retryAfterSeconds !== undefined) void reply.header('retry-after', String(problem.retryAfterSeconds));
   return reply
     .code(problem.status)
     .type(PROBLEM_CONTENT_TYPE)

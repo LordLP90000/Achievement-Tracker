@@ -80,16 +80,16 @@ one automated test, deterministic tests only.
 
 | Requirement | Test(s) |
 |-------------|---------|
-| R-AUTH-02 | `password-policy.test.ts`: 11 chars → 400, 12 OK, 128 OK, 129 → 400 (schema limits), top-100 breached → 422, no composition rules, Unicode NFKC, no truncation |
-| R-AUTH-03 | `one-time-tokens.test.ts`: single use, 30 min + 1 s → 401, superseded → 401, stored as hash only (DB assertion) |
+| R-AUTH-02 | `password-policy.test.ts` (breached list after NFKC, context word, no composition rules); `integration/registration.test.ts`: 11 characters and 11 emoji → 400, 12 characters and 12 emoji OK, 128 OK, 129 → 400 (code points, as JSON Schema counts), breached → 422 before any lookup; `password.test.ts` (Argon2id parameters, NFKC, no truncation) |
+| R-AUTH-03 | `integration/registration.test.ts` (verification): emailed token works once, a replay answers 204 and changes nothing (contract), 30 min + 1 s → 401, superseded by a resend → 401, other token kinds → 401, stored as SHA-256 only (DB assertion); reset tokens: `password-reset.test.ts` |
 | R-AUTH-04 | `refresh-rotation.test.ts`, `token-ttl.test.ts` |
 | R-AUTH-05 | `sessions.test.ts`, `password-change.test.ts` (other sessions revoked, current kept), `password-reset.test.ts` (all revoked) |
 | R-AUTH-06 | `reauth.test.ts` (each sensitive endpoint without recent re-auth → 403) |
-| R-AUTH-07 | `enumeration.test.ts` (byte-identical bodies/status/headers minus request_id; hasher spy; same emails sent count) |
+| R-AUTH-07 | `security/enumeration.test.ts` (status, headers minus `date` and body identical for new/existing/deactivated registrations and for resend to unknown/unverified/verified/deactivated addresses; hasher spy: exactly one hash per registration, none for a breached password; one email per registration either way) |
 | R-AUTH-08 | `rate-limit.test.ts` (per IP, per account, backoff progression, Retry-After, two instances share state) |
 | R-AUTH-09 | `login-unverified.test.ts` (correct password on an unverified account → 403, wrong password → identical 401), `retention.test.ts` (unverified accounts purged after 7 d) |
 | R-AUTH-10 | `token-ttl.test.ts` with injected clock: access token at 15 min + 1 s → 401; refresh after 30 d without use → 401, each use slides the window; a session older than 180 d → 401 even with a fresh refresh token |
-| R-AUTH-11 | `register.test.ts`: missing or `false` `age_confirmed` → 400 with no account and no email; `true` → 202 and the flag stored; schema introspection proves no date-of-birth column exists |
+| R-AUTH-11 | `integration/registration.test.ts`: missing or `false` `age_confirmed` → 400 with no account and no email; `true` → 202 and the flag stored; schema introspection proves no date-of-birth column exists |
 | R-AUTHZ-01 | `deny-by-default.test.ts` (spec-driven) |
 | R-AUTHZ-02/03 | `ownership.test.ts` (spec-driven: every operation with an ID, user A vs user B → 404, no side effects) ; `rls.test.ts` |
 | R-AUTHZ-04 | `mass-assignment.test.ts` |

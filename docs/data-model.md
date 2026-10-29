@@ -62,8 +62,8 @@ or blind index before the user is known (narrow repository API, explicit filters
 | `email_blind_index` | bytea(32) NOT NULL UNIQUE | HMAC-SHA256(blind-index key, normalised email) (R-ENC-02) |
 | `password_hash` 🔑 | text NOT NULL | Argon2id PHC string |
 | `nickname_enc` 🔒 | bytea NULL | A-01 |
-| `timezone` | text NOT NULL | IANA, validated |
-| `locale` | text NOT NULL | allowlisted BCP 47 |
+| `timezone` | text NOT NULL | IANA, stored under its canonical name (A-02) |
+| `locale` | text NOT NULL | contract allowlist, default `de-CH` (A-29) |
 | `week_start` | text NOT NULL DEFAULT 'monday' CHECK IN (`monday`, `sunday`, `saturday`) | Q-18 |
 | `age_confirmed` | boolean NOT NULL | self-declared ≥ 13 (Q-23); registration rejected if false |
 | `email_verified_at` | timestamptz NULL | NULL = unverified → purged after 7 days |
@@ -102,7 +102,9 @@ Deleting this row (with the user) is the crypto-shredding step (ADR-0006).
 | `used_at` | timestamptz NULL | single use |
 | `created_at` | timestamptz NOT NULL | |
 
-Issuing a new token of the same purpose invalidates older unused ones. Used/expired rows are deleted hourly.
+Issuing a new token of the same purpose deletes the older unused ones. A used `verify_email` token is kept until the
+cleanup, so a repeated verification answers `204` and changes nothing (contract); used/expired rows are deleted
+hourly.
 
 #### `sessions` RLS
 
@@ -314,7 +316,7 @@ Retention 90 days (worker job). Included in export; deleted with the account.
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | only registered users are ever emailed |
 | `template` | text NOT NULL | `verify_email`, `registration_notice`, `password_reset`, `password_changed_notice`, `email_change_verify`, `email_change_notice`, `account_deleted_notice` |
-| `payload_enc` 🔒 | bytea NOT NULL | recipient, locale, raw token/link — never in plaintext |
+| `payload_enc` 🔒 | bytea NOT NULL | JSON `{to, locale, token?}` encrypted with the user's DEK (AD record id = `id`); the worker builds links from config (A-19) — never in plaintext |
 | `attempts` | integer NOT NULL DEFAULT 0 | |
 | `next_attempt_at` | timestamptz NOT NULL | exponential backoff |
 | `last_error_code` | text NULL | provider error class only, no message text |

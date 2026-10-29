@@ -5,6 +5,7 @@ import type { ReadinessProbe } from '../../src/modules/health/routes.ts';
 import { parseRequest } from '../../src/platform/http/validation.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
 import type { LogCapture } from './log-capture.ts';
+import { UNAVAILABLE_SERVICES } from './stub-services.ts';
 
 export const UUID_V4 = /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/;
 
@@ -28,6 +29,7 @@ export async function buildTestApp(options: TestAppOptions = {}): Promise<Fastif
     logger,
     readiness: options.readiness ?? (() => Promise.resolve(true)),
     ...(options.readinessTimeoutMs === undefined ? {} : { readinessTimeoutMs: options.readinessTimeoutMs }),
+    services: UNAVAILABLE_SERVICES,
   });
   app.get('/__test/ok', () => ({ ok: true }));
   app.get('/__test/ip', (request) => ({ ip: request.ip }));

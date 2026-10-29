@@ -54,6 +54,13 @@ Format: Context → Decision → Consequences → Tests that enforce it.
      The repository layer opens every transaction with `SET LOCAL app.user_id`. Application code still filters by
      `user_id` explicitly; RLS is the safety net that turns a forgotten filter into an empty result (→ 404),
      never into a leak.
+  - **Amended in M2 (2026-10-29):** repositories live in their modules (architecture §2), so the query builder is
+    allowed in `src/platform/db` **and in repository files** (`*repository.ts`); the drivers (`postgres`,
+    `drizzle-kit`) stay in `src/platform/db` (dependency-cruiser), and so does every `sql` fragment (ESLint bans
+    importing `sql` from `drizzle-orm` elsewhere — e.g. `increment()` for versions lives in
+    `src/platform/db/expressions.ts`). Before a user is known (registration, verification, login, password reset)
+    a transaction starts without `app.user_id`, reads only the RLS-exempt tables by blind index or token hash and
+    binds itself to the user (`setUserContext`) before touching an RLS table.
 - **Consequences:** Slightly more migration work; a second connection role in config. Cross-user maintenance
   jobs (retention, outbox) run in the worker under a third DML-only role `questline_worker`, for which the RLS
   policies grant access explicitly (`TO questline_worker USING (true)`); no role has `BYPASSRLS`.

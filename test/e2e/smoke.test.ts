@@ -99,6 +99,32 @@ describe('container smoke test', () => {
     expect(stdout.split(/\r?\n/).filter(Boolean).sort()).toEqual(['api', 'db', 'worker']);
   });
 
+  it('registers an account in the built image: one user, its data key, two queued emails, nothing logged [R-AUTH-07, R-LOG-02]', async () => {
+    const email = `e2e-${randomBytes(6).toString('hex')}@example.test`;
+    const password = secret();
+    const register = (chosen: string) =>
+      fetch(`${baseUrl}/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password: chosen, privacy_policy_version: '2026-10-01', age_confirmed: true }),
+      });
+
+    const first = await register(password);
+    const again = await register(password);
+    const breached = await register('password1234');
+
+    expect([first.status, again.status, breached.status]).toEqual([202, 202, 422]);
+    expect(await again.json()).toEqual(await first.json());
+    const { stdout } = await compose(
+      ...['exec', '-T', 'db', 'psql', '-U', 'postgres', '-d', 'questline', '-tAc'],
+      "select (select count(*) from users) || ' ' || (select count(*) from user_keys) || ' ' || " +
+        "(select string_agg(template, ' ' order by created_at) from email_outbox)",
+    );
+    expect(stdout.trim()).toBe('1 1 verify_email registration_notice');
+    const logs = await compose('logs', '--no-color');
+    for (const value of [email, password]) expect(logs.stdout + logs.stderr).not.toContain(value);
+  });
+
   it('never writes a password to any container log', async () => {
     const { stdout, stderr } = await compose('logs', '--no-color');
 

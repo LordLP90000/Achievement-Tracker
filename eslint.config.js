@@ -13,6 +13,19 @@ const forbiddenModules = [
   'node:worker_threads',
 ];
 
+const FORBIDDEN_MODULE_PATHS = forbiddenModules.map((name) => ({
+  name,
+  message: 'Spawning processes or evaluating code is not allowed in this codebase.',
+}));
+
+/** Repositories use the query builder; hand-written SQL fragments are reviewed in src/platform/db only. */
+const SQL_FRAGMENTS = {
+  group: ['drizzle-orm'],
+  importNames: ['sql'],
+  message:
+    'Write SQL fragments in src/platform/db (e.g. expressions.ts); repositories use the query builder (ADR-0003).',
+};
+
 const RAW_SQL = {
   selector: 'MemberExpression[object.name=/^(sql|tx)$/][property.name=/^(raw|unsafe)$/]',
   message: 'Raw SQL is only allowed inside src/platform/db (ADR-0003).',
@@ -56,15 +69,7 @@ export default defineConfig(
       'no-console': 'error',
       'no-eval': 'error',
       'no-new-func': 'error',
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: forbiddenModules.map((name) => ({
-            name,
-            message: 'Spawning processes or evaluating code is not allowed in this codebase.',
-          })),
-        },
-      ],
+      'no-restricted-imports': ['error', { paths: FORBIDDEN_MODULE_PATHS }],
       'no-restricted-syntax': ['error', RAW_SQL],
     },
   },
@@ -73,6 +78,11 @@ export default defineConfig(
     files: ['src/**/*.ts'],
     ignores: ['src/platform/time/**'],
     rules: { 'no-restricted-syntax': ['error', RAW_SQL, ...CLOCK_READS] },
+  },
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['src/platform/db/**'],
+    rules: { 'no-restricted-imports': ['error', { paths: FORBIDDEN_MODULE_PATHS, patterns: [SQL_FRAGMENTS] }] },
   },
   {
     files: ['src/platform/db/**/*.ts'],

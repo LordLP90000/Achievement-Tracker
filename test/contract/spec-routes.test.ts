@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
 import { specOperations } from '../helpers/openapi.ts';
+import { UNAVAILABLE_SERVICES } from '../helpers/stub-services.ts';
 import { NOT_YET_IMPLEMENTED } from './not-yet-implemented.ts';
 
 describe('routes versus the OpenAPI contract [ADR-0010]', () => {
@@ -10,6 +11,7 @@ describe('routes versus the OpenAPI contract [ADR-0010]', () => {
       http: { trustProxyHops: 0 },
       logger: createLogger({ service: 'questline-api', level: 'silent' }),
       readiness: () => Promise.resolve(true),
+      services: UNAVAILABLE_SERVICES,
     });
     const registered: string[] = [];
     app.addHook('onRoute', (route) => {

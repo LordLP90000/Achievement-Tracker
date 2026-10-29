@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from 'fastify';
+import { accountsRoutes } from './modules/accounts/routes.ts';
+import type { AccountsService } from './modules/accounts/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
 import { registerErrorHandling } from './platform/http/errors.ts';
 import { registerRequestLogging } from './platform/http/request-logging.ts';
@@ -7,12 +9,19 @@ import { registerSecurityHeaders } from './platform/http/security-headers.ts';
 
 export const BODY_LIMIT_BYTES = 64 * 1024;
 export const DEFAULT_READINESS_TIMEOUT_MS = 2000;
+/** Base path of the versioned API (`servers` in the contract); health probes live outside it. */
+export const API_PREFIX = '/v1';
+
+export interface AppServices {
+  readonly accounts: AccountsService;
+}
 
 export interface AppDependencies {
   readonly http: { readonly trustProxyHops: number };
   readonly logger: FastifyBaseLogger;
   readonly readiness: ReadinessProbe;
   readonly readinessTimeoutMs?: number;
+  readonly services: AppServices;
 }
 
 /** Builds the API without starting it; callers add nothing but tests may register `/__test/*` routes. */
@@ -38,5 +47,6 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
     readiness: deps.readiness,
     readinessTimeoutMs: deps.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
   });
+  void app.register(accountsRoutes, { prefix: API_PREFIX, accounts: deps.services.accounts });
   return app;
 }

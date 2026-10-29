@@ -17,11 +17,20 @@ export default {
       to: { pathNot: '^src/domain/' },
     },
     {
-      name: 'database-access-only-in-platform-db',
-      comment: 'Only src/platform/db may talk to PostgreSQL (ADR-0003).',
+      name: 'database-drivers-only-in-platform-db',
+      comment: 'Only src/platform/db opens connections and runs migrations (ADR-0003).',
       severity: 'error',
       from: { path: '^src/', pathNot: '^src/platform/db/' },
-      to: { path: 'node_modules/(postgres|drizzle-orm|drizzle-kit)/' },
+      to: { path: 'node_modules/(postgres|drizzle-kit)/' },
+    },
+    {
+      name: 'query-builder-only-in-repositories',
+      comment:
+        'Queries are built only in src/platform/db and in repository files (`*repository.ts`, architecture §2); ' +
+        'services and routes call repositories (ADR-0003).',
+      severity: 'error',
+      from: { path: '^src/', pathNot: '(^src/platform/db/|repository\\.ts$)' },
+      to: { path: 'node_modules/drizzle-orm/' },
     },
     {
       name: 'crypto-library-only-in-platform-crypto',

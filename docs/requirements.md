@@ -195,7 +195,7 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | ID | Assumption |
 |----|-----------|
 | A-01 | Nickname optional, 1–40 chars, encrypted. |
-| A-02 | Timezone validated against `Intl.supportedValuesOf('timeZone')`, default `Europe/Zurich`; locale from an allowlist. |
+| A-02 | Timezone validated against `Intl.supportedValuesOf('timeZone')`, default `Europe/Zurich`; locale from an allowlist. **[refined 2026-10-29 in M2, to confirm]** The list omits `UTC` and lists renamed zones under old names (`Europe/Kiev`), so a name is accepted when its canonical form (via `Intl.DateTimeFormat`) is in that list or is `UTC`: aliases such as `Europe/Kyiv`, `US/Eastern`, `Etc/UTC`, `GMT` are accepted and stored canonically; offsets (`+01:00`) and POSIX-style names (`EST5EDT`, `Etc/GMT+5`) are refused. |
 | A-03 | Habit check-ins are count-based; several per day allowed. |
 | A-04 | *(superseded by R-QST-09)* |
 | A-05 | Target values: decimals ≤ 3 fractional digits, |value| ≤ 10⁹; `start = target` is invalid. |
@@ -222,6 +222,7 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | A-26 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** While a gamble is pending, the achievement's `target_date` cannot be changed or removed (`409 gamble-pending`); otherwise a loss could be avoided by moving the date (T-17). |
 | A-27 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** After a lost gamble, no new gamble can be placed on the same achievement in the same attempt (`409 gamble-lost-this-attempt`, T-16). |
 | A-28 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** A habit `start_date` (on creation and on restart) must be today or later (`422`): a period before today could never be met because back-dated check-ins never count (R-CHK-04). |
+| A-29 | **[proposed 2026-10-29]** A registration without `locale` gets `de-CH` (the service starts in German-speaking Switzerland, like the default timezone `Europe/Zurich`); the app is expected to send the device locale. |
 
 ## 6. Decisions taken by the PM (2026-10-22)
 

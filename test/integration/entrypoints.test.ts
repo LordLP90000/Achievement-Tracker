@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import { startApi } from '../../src/main/api.ts';
+import { startApi, type ApiKeyMaterial } from '../../src/main/api.ts';
 import { bootstrapCommand, migrateCommand } from '../../src/main/database.ts';
 import { startWorker } from '../../src/main/worker.ts';
+import { envKekSource } from '../../src/platform/crypto/kek-source.ts';
 import { dropDatabase } from '../../src/platform/db/bootstrap.ts';
 import type { ApiConfig } from '../../src/platform/config/config.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
@@ -21,6 +22,10 @@ describe('entrypoints against a real database', () => {
   });
 
   const loggerFor = (logs: LogCapture) => createLogger({ service: 'questline-api', level: 'info' }, logs.stream);
+  const keys = async (): Promise<ApiKeyMaterial> => ({
+    kek: await envKekSource(randomBytes(32))(),
+    blindIndexKey: randomBytes(32),
+  });
 
   it('starts the API on a real socket, serves readiness with security headers and stops cleanly', async () => {
     const config: ApiConfig = {
@@ -30,7 +35,7 @@ describe('entrypoints against a real database', () => {
       databaseUrl: database.urls.app,
     };
     const logs = new LogCapture();
-    const api = await startApi(config, loggerFor(logs));
+    const api = await startApi(config, await keys(), loggerFor(logs));
 
     const response = await fetch(`${api.url}/health/ready`);
     expect(response.status).toBe(200);
@@ -50,7 +55,7 @@ describe('entrypoints against a real database', () => {
       databaseUrl: database.urls.app,
     };
     const logs = new LogCapture();
-    const api = await startApi(config, loggerFor(logs));
+    const api = await startApi(config, await keys(), loggerFor(logs));
     await api.stop();
 
     expect(logs.records().filter((record) => record['msg'] === 'api listening')).toMatchObject([
@@ -67,11 +72,11 @@ describe('entrypoints against a real database', () => {
       http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
       databaseUrl: database.urls.app,
     };
-    const first = await startApi(config, loggerFor(new LogCapture()));
+    const first = await startApi(config, await keys(), loggerFor(new LogCapture()));
     const takenPort = Number(new URL(first.url).port);
 
     await expect(
-      startApi({ ...config, http: { ...config.http, port: takenPort } }, loggerFor(new LogCapture())),
+      startApi({ ...config, http: { ...config.http, port: takenPort } }, await keys(), loggerFor(new LogCapture())),
     ).rejects.toMatchObject({ code: 'EADDRINUSE' });
     await first.stop();
   });
