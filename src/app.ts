@@ -3,6 +3,8 @@ import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } 
 import { emailChangeRoutes } from './modules/accounts/email-change-routes.ts';
 import type { EmailChangeService } from './modules/accounts/email-change-service.ts';
 import { passwordRoutes } from './modules/accounts/password-routes.ts';
+import { profileRoutes } from './modules/accounts/profile-routes.ts';
+import type { ProfileService } from './modules/accounts/profile-service.ts';
 import type { PasswordsService } from './modules/accounts/password-service.ts';
 import { accountsRoutes } from './modules/accounts/routes.ts';
 import type { AccountsService } from './modules/accounts/service.ts';
@@ -23,6 +25,7 @@ export interface AppServices {
   readonly accounts: AccountsService;
   readonly emailChanges: EmailChangeService;
   readonly passwords: PasswordsService;
+  readonly profiles: ProfileService;
   readonly sessions: SessionsService;
 }
 
@@ -64,6 +67,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(accountsRoutes, { accounts: deps.services.accounts });
       void v1.register(passwordRoutes, { passwords: deps.services.passwords });
       void v1.register(emailChangeRoutes, { emailChanges: deps.services.emailChanges });
+      void v1.register(profileRoutes, { profiles: deps.services.profiles });
       void v1.register(sessionsRoutes, { sessions: deps.services.sessions });
       done();
     },

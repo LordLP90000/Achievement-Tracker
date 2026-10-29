@@ -18,6 +18,8 @@ export interface ProblemDefinition {
   readonly retryAfterSeconds?: number;
   /** Further fixed response headers, e.g. `WWW-Authenticate` on a 401. */
   readonly headers?: Readonly<Record<string, string>>;
+  /** Extension members of the problem body, e.g. `current_version` of a version conflict (never user input). */
+  readonly extensions?: Readonly<Record<string, string | number>>;
 }
 
 export const Problems = {
@@ -36,6 +38,9 @@ export const Problems = {
   reauthenticationRequired: { status: 403, slug: 'reauthentication-required', title: 'Re-authentication required' },
   notFound: { status: 404, slug: 'not-found', title: 'Not Found' },
   emailTaken: { status: 409, slug: 'email-taken', title: 'Email address already in use' },
+  /** Use with `extensions: { current_version }` (contract `VersionConflictProblem`). */
+  versionConflict: { status: 409, slug: 'version-conflict', title: 'The resource was changed meanwhile' },
+  preconditionRequired: { status: 428, slug: 'precondition-required', title: 'If-Match header required' },
   payloadTooLarge: { status: 413, slug: 'payload-too-large', title: 'Payload Too Large' },
   unsupportedMediaType: { status: 415, slug: 'unsupported-media-type', title: 'Unsupported Media Type' },
   weakPassword: { status: 422, slug: 'weak-password', title: 'Password is too easy to guess' },
@@ -57,6 +62,7 @@ export function sendProblem(request: FastifyRequest, reply: FastifyReply, proble
     .code(problem.status)
     .type(PROBLEM_CONTENT_TYPE)
     .send({
+      ...problem.extensions,
       type: `urn:questline:problem:${problem.slug}`,
       title: problem.title,
       status: problem.status,

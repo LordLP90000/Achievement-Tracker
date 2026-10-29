@@ -92,10 +92,10 @@ one automated test, deterministic tests only.
 | R-AUTH-11 | `integration/registration.test.ts`: missing or `false` `age_confirmed` → 400 with no account and no email; `true` → 202 and the flag stored; schema introspection proves no date-of-birth column exists |
 | R-AUTHZ-01 | `contract/deny-by-default.test.ts` (spec-driven: the routes marked public are exactly the implemented operations with `security: []`; every other implemented operation answers 401 + `WWW-Authenticate: Bearer` without a token, with another scheme and with an unknown token), `integration/auth-guard.test.ts` (malformed headers, refresh token as access token, revoked or expired session) |
 | R-AUTHZ-02/03 | `ownership.test.ts` (spec-driven: every operation with an ID, user A vs user B → 404, no side effects) ; `rls.test.ts` |
-| R-AUTHZ-04 | `mass-assignment.test.ts` |
+| R-AUTHZ-04 | `integration/me.test.ts` (`PATCH /me` with `email`, `version` or any unknown property → 400, nothing changed), `mass-assignment.test.ts` (M3 resources) |
 | R-IN-01 | `contract/problem-details.test.ts` + `contract/body-errors.test.ts` (body 64 KiB + 1 → 413, non-JSON → 415, both as documented on every operation with a body — Q-25), `limits.test.ts` (limit=101 → 400, 201st achievement → 422, unknown field → 400), `integration/login.test.ts` (21st login logs out the least recently used session, tokens deleted, audited — Q-29); text limits count characters like JSON Schema (`validation.test.ts`: emoji, combining marks) |
 | R-IN-02 | ESLint rule test + `injection.test.ts` |
-| R-OUT-01/03 | `problem-details.test.ts`, `idempotency.test.ts`, `concurrency.test.ts` |
+| R-OUT-01/03 | `problem-details.test.ts`, `src/platform/http/concurrency.test.ts` (ETag format; `If-Match` parsing refuses weak tags, lists, `*`, 0 and over 9 digits), `integration/me.test.ts` (ETag = version on GET and PATCH; no `If-Match` → 428; stale → 409 with `current_version`; malformed → 400), `idempotency.test.ts`, `concurrency.test.ts` |
 | R-OUT-02 | `ids.test.ts` (UUID v4 format, 10⁴ IDs unique) |
 | R-TLS-01…04 | `headers.test.ts` (each header on each route class; no CORS header even with `Origin`), `config.test.ts`, `compare.test.ts` |
 | R-ENC-01/02 | `encryption-at-rest.test.ts`, `aead.test.ts`, `envelope.test.ts`, `blind-index.test.ts` (normalisation, uniqueness) |

@@ -5,6 +5,7 @@ import { buildApp } from '../../src/app.ts';
 import { loadBreachedPasswordFilter } from '../../src/modules/accounts/password-policy.ts';
 import { createEmailChangeService } from '../../src/modules/accounts/email-change-service.ts';
 import { createPasswordsService } from '../../src/modules/accounts/password-service.ts';
+import { createProfileService } from '../../src/modules/accounts/profile-service.ts';
 import { createAccountsService } from '../../src/modules/accounts/service.ts';
 import { createSessionsService } from '../../src/modules/sessions/service.ts';
 import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
@@ -110,12 +111,13 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
   const accounts = createAccountsService({ ...shared, breachedPasswords });
   const passwords = createPasswordsService({ ...shared, breachedPasswords });
   const emailChanges = createEmailChangeService(shared);
+  const profiles = createProfileService(shared);
   const sessions = createSessionsService(shared);
   const app = buildApp({
     http: { trustProxyHops: 0 },
     logger,
     readiness: () => Promise.resolve(true),
-    services: { accounts, emailChanges, passwords, sessions },
+    services: { accounts, emailChanges, passwords, profiles, sessions },
   });
   // A test-only route behind the same guard as `/v1`, to observe authentication without side effects.
   void app.register((scope, _options, done) => {

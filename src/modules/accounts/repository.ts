@@ -261,3 +261,56 @@ export async function markEmailVerified(tx: Transaction, userId: string, now: Da
     .returning({ id: users.id });
   return updated.length === 1;
 }
+
+export interface Profile {
+  readonly id: string;
+  readonly emailEnc: Buffer;
+  readonly nicknameEnc: Buffer | null;
+  readonly timezone: string;
+  readonly locale: string;
+  readonly weekStart: string;
+  readonly emailVerifiedAt: Date | null;
+  readonly createdAt: Date;
+  readonly version: number;
+}
+
+export interface ProfileChanges {
+  /** `null` removes the nickname; absent leaves it. */
+  readonly nicknameEnc?: Buffer | null;
+  readonly timezone?: string;
+  readonly locale?: string;
+  readonly weekStart?: string;
+}
+
+const profileColumns = {
+  id: users.id,
+  emailEnc: users.emailEnc,
+  nicknameEnc: users.nicknameEnc,
+  timezone: users.timezone,
+  locale: users.locale,
+  weekStart: users.weekStart,
+  emailVerifiedAt: users.emailVerifiedAt,
+  createdAt: users.createdAt,
+  version: users.version,
+};
+
+export async function findProfile(tx: Transaction, userId: string): Promise<Profile | undefined> {
+  const [profile] = await tx.select(profileColumns).from(users).where(eq(users.id, userId));
+  return profile;
+}
+
+/** Applies the changes only at `expectedVersion` (ADR-0008); `undefined` when the version is no longer current. */
+export async function updateProfile(
+  tx: Transaction,
+  userId: string,
+  expectedVersion: number,
+  changes: ProfileChanges,
+  now: Date,
+): Promise<Profile | undefined> {
+  const [profile] = await tx
+    .update(users)
+    .set({ ...changes, updatedAt: now, version: increment(users.version) })
+    .where(and(eq(users.id, userId), eq(users.version, expectedVersion)))
+    .returning(profileColumns);
+  return profile;
+}

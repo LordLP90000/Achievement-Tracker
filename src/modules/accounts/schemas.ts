@@ -13,7 +13,7 @@ export const email = z.email().min(3).max(254);
 export const password = boundedText(PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH);
 
 /** An IANA time zone, stored under its canonical name (A-02). */
-const timezone = z.string().transform((value, ctx) => {
+export const timezone = z.string().transform((value, ctx) => {
   const canonical = canonicalTimeZone(value);
   if (canonical === undefined) {
     ctx.addIssue({ code: 'custom', message: 'is not a supported time zone' });
@@ -48,3 +48,22 @@ export const changePasswordRequest = z.strictObject({ current_password: password
 export const resetPasswordRequest = z.strictObject({ token: opaqueToken, new_password: password });
 
 export const emailChangeRequest = z.strictObject({ new_email: email });
+
+export const WEEK_STARTS = ['monday', 'sunday', 'saturday'] as const;
+
+/** `AccountUpdate` in the contract: settings and the nickname only; nothing else is accepted (R-AUTHZ-04). */
+export const accountUpdate = z
+  .strictObject({
+    // A-01: optional, 1–40 characters, stored encrypted; null removes it.
+    nickname: boundedText(1, 40).nullable().optional(),
+    timezone: timezone.optional(),
+    locale: z.enum(LOCALES).optional(),
+    week_start: z.enum(WEEK_STARTS).optional(),
+  })
+  .refine((update) => Object.keys(update).length > 0, {
+    message: 'needs at least one property',
+    // Only for an otherwise valid body: `{ "email": … }` is reported as a property that is not allowed, once.
+    when: (payload) => payload.issues.length === 0,
+  });
+
+export type AccountUpdate = z.output<typeof accountUpdate>;
