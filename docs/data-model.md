@@ -173,6 +173,7 @@ History is kept for the lifetime of the account as proof of the lawful processin
 | `motivation_enc` 🔒 | bytea NULL | |
 | `category_enc` 🔒 | bytea NULL | |
 | `target_date_enc` 🔒 | bytea NULL | encrypted (Q-24); decrypted in-process for lateness and gamble settlement |
+| `deadline_enc` 🔒 | bytea NULL | the attempt's deadline: earliest `target_date` in effect during the current attempt (Q-31, A-35), used for lateness and Champion; reset when a new attempt starts; not an API field |
 | `status` | text CHECK IN (`active`, `paused`, `completed`) NOT NULL | client: `active ↔ paused`; `completed` system-only, read-only, not deletable (R-ACH-07) |
 | `is_private` | boolean NOT NULL DEFAULT false | display hint only |
 | `attempt` | integer NOT NULL DEFAULT 1 | incremented when resuming from `paused` (pause = reset, R-ACH-06) |
@@ -190,8 +191,8 @@ Index `(user_id, status, created_at DESC, id DESC)` for cursor pagination.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | |
-| `user_id` | uuid → `users` CASCADE | |
-| `achievement_id` | uuid → `achievements` CASCADE | partial UNIQUE (`achievement_id`) WHERE `status = 'pending'` |
+| `user_id` | uuid → `users` CASCADE | partial UNIQUE (`user_id`) WHERE `status = 'pending'`: one pending gamble per user (Q-31) |
+| `achievement_id` | uuid → `achievements` CASCADE | |
 | `attempt` | integer NOT NULL | attempt during which it was placed |
 | `stake` | bigint NOT NULL CHECK > 0 | XP above the level threshold at placement |
 | `status` | text CHECK IN (`pending`, `won`, `lost`) NOT NULL | |

@@ -12,11 +12,11 @@ amended on 2026-10-22).
 | M0 Plan | this document set | done in 1 | – |
 | M1 Walking skeleton | repo, tooling, Docker, CI gates, config/secrets, health, Testcontainers + contract harness | 4–6 | "go" (Q-20 Node 26, Q-21 RLS, Q-22 housekeeping are decided) |
 | M2 Accounts & sessions | crypto platform, registration/verification/login/refresh/reset, sessions, re-auth, consent, audit, rate limiting, outbox/worker, email adapter | 10–14 | none: built against local stand-ins for the SMTP relay and the Connect server (Q-27); O-02/O-03 needed before M6 (Q-02/03/06/07/09/14/15/23 are decided) |
-| M3 Core domain | domain engine (+ Stryker), achievements/quests/check-ins, field encryption, idempotency, concurrency, stats, ownership tests for every endpoint | 12–16 | O-05 review of gambling-like mechanics, O-06 rank/gamble integrity rules, objections to A-26…A-28 if any (Q-04/05/08/12/16/17/18/24 are decided) |
+| M3 Core domain | domain engine (+ Stryker), achievements/quests/check-ins, field encryption, idempotency, concurrency, stats, ownership tests for every endpoint | 13–17 (+1 for Q-30/Q-31, 2026-10-29) | none: O-05 (Q-32), O-06 (Q-31) and O-07 (Q-30) were decided at the M2 review on 2026-10-29; A-26…A-28 accepted (Q-04/05/08/12/16/17/18/24 are decided) |
 | M4 Privacy rights | export, deletion + crypto-shredding + tombstones, consent withdrawal effects, retention jobs, data-inventory guard test | 5–7 | – (Q-10/11/13 are decided) |
 | M5 Auth hardening | passkeys (WebAuthn), optional TOTP 2FA, recovery codes, step-up | 7–10 | approval of WebAuthn library dependency; RP ID/domain (Q-19) |
 | M6 Hardening & handover | DAST (ZAP) + load/limits (k6) on staging, deployment config for the chosen provider, runbooks (ops, key rotation, restore drill, breach), API docs, `client-security.md`, DP-expert review package | 6–9 | O-01 hosting named (accounts/credentials for staging), O-04 consent and policy texts, budget |
-| **Total** | | **51–72** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log) | |
+| **Total** | | **52–73** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log; +1 on 2026-10-29 for Q-30/Q-31) | |
 
 ## Change log 2026-10-22 — impact of the PM's decisions (Q-01…Q-24)
 
@@ -33,8 +33,8 @@ amended on 2026-10-22).
 | Q-24 encrypted target_date | trivial | – |
 
 Document updates after this change: done on 2026-10-22 (OpenAPI v2, `data-inventory.yaml` v2, test strategy,
-architecture, cross-reference fixes — see `docs/PROGRESS.md`). O-06 (rank/gamble integrity) may add M3 effort
-depending on the PM's choice.
+architecture, cross-reference fixes — see `docs/PROGRESS.md`). O-06 (rank/gamble integrity) was decided on
+2026-10-29 (Q-31, the full package): M3 +1 day together with Q-30 (`429` on every authenticated operation).
 
 Risk buffer: +15 % recommended for unknowns in external interfaces (1Password Connect, SMTP relay) and Node 26 native-module prebuilds.
 
@@ -72,12 +72,13 @@ S-01…S-12, E-01…E-03, E-07…E-08, E-11, E-12, I-02, I-03, I-07, headers, en
 Exit criteria: ASVS L2 authentication/session checks covered by tests; coverage ≥ 85 %; mutation ≥ 80 % on crypto;
 no personal data in captured logs; processors.md updated with the named SMTP relay operator and the 1Password details.
 
-## M3 — Core domain (12–16 days)
+## M3 — Core domain (13–17 days)
 
 Deliverables: `src/domain/*` with property tests and Stryker ≥ 80 %; achievements, quests (incl. prerequisites,
 ordering), check-ins + undo, effects engine (exactly-once XP, unlock/relock, rank badges, pause resets), habit resets,
-ranks and execution score, gambles with daily settlement, streaks with attempts and DST vectors, stats; field-level
-encryption for all listed fields (incl. `target_date`, Q-24); idempotency keys;
+ranks and execution score, gambles with daily settlement, streaks with attempts and DST vectors, stats; the rank and
+gamble integrity rules (Q-31); `429` on every authenticated operation (Q-30); field-level encryption for all listed
+fields (incl. `target_date`, Q-24); idempotency keys;
 optimistic concurrency; cursor pagination; limits; spec-driven ownership and deny-by-default tests covering every
 operation; encryption-at-rest test; consent guard.
 

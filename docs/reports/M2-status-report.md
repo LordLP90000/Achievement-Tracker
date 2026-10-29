@@ -153,3 +153,31 @@ streaks, ranks and gambles, idempotency keys, ownership tests generated from the
 tests of the domain engine (branch coverage ≥ 95 %, mutation ≥ 80 % on the domain). Before ranks and gambles are
 implemented I need O-05 and O-06; before the first M3 endpoint, O-07. On or after 2026-11-04 I move the Node pin to
 26.13.0 LTS (local, CI, image).
+
+---
+
+## Addendum 2026-10-29 — review with the PM
+
+**Decisions** (recorded in `docs/requirements.md` §5 and §6.3):
+
+- **"Go" for M3.** A-02 (as refined) and A-29…A-33 accepted as proposed. No objection to the residual risks above.
+- **Q-30 (O-07):** `429` documented on every authenticated operation (22 more, additive, `0.2.2-draft`), so the
+  per-user limit applies to all of them — done before the first M3 endpoint.
+- **Q-31 (O-06):** the full rank and gamble integrity package including the optional rule — one pending gamble per
+  user; a loss takes at most the XP above the current level's threshold; a win pays at most the achievement's
+  required XP; lateness and Champion's deadline use the earliest `target_date` in effect during the attempt; the
+  rank bonus and gamble wins only for achievements unlocked at least 7 days after their creation. R-XP-03,
+  R-RANK-01…03 and R-GMB-01…03 are updated. Two engineering details are **proposed for your confirmation**: A-34
+  (7 × 24 h between `created_at` and the unlock; an earlier unlock still records score, rank and badge, pays no rank
+  bonus and settles a pending gamble as won with +0 XP) and A-35 (the attempt's deadline lives in a new encrypted
+  column `achievements.deadline_enc` and is not an API field — exposing it would be an additive contract change if
+  the app needs it).
+- **Q-32 (O-05):** gambles stay available to every user ≥ 13 with the Q-31 safeguards; your product review is
+  recorded in DPIA R-15 (draft v0.3).
+- **O-08** (native-speaker review of the email copy) stays open until launch (M6); no M3 impact.
+
+**Impact**: M3 effort 13–17 days (+1 for Q-30/Q-31), total 52–73. Aligned in the same commit: data model
+(`gambles` unique per user, `achievements.deadline_enc`), data inventory, threat model T-16…T-18, test strategy,
+ADR-0015 (amended), plan.
+
+**Status**: M2 is **DONE** (closed with the PM's "go" for M3 on 2026-10-29).

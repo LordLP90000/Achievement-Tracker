@@ -117,6 +117,7 @@ tables:
       motivation_enc:   { category: C6, personal: true, encrypted: true }
       category_enc:     { category: C6, personal: true, encrypted: true }
       target_date_enc:  { category: C6, personal: true, encrypted: true }
+      deadline_enc:     { category: C6, personal: true, encrypted: true }
       status:           { category: C6, personal: true }
       is_private:       { category: C6, personal: true }
       attempt:          { category: C7, personal: true }

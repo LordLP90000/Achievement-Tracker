@@ -284,7 +284,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0015 · Gamification model: resets, ranks, duration factor, gambles
 
-- **Status:** decided by PM (2026-10-22, Q-04/Q-05/Q-08/Q-17); engineering shape accepted with the M1 "go"
+- **Status:** decided by PM (2026-10-22, Q-04/Q-05/Q-08/Q-17); engineering shape accepted with the M1 "go";
+  integrity rules added by the PM on 2026-10-29 (Q-31)
 - **Context:** The PM replaced the brief's "freeze on pause / Σ min(…) habit progress" with a stricter model and
   added ranks and gambles. Everything must stay non-gameable and exactly-once.
 - **Decision (engineering shape):**
@@ -301,6 +302,12 @@ Format: Context → Decision → Consequences → Tests that enforce it.
     table-driven tests, so the PM can tune them with a one-line change and a test update.
   - **Integers**: XP amounts and totals are `bigint`-safe (`int8` in PostgreSQL, `number` ≤ 2^53 asserted) because
     Champion multipliers reach ×365 on durations ×3.
+  - **Integrity rules (2026-10-29, Q-31, closes O-06):** one pending gamble per user (partial unique index on
+    `gambles.user_id`); a loss takes at most the XP above the current level's threshold and a win at most the
+    achievement's required XP, which also keeps totals far below 2^53; lateness and Champion use the attempt's
+    deadline (`achievements.deadline_enc`, the earliest `target_date` in effect during the attempt, A-35); the rank
+    bonus and gamble wins need 7 × 24 h between creation and unlock (A-34). Each is a constant or a pure function in
+    `src/domain`.
 - **Consequences:** M3 grows by ≈ 5–7 engineering days; new table `gambles`, new columns on achievements/quests/
   check-ins; `achievement_pauses` is dropped (pause = reset, no freezing); OpenAPI gains gamble placement and rank
   fields. DPIA R-15 assesses gambling-like mechanics for users aged 13+.
