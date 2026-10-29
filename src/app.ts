@@ -3,6 +3,7 @@ import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } 
 import { accountsRoutes } from './modules/accounts/routes.ts';
 import type { AccountsService } from './modules/accounts/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
+import { registerAuthGuard } from './modules/sessions/guard.ts';
 import { sessionsRoutes } from './modules/sessions/routes.ts';
 import type { SessionsService } from './modules/sessions/service.ts';
 import { registerErrorHandling } from './platform/http/errors.ts';
@@ -50,7 +51,15 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
     readiness: deps.readiness,
     readinessTimeoutMs: deps.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
   });
-  void app.register(accountsRoutes, { prefix: API_PREFIX, accounts: deps.services.accounts });
-  void app.register(sessionsRoutes, { prefix: API_PREFIX, sessions: deps.services.sessions });
+  void app.register(
+    (v1, _options, done) => {
+      // Deny by default: every /v1 route needs an access token unless it is public in the contract (R-AUTHZ-01).
+      registerAuthGuard(v1, deps.services.sessions);
+      void v1.register(accountsRoutes, { accounts: deps.services.accounts });
+      void v1.register(sessionsRoutes, { sessions: deps.services.sessions });
+      done();
+    },
+    { prefix: API_PREFIX },
+  );
   return app;
 }

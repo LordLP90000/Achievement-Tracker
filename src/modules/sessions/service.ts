@@ -9,7 +9,9 @@ import type { Clock } from '../../platform/time/clock.ts';
 import { requireWrappedKey } from '../accounts/repository.ts';
 import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent, type AuditEvent } from '../audit/repository.ts';
+import type { Authenticator, Principal } from './guard.ts';
 import {
+  findAccessToken,
   findLiveSession,
   findLoginAccount,
   insertSession,
@@ -20,6 +22,7 @@ import {
   markGenerationRotated,
   reactivateAccount,
   replacePasswordHash,
+  revokeAllSessions,
   revokeSessions,
   touchSession,
   type LoginAccount,
@@ -62,10 +65,14 @@ export type LoginResult =
   | { readonly outcome: 'invalid_credentials' }
   | { readonly outcome: 'email_not_verified' };
 
-export interface SessionsService {
+export interface SessionsService extends Authenticator {
   login(request: LoginRequest, context: RequestContext): Promise<LoginResult>;
   /** A new token pair for the session, or `undefined` for an unknown, expired, reused or foreign token. */
   refresh(refreshToken: string, context: RequestContext): Promise<IssuedTokens | undefined>;
+  /** Ends the principal's session (R-AUTH-05). */
+  logout(principal: Principal, context: RequestContext): Promise<void>;
+  /** Ends every session of the principal's user, the current one included (R-AUTH-05). */
+  logoutAll(principal: Principal, context: RequestContext): Promise<void>;
 }
 
 const INVALID_CREDENTIALS = Object.freeze({ outcome: 'invalid_credentials' as const });
@@ -296,8 +303,51 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
         );
       });
     },
+
+    async authenticate(accessToken) {
+      const hash = tokenHash('access', accessToken);
+      if (hash === undefined) return undefined;
+      const now = deps.clock.now();
+
+      return inTransaction(deps.db, async (tx) => {
+        const token = await findAccessToken(tx, hash, now);
+        if (token === undefined) return undefined;
+        await setUserContext(tx, token.userId);
+        const session = await findLiveSession(tx, token.sessionId, now);
+        return session === undefined
+          ? undefined
+          : { userId: session.userId, sessionId: session.id, lastReauthAt: session.lastReauthAt };
+      });
+    },
+
+    async logout(principal, context) {
+      const now = deps.clock.now();
+      await inTransaction(deps.db, async (tx) => {
+        await setUserContext(tx, principal.userId);
+        await revokeSessions(tx, [principal.sessionId], 'logout', now);
+        await audit(tx, logoutEvent(principal, context), now);
+      });
+    },
+
+    async logoutAll(principal, context) {
+      const now = deps.clock.now();
+      await inTransaction(deps.db, async (tx) => {
+        await setUserContext(tx, principal.userId);
+        await revokeAllSessions(tx, principal.userId, 'logout_all', now);
+        await audit(tx, { ...logoutEvent(principal, context), metadata: { scope: 'all' } }, now);
+      });
+    },
   };
 }
+
+const logoutEvent = (principal: Principal, context: RequestContext): AuditEvent => ({
+  userId: principal.userId,
+  eventType: 'logout',
+  outcome: 'success',
+  ipPrefix: context.ipPrefix,
+  client: null,
+  sessionId: principal.sessionId,
+});
 
 const requestOf = (context: RequestContext, request: LoginRequest) => ({
   ipPrefix: context.ipPrefix,

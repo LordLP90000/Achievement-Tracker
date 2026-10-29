@@ -15,6 +15,8 @@ export interface SpecOperation {
   readonly pattern: RegExp;
   /** True when the operation declares a `requestBody`. */
   readonly hasRequestBody: boolean;
+  /** True unless the operation (or the spec) declares `security: []`. */
+  readonly requiresAuth: boolean;
   readonly responses: Node;
 }
 
@@ -51,6 +53,7 @@ export const specOperations: readonly SpecOperation[] = Object.entries(spec['pat
         fastifyPath: path.replace(/\{([^}]+)\}/g, ':$1'),
         pattern: new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`),
         hasRequestBody: operation['requestBody'] !== undefined,
+        requiresAuth: ((operation['security'] ?? spec['security'] ?? []) as unknown[]).length > 0,
         responses: operation['responses'] as Node,
       };
     });

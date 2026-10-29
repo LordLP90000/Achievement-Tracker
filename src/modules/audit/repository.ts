@@ -10,7 +10,8 @@ export type AuditEventType =
   | 'login_failed'
   | 'account_reactivated'
   | 'session_revoked'
-  | 'refresh_reuse_detected';
+  | 'refresh_reuse_detected'
+  | 'logout';
 
 export interface AuditEvent {
   /** `null` only for events about unknown accounts; otherwise the transaction's user context must be this user. */

@@ -5,6 +5,7 @@ import { buildApp } from '../../src/app.ts';
 import { loadBreachedPasswordFilter } from '../../src/modules/accounts/password-policy.ts';
 import { createAccountsService } from '../../src/modules/accounts/service.ts';
 import { createSessionsService } from '../../src/modules/sessions/service.ts';
+import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
 import { emailBlindIndex } from '../../src/platform/crypto/blind-index.ts';
 import { createDataKeys } from '../../src/platform/crypto/data-keys.ts';
 import { decryptText } from '../../src/platform/crypto/field-cipher.ts';
@@ -110,6 +111,12 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
     logger,
     readiness: () => Promise.resolve(true),
     services: { accounts, sessions },
+  });
+  // A test-only route behind the same guard as `/v1`, to observe authentication without side effects.
+  void app.register((scope, _options, done) => {
+    registerAuthGuard(scope, sessions);
+    scope.get('/__test/v1/whoami', (request) => principalOf(request));
+    done();
   });
   await app.ready();
 

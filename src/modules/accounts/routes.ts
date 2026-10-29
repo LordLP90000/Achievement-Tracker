@@ -14,14 +14,17 @@ export interface AccountsRoutesOptions {
 /** Identical for every outcome, so the answer never reveals whether an address is registered (R-AUTH-07). */
 export const ACCEPTED = Object.freeze({ message: 'If the request can be fulfilled, an email has been sent.' });
 
+/** `security: []` in the contract. */
+const PUBLIC = { config: { public: true } };
+
 export const accountsRoutes: FastifyPluginCallback<AccountsRoutesOptions> = (app, { accounts }, done) => {
-  app.post('/auth/register', async (request, reply) => {
+  app.post('/auth/register', PUBLIC, async (request, reply) => {
     const body = parseRequest(registerRequest, request.body);
     if ((await accounts.register(body)) === 'weak_password') throw new ProblemError(Problems.weakPassword);
     return reply.code(202).send(ACCEPTED);
   });
 
-  app.post('/auth/verify-email', async (request, reply) => {
+  app.post('/auth/verify-email', PUBLIC, async (request, reply) => {
     const { token } = parseRequest(tokenRequest, request.body);
     if ((await accounts.verifyEmail(token, requestContext(request))) === 'invalid_token') {
       throw new ProblemError(Problems.invalidToken);
@@ -29,7 +32,7 @@ export const accountsRoutes: FastifyPluginCallback<AccountsRoutesOptions> = (app
     return reply.code(204).send();
   });
 
-  app.post('/auth/resend-verification', async (request, reply) => {
+  app.post('/auth/resend-verification', PUBLIC, async (request, reply) => {
     const { email } = parseRequest(emailRequest, request.body);
     await accounts.resendVerification(email);
     return reply.code(202).send(ACCEPTED);

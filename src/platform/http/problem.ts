@@ -16,6 +16,8 @@ export interface ProblemDefinition {
   readonly errors?: readonly ProblemFieldError[];
   /** Sent as `Retry-After` (whole seconds, ≥ 1), required on every `429` by the contract. */
   readonly retryAfterSeconds?: number;
+  /** Further fixed response headers, e.g. `WWW-Authenticate` on a 401. */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 export const Problems = {
@@ -28,6 +30,8 @@ export const Problems = {
   validation: { status: 400, slug: 'validation', title: 'Request validation failed' },
   invalidCredentials: { status: 401, slug: 'invalid-credentials', title: 'Invalid email or password' },
   invalidToken: { status: 401, slug: 'invalid-token', title: 'Invalid or expired token' },
+  /** Missing, expired or revoked access token (contract `Unauthorized`). */
+  unauthorized: { status: 401, slug: 'unauthorized', title: 'Unauthorized', headers: { 'www-authenticate': 'Bearer' } },
   emailNotVerified: { status: 403, slug: 'email-not-verified', title: 'Email address not verified' },
   notFound: { status: 404, slug: 'not-found', title: 'Not Found' },
   payloadTooLarge: { status: 413, slug: 'payload-too-large', title: 'Payload Too Large' },
@@ -46,6 +50,7 @@ function instanceOf(url: string): string {
 
 export function sendProblem(request: FastifyRequest, reply: FastifyReply, problem: ProblemDefinition): FastifyReply {
   if (problem.retryAfterSeconds !== undefined) void reply.header('retry-after', String(problem.retryAfterSeconds));
+  if (problem.headers !== undefined) void reply.headers(problem.headers);
   return reply
     .code(problem.status)
     .type(PROBLEM_CONTENT_TYPE)

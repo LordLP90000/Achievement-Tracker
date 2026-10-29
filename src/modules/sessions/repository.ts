@@ -174,3 +174,30 @@ export async function findLiveSession(tx: Transaction, sessionId: string, now: D
 export async function touchSession(tx: Transaction, sessionId: string, now: Date): Promise<void> {
   await tx.update(sessions).set({ lastUsedAt: now }).where(eq(sessions.id, sessionId));
 }
+
+/** The session and user of an unexpired access token (RLS-exempt lookup by hash; the session is checked next). */
+export async function findAccessToken(
+  tx: Transaction,
+  accessTokenHash: Buffer,
+  now: Date,
+): Promise<{ readonly sessionId: string; readonly userId: string } | undefined> {
+  const [token] = await tx
+    .select({ sessionId: sessionTokens.sessionId, userId: sessionTokens.userId })
+    .from(sessionTokens)
+    .where(and(eq(sessionTokens.accessTokenHash, accessTokenHash), gt(sessionTokens.accessExpiresAt, now)));
+  return token;
+}
+
+/** Revokes every session of the user that is not revoked yet and deletes all their tokens. */
+export async function revokeAllSessions(
+  tx: Transaction,
+  userId: string,
+  reason: RevokedReason,
+  now: Date,
+): Promise<void> {
+  await tx
+    .update(sessions)
+    .set({ revokedAt: now, revokedReason: reason })
+    .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+  await tx.delete(sessionTokens).where(eq(sessionTokens.userId, userId));
+}

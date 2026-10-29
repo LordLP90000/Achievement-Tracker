@@ -137,7 +137,8 @@ Revoked/expired session rows are deleted after 7 days (their tokens immediately)
 | `rotated_at` | timestamptz NULL | set when this generation's refresh token was used |
 | `created_at` | timestamptz NOT NULL | |
 
-Access-token lookup: `access_token_hash = $1 AND access_expires_at > now()` joined with `sessions.revoked_at IS NULL`.
+Access-token lookup: `access_token_hash = $1 AND access_expires_at > now()` in `session_tokens` (RLS-exempt), then,
+bound to that user, the session with `revoked_at IS NULL AND absolute_expires_at > now()` (RLS).
 Refresh: a hit with `rotated_at IS NOT NULL` = reuse → session revoked (`refresh_reuse`) and audited. Old
 generations stay until the session ends so reuse is always detected. The refresh locks its generation row
 (`FOR UPDATE`), so two concurrent uses of one token are serialised: the first rotates, the second is reuse. Access and
