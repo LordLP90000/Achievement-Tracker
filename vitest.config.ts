@@ -18,6 +18,9 @@ export default defineConfig({
           globalSetup: ['test/helpers/global-setup.ts'],
           // Real Argon2id (64 MiB) and PostgreSQL work runs in parallel across files; 5 s timed out once under load.
           testTimeout: 20_000,
+          // Hooks create and drop a database per file under the same load: an afterAll ran over the 10 s default once
+          // (2026-10-29, scheduler.test.ts, after all its tests had passed).
+          hookTimeout: 20_000,
         },
       },
     ],
