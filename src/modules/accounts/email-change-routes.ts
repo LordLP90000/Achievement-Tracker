@@ -19,9 +19,6 @@ export interface EmailChangeRoutesOptions {
 /** `security: []` in the contract. */
 const PUBLIC = { config: { public: true } };
 
-/** Authenticated and documenting `429`: limited per user as well. */
-const USER_LIMITED = { config: { userRateLimit: true } };
-
 const CONFIRM_FAILURES = {
   invalid_token: Problems.invalidToken,
   email_taken: Problems.emailTaken,
@@ -32,7 +29,7 @@ export const emailChangeRoutes: FastifyPluginCallback<EmailChangeRoutesOptions> 
   { emailChanges, limiter },
   done,
 ) => {
-  app.post('/me/email-change', USER_LIMITED, async (request, reply) => {
+  app.post('/me/email-change', async (request, reply) => {
     const { new_email: newEmail } = parseRequest(emailChangeRequest, request.body);
     const principal = principalOf(request);
     await enforce(limiter.take(LIMITS.userMail, principal.userId), request, LIMITS.userMail.scope);

@@ -199,6 +199,28 @@ describe('rate limits [R-AUTH-08, ADR-0009, S-01, D-04, D-05, I-19, A-31]', () =
     });
   });
 
+  describe('per user on every authenticated operation [Q-30]', () => {
+    it('allows a user 120 requests a minute, e.g. GET /me, then answers 429 until a token is back; others are unaffected', async () => {
+      const [first, second] = [await session(await ctx.account()), await session(await ctx.account())];
+      const me = (pair: TokenPair) =>
+        contractInject(ctx.app, {
+          method: 'GET',
+          url: '/v1/me',
+          headers: { authorization: `Bearer ${pair.access_token}` },
+        });
+
+      expect(await statuses(120, () => me(first))).toEqual(Array<number>(120).fill(200));
+      const refused = await me(first);
+
+      expect(refused.statusCode).toBe(429);
+      expect(refused.headers['retry-after']).toBe('1');
+      expect(refused.json()).toMatchObject({ type: 'urn:questline:problem:rate-limited', status: 429 });
+      expect((await me(second)).statusCode).toBe(200);
+      ctx.clock.advance({ seconds: 1 });
+      expect((await me(first)).statusCode).toBe(200);
+    });
+  });
+
   it('keeps only keyed hashes and counters: no address, no email in the table or the log [Q-14, I-19, R-LOG-02]', async () => {
     const columns = await ctx.worker.sql<{ column_name: string; data_type: string }[]>`
       select column_name, data_type from information_schema.columns where table_name = 'rate_limit_buckets'

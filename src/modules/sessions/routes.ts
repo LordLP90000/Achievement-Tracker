@@ -19,9 +19,6 @@ export interface SessionsRoutesOptions {
 /** `security: []` in the contract. */
 const PUBLIC = { config: { public: true } };
 
-/** Authenticated and documenting `429`: limited per user as well. */
-const USER_LIMITED = { config: { userRateLimit: true } };
-
 /** `TokenPair` in the contract; lifetimes in whole seconds from the moment of issue. */
 export function tokenPair(tokens: IssuedTokens) {
   const secondsUntil = (instant: Date) => Math.floor((instant.getTime() - tokens.issuedAt.getTime()) / 1000);
@@ -66,7 +63,7 @@ export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app
     return reply.code(204).send();
   });
 
-  app.post('/auth/reauth', USER_LIMITED, async (request, reply) => {
+  app.post('/auth/reauth', async (request, reply) => {
     const { password } = parseRequest(reauthRequest, request.body);
     const principal = principalOf(request);
     const backoff = BACKOFFS.userPassword;

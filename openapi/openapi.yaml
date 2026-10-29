@@ -1,12 +1,14 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.1-draft
+  version: 0.2.2-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
     Q-01…Q-24 in `docs/requirements.md` v2. Enforced by contract tests (ADR-0010).
     0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
+    0.2.2 (2026-10-29): `429` documented on every authenticated operation (Q-30); gamble rules for parallel stakes
+    and for the size of wins and losses (Q-31).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -19,6 +21,8 @@ info:
       flags and timestamps are never accepted from the client (R-AUTHZ-04).
     - Unknown request fields are rejected with `400`.
     - Request bodies are JSON only and at most 64 KiB: other media types → `415`, larger bodies → `413` (R-IN-01).
+    - Every `/v1` operation may answer `429` with `Retry-After`: public operations are limited per client network,
+      all others per user (R-AUTH-08, A-31, Q-30).
     - XP amounts are integers within ±(2^53 − 1), stored as 64-bit integers (R-XP-04).
     - Closed habit periods are evaluated lazily on every read and write and by a daily job (A-21), so any response
       may reflect a quest reset (`needs_restart`) or a gamble lost since the previous request.
@@ -227,6 +231,7 @@ paths:
       responses:
         '204': { description: Session revoked. }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /auth/logout-all:
     post:
       tags: [auth]
@@ -235,6 +240,7 @@ paths:
       responses:
         '204': { description: All sessions revoked. }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /auth/reauth:
     post:
       tags: [auth]
@@ -316,6 +322,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Account' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     patch:
       tags: [me]
       operationId: updateMe
@@ -345,6 +352,7 @@ paths:
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     delete:
       tags: [me, privacy]
       operationId: deleteAccount
@@ -366,6 +374,7 @@ paths:
               schema: { $ref: '#/components/schemas/AccountDeletionScheduled' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /me/password:
     post:
       tags: [me]
@@ -457,6 +466,7 @@ paths:
                     maxItems: 50
                     items: { $ref: '#/components/schemas/Session' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /me/sessions/{sessionId}:
     parameters:
       - $ref: '#/components/parameters/SessionId'
@@ -468,6 +478,7 @@ paths:
         '204': { description: Revoked. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /me/consents:
     get:
       tags: [consents]
@@ -490,6 +501,7 @@ paths:
                     maxItems: 100
                     items: { $ref: '#/components/schemas/Consent' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     post:
       tags: [consents]
       operationId: grantConsent
@@ -518,6 +530,7 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /me/consents/{type}:
     parameters:
       - name: type
@@ -533,6 +546,7 @@ paths:
         '204': { description: Consent withdrawn and dependent data deleted. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /me/export:
     get:
       tags: [privacy]
@@ -578,6 +592,7 @@ paths:
               schema: { $ref: '#/components/schemas/Stats' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   # ───────────────────────────── Achievements ─────────────────────────────
   /achievements:
@@ -602,6 +617,7 @@ paths:
               schema: { $ref: '#/components/schemas/AchievementPage' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     post:
       tags: [achievements]
       operationId: createAchievement
@@ -650,6 +666,7 @@ paths:
               schema: { $ref: '#/components/schemas/AchievementDetail' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     patch:
       tags: [achievements]
       operationId: updateAchievement
@@ -684,6 +701,7 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableContent' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     delete:
       tags: [achievements]
       operationId: deleteAchievement
@@ -700,6 +718,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/VersionOrStateConflict' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /achievements/{achievementId}/quests:
     parameters:
       - $ref: '#/components/parameters/AchievementId'
@@ -725,6 +744,7 @@ paths:
                     items: { $ref: '#/components/schemas/Quest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     post:
       tags: [quests]
       operationId: createQuest
@@ -781,6 +801,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     post:
       tags: [gambles]
       operationId: placeGamble
@@ -788,17 +809,20 @@ paths:
       description: |
         Double or nothing, XP only (R-GMB-01…05). The stake is computed server-side: the XP above the threshold of
         the user's current level at placement time; it is recorded (locked) but not removed. No request fields are
-        accepted (R-AUTHZ-04, T-17). Settlement is reported in the `gamble` field of the effects of the mutation that
-        causes it (or applied by the daily job): **won** (`+stake`) when the achievement is unlocked on or before
-        `target_date`; **lost** (`−stake`) when `target_date` passes without unlock (account timezone, A-20), a habit
-        quest of the achievement resets, or the achievement is paused or deleted. A gamble cannot be cancelled; a loss
-        lowers the execution score and rules out Champion (R-GMB-04). Rules for parallel stakes and for the loss floor
-        are pending PM decision O-06.
+        accepted (R-AUTHZ-04, T-17). A user has at most one pending gamble at a time, across all achievements (Q-31).
+        Settlement is reported in the `gamble` field of the effects of the mutation that causes it (or applied by the
+        daily job): **won** when the achievement is unlocked on or before `target_date` — `+stake`, at most the
+        achievement's required XP (`xp_required_total`), and `+0` when the unlock comes less than 7 days after the
+        achievement was created (Q-31, A-34); **lost** when `target_date` passes without unlock (account timezone,
+        A-20), a habit quest of the achievement resets, or the achievement is paused or deleted — `−stake`, at most
+        the XP above the threshold of the user's level at that moment, so the level never drops (Q-31). A gamble
+        cannot be cancelled; a loss lowers the execution score and rules out Champion (R-GMB-04).
 
         Rejected with `409` when the achievement is not `active` (`urn:questline:problem:achievement-not-active`), has
-        no `target_date` after today (`urn:questline:problem:gamble-target-date-required`), already has a pending
-        gamble (`urn:questline:problem:gamble-pending`) or already lost a gamble in its current attempt
-        (`urn:questline:problem:gamble-lost-this-attempt`, T-16); `422` when the stake would be 0.
+        no `target_date` after today (`urn:questline:problem:gamble-target-date-required`), when a gamble of the user
+        is already pending on this or another achievement (`urn:questline:problem:gamble-pending`, Q-31) or the
+        achievement already lost a gamble in its current attempt (`urn:questline:problem:gamble-lost-this-attempt`,
+        T-16); `422` when the stake would be 0.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -843,6 +867,7 @@ paths:
               schema: { $ref: '#/components/schemas/Quest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     patch:
       tags: [quests]
       operationId: updateQuest
@@ -876,6 +901,7 @@ paths:
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '422': { $ref: '#/components/responses/UnprocessableContent' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     delete:
       tags: [quests]
       operationId: deleteQuest
@@ -898,6 +924,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/VersionOrStateConflict' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
   /quests/{questId}/check-ins:
     parameters:
       - $ref: '#/components/parameters/QuestId'
@@ -920,6 +947,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
     post:
       tags: [check-ins]
       operationId: createCheckIn
@@ -982,6 +1010,7 @@ paths:
               schema: { $ref: '#/components/schemas/Effects' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
 components:
   securitySchemes:

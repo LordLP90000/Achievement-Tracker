@@ -19,24 +19,17 @@ export function limitMailTo(limiter: RateLimiter, request: FastifyRequest, email
   return enforce(limiter.take(limit, normalizeEmail(email)), request, limit.scope);
 }
 
-declare module 'fastify' {
-  interface FastifyContextConfig {
-    /** Authenticated routes that document `429` in the contract; only these are limited per user. */
-    readonly userRateLimit?: boolean;
-  }
-}
-
 /**
- * Register after the auth guard: public routes are limited per client network; authenticated routes that document
- * `429` (`config.userRateLimit`) per user — the contract allows no 429 elsewhere. Runs before the body is parsed;
- * limits that need the body (an email address) are taken by the handlers.
+ * Register after the auth guard: every `/v1` route takes a bucket before its body is parsed — public routes per
+ * client network, every authenticated route per user (the contract documents `429` on every operation, Q-30), so
+ * a new route cannot be left unlimited. Limits that need the body (an email address) are taken by the handlers.
  */
 export function registerRequestLimits(app: FastifyInstance, limiter: RateLimiter): void {
   app.addHook('onRequest', async (request) => {
     const { principal } = request;
     if (principal === null) {
       await enforce(limiter.take(LIMITS.ipAuth, ipSubject(request.ip)), request, LIMITS.ipAuth.scope);
-    } else if (request.routeOptions.config.userRateLimit === true) {
+    } else {
       await enforce(limiter.take(LIMITS.user, principal.userId), request, LIMITS.user.scope);
     }
   });

@@ -19,9 +19,6 @@ export interface PasswordRoutesOptions {
 /** `security: []` in the contract. */
 const PUBLIC = { config: { public: true } };
 
-/** Authenticated and documenting `429`: limited per user as well. */
-const USER_LIMITED = { config: { userRateLimit: true } };
-
 const CHANGE_FAILURES = {
   reauthentication_required: Problems.reauthenticationRequired,
   wrong_password: Problems.invalidCredentials,
@@ -34,7 +31,7 @@ const RESET_FAILURES = {
 } as const;
 
 export const passwordRoutes: FastifyPluginCallback<PasswordRoutesOptions> = (app, { passwords, limiter }, done) => {
-  app.post('/me/password', USER_LIMITED, async (request, reply) => {
+  app.post('/me/password', async (request, reply) => {
     const body = parseRequest(changePasswordRequest, request.body);
     const principal = principalOf(request);
     const backoff = BACKOFFS.userPassword;
