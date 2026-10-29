@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { emailBlindIndex } from '../../platform/crypto/blind-index.ts';
 import type { DataKeys } from '../../platform/crypto/data-keys.ts';
-import { encryptText } from '../../platform/crypto/field-cipher.ts';
+import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
 import type { PasswordHasher } from '../../platform/crypto/password.ts';
 import { issueToken, tokenHash } from '../../platform/crypto/tokens.ts';
 import { inTransaction, setUserContext, type Database, type Transaction } from '../../platform/db/database.ts';
@@ -14,15 +14,19 @@ import {
   findAccessToken,
   findLiveSession,
   findLoginAccount,
+  findPasswordHash,
   insertSession,
   insertTokenGeneration,
+  listActiveSessions,
   liveSessionsByLeastRecentUse,
   lockGenerationByRefreshHash,
   lockLoginAccount,
   markGenerationRotated,
+  markReauthenticated,
   reactivateAccount,
   replacePasswordHash,
   revokeAllSessions,
+  revokeLiveSession,
   revokeSessions,
   touchSession,
   type LoginAccount,
@@ -73,6 +77,21 @@ export interface SessionsService extends Authenticator {
   logout(principal: Principal, context: RequestContext): Promise<void>;
   /** Ends every session of the principal's user, the current one included (R-AUTH-05). */
   logoutAll(principal: Principal, context: RequestContext): Promise<void>;
+  /** The user's active sessions, newest first (R-AUTH-05). */
+  listSessions(principal: Principal): Promise<SessionView[]>;
+  /** Ends one of the user's active sessions; false when there is no such session (→ 404). */
+  revokeSession(principal: Principal, sessionId: string, context: RequestContext): Promise<boolean>;
+  /** The password entered again unlocks sensitive operations for 10 minutes (R-AUTH-06); false when wrong. */
+  reauthenticate(principal: Principal, password: string, context: RequestContext): Promise<boolean>;
+}
+
+export interface SessionView {
+  readonly id: string;
+  readonly client: 'ios' | 'android';
+  readonly deviceLabel: string | null;
+  readonly createdAt: Date;
+  readonly lastUsedAt: Date;
+  readonly current: boolean;
 }
 
 const INVALID_CREDENTIALS = Object.freeze({ outcome: 'invalid_credentials' as const });
@@ -336,6 +355,81 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
         await revokeAllSessions(tx, principal.userId, 'logout_all', now);
         await audit(tx, { ...logoutEvent(principal, context), metadata: { scope: 'all' } }, now);
       });
+    },
+
+    async listSessions(principal) {
+      const now = deps.clock.now();
+      return inTransaction(deps.db, async (tx) => {
+        await setUserContext(tx, principal.userId);
+        const rows = await listActiveSessions(tx, principal.userId, now);
+        const wrapped = await requireWrappedKey(tx, principal.userId);
+        return deps.dataKeys.withKey(principal.userId, wrapped, (dataKey) =>
+          Promise.resolve(
+            rows.map((row) => ({
+              id: row.id,
+              client: row.client,
+              deviceLabel:
+                row.deviceLabelEnc === null
+                  ? null
+                  : decryptText(
+                      dataKey,
+                      { userId: principal.userId, recordId: row.id, field: 'device_label_enc' },
+                      row.deviceLabelEnc,
+                    ),
+              createdAt: row.createdAt,
+              lastUsedAt: row.lastUsedAt,
+              current: row.id === principal.sessionId,
+            })),
+          ),
+        );
+      });
+    },
+
+    async revokeSession(principal, sessionId, context) {
+      const now = deps.clock.now();
+      return inTransaction(deps.db, async (tx) => {
+        await setUserContext(tx, principal.userId);
+        const revoked = await revokeLiveSession(tx, { userId: principal.userId, sessionId }, 'user_revoked', now);
+        if (revoked) {
+          await audit(
+            tx,
+            {
+              userId: principal.userId,
+              eventType: 'session_revoked',
+              outcome: 'success',
+              ipPrefix: context.ipPrefix,
+              client: null,
+              sessionId,
+              metadata: { reason: 'user_revoked' },
+            },
+            now,
+          );
+        }
+        return revoked;
+      });
+    },
+
+    async reauthenticate(principal, password, context) {
+      const now = deps.clock.now();
+      const storedHash = await inTransaction(deps.db, (tx) => findPasswordHash(tx, principal.userId));
+      const valid = await deps.hasher.verify(storedHash, password);
+      await inTransaction(deps.db, async (tx) => {
+        await setUserContext(tx, principal.userId);
+        if (valid) await markReauthenticated(tx, principal.sessionId, now);
+        await audit(
+          tx,
+          {
+            userId: principal.userId,
+            eventType: valid ? 'reauth_succeeded' : 'reauth_failed',
+            outcome: valid ? 'success' : 'failure',
+            ipPrefix: context.ipPrefix,
+            client: null,
+            sessionId: principal.sessionId,
+          },
+          now,
+        );
+      });
+      return valid;
     },
   };
 }

@@ -69,3 +69,10 @@ export function boundedText(min: number, max: number) {
     if (length > max) ctx.addIssue({ code: 'custom', message: 'is too long' });
   });
 }
+
+const UUID_V4 = /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/;
+
+/** IDs are lower-case random UUID v4 (contract `Uuid`); anything else cannot name a resource. */
+export function isUuidV4(value: string): boolean {
+  return UUID_V4.test(value);
+}

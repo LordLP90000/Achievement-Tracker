@@ -5,7 +5,6 @@
  */
 export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   // M2 — accounts & sessions
-  'reauthenticate',
   'forgotPassword',
   'resetPassword',
   'getMe',
@@ -13,8 +12,6 @@ export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   'changePassword',
   'requestEmailChange',
   'confirmEmailChange',
-  'listSessions',
-  'revokeSession',
   'listConsents',
   'grantConsent',
   'withdrawConsent',

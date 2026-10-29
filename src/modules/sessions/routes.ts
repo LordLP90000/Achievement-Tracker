@@ -1,9 +1,9 @@
 import type { FastifyPluginCallback } from 'fastify';
 import { Problems } from '../../platform/http/problem.ts';
-import { parseRequest, ProblemError } from '../../platform/http/validation.ts';
+import { isUuidV4, parseRequest, ProblemError } from '../../platform/http/validation.ts';
 import { requestContext } from '../audit/context.ts';
 import { principalOf } from './guard.ts';
-import { loginRequest, refreshRequest } from './schemas.ts';
+import { loginRequest, reauthRequest, refreshRequest } from './schemas.ts';
 import type { IssuedTokens, SessionsService } from './service.ts';
 
 /** Session endpoints of `openapi/openapi.yaml` (tag `auth`), mounted under `/v1` behind the auth guard. */
@@ -50,6 +50,37 @@ export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app
 
   app.post('/auth/logout-all', async (request, reply) => {
     await sessions.logoutAll(principalOf(request), requestContext(request));
+    return reply.code(204).send();
+  });
+
+  app.post('/auth/reauth', async (request, reply) => {
+    const { password } = parseRequest(reauthRequest, request.body);
+    if (!(await sessions.reauthenticate(principalOf(request), password, requestContext(request)))) {
+      throw new ProblemError(Problems.invalidCredentials);
+    }
+    return reply.code(204).send();
+  });
+
+  app.get('/me/sessions', async (request) => {
+    const items = await sessions.listSessions(principalOf(request));
+    return {
+      items: items.map((session) => ({
+        id: session.id,
+        client: session.client,
+        device_label: session.deviceLabel,
+        created_at: session.createdAt.toISOString(),
+        last_used_at: session.lastUsedAt.toISOString(),
+        current: session.current,
+      })),
+    };
+  });
+
+  app.delete<{ Params: { sessionId: string } }>('/me/sessions/:sessionId', async (request, reply) => {
+    const { sessionId } = request.params;
+    // The contract documents no 400 here: an ID that cannot exist is simply not found.
+    const revoked =
+      isUuidV4(sessionId) && (await sessions.revokeSession(principalOf(request), sessionId, requestContext(request)));
+    if (!revoked) throw new ProblemError(Problems.notFound);
     return reply.code(204).send();
   });
 

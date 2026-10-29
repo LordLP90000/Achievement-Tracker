@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { Transaction } from '../../platform/db/database.ts';
 import { increment } from '../../platform/db/expressions.ts';
 import { sessions, sessionTokens, users } from '../../platform/db/schema/index.ts';
@@ -200,4 +200,73 @@ export async function revokeAllSessions(
     .set({ revokedAt: now, revokedReason: reason })
     .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
   await tx.delete(sessionTokens).where(eq(sessionTokens.userId, userId));
+}
+
+export interface SessionRecord {
+  readonly id: string;
+  readonly client: 'ios' | 'android';
+  readonly deviceLabelEnc: Buffer | null;
+  readonly createdAt: Date;
+  readonly lastUsedAt: Date;
+}
+
+/** Sessions that can still be used: not revoked, before the absolute expiry, with an unexpired refresh token. */
+export async function listActiveSessions(tx: Transaction, userId: string, now: Date): Promise<SessionRecord[]> {
+  const refreshable = tx
+    .select({ sessionId: sessionTokens.sessionId })
+    .from(sessionTokens)
+    .where(and(eq(sessionTokens.userId, userId), gt(sessionTokens.refreshExpiresAt, now)));
+  const rows = await tx
+    .select({
+      id: sessions.id,
+      client: sessions.client,
+      deviceLabelEnc: sessions.deviceLabelEnc,
+      createdAt: sessions.createdAt,
+      lastUsedAt: sessions.lastUsedAt,
+    })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.userId, userId),
+        isNull(sessions.revokedAt),
+        gt(sessions.absoluteExpiresAt, now),
+        inArray(sessions.id, refreshable),
+      ),
+    )
+    .orderBy(desc(sessions.createdAt));
+  return rows.map((row) => ({ ...row, client: row.client as SessionRecord['client'] }));
+}
+
+/** Revokes one of the user's live sessions and deletes its tokens; false when there is no such session. */
+export async function revokeLiveSession(
+  tx: Transaction,
+  ids: { readonly userId: string; readonly sessionId: string },
+  reason: RevokedReason,
+  now: Date,
+): Promise<boolean> {
+  const revoked = await tx
+    .update(sessions)
+    .set({ revokedAt: now, revokedReason: reason })
+    .where(
+      and(
+        eq(sessions.id, ids.sessionId),
+        eq(sessions.userId, ids.userId),
+        isNull(sessions.revokedAt),
+        gt(sessions.absoluteExpiresAt, now),
+      ),
+    )
+    .returning({ id: sessions.id });
+  if (revoked.length === 0) return false;
+  await tx.delete(sessionTokens).where(eq(sessionTokens.sessionId, ids.sessionId));
+  return true;
+}
+
+export async function findPasswordHash(tx: Transaction, userId: string): Promise<string | undefined> {
+  const [user] = await tx.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, userId));
+  return user?.passwordHash;
+}
+
+/** R-AUTH-06: the session entered the password just now. */
+export async function markReauthenticated(tx: Transaction, sessionId: string, now: Date): Promise<void> {
+  await tx.update(sessions).set({ lastReauthAt: now }).where(eq(sessions.id, sessionId));
 }

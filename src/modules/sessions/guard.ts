@@ -50,3 +50,13 @@ export function principalOf(request: FastifyRequest): Principal {
   if (request.principal === null) throw new Error('route is not behind the auth guard');
   return request.principal;
 }
+
+/** R-AUTH-06 / Q-07: sensitive operations need the password entered (login or re-auth) within this window. */
+export const REAUTH_WINDOW_MS = 10 * 60 * 1000;
+
+/** Throws 403 `reauthentication-required` unless the session entered the password less than 10 minutes ago. */
+export function requireRecentReauth(principal: Principal, now: Date): void {
+  if (now.getTime() - principal.lastReauthAt.getTime() >= REAUTH_WINDOW_MS) {
+    throw new ProblemError(Problems.reauthenticationRequired);
+  }
+}

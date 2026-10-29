@@ -17,3 +17,5 @@ export const loginRequest = z.strictObject({
 export type LoginRequest = z.output<typeof loginRequest>;
 
 export const refreshRequest = z.strictObject({ refresh_token: opaqueToken });
+
+export const reauthRequest = z.strictObject({ password });

@@ -15,5 +15,8 @@ export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
     authenticate: () => Promise.resolve(undefined),
     logout: unavailable,
     logoutAll: unavailable,
+    listSessions: unavailable,
+    revokeSession: unavailable,
+    reauthenticate: unavailable,
   },
 });

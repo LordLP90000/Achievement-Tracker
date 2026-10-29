@@ -33,6 +33,7 @@ export const Problems = {
   /** Missing, expired or revoked access token (contract `Unauthorized`). */
   unauthorized: { status: 401, slug: 'unauthorized', title: 'Unauthorized', headers: { 'www-authenticate': 'Bearer' } },
   emailNotVerified: { status: 403, slug: 'email-not-verified', title: 'Email address not verified' },
+  reauthenticationRequired: { status: 403, slug: 'reauthentication-required', title: 'Re-authentication required' },
   notFound: { status: 404, slug: 'not-found', title: 'Not Found' },
   payloadTooLarge: { status: 413, slug: 'payload-too-large', title: 'Payload Too Large' },
   unsupportedMediaType: { status: 415, slug: 'unsupported-media-type', title: 'Unsupported Media Type' },
