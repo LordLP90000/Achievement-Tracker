@@ -51,7 +51,9 @@ Each feature module (`src/modules/<feature>/`) is organised the same way; depend
 Rules enforced by lint/tests:
 
 - `src/domain/**` imports nothing from `src/platform` or `src/modules` (dependency-cruiser rule) and has no side
-  effects — this is the part covered by Stryker mutation testing.
+  effects — this is the part covered by Stryker mutation testing. Its tests (`src/domain/*.test.ts`) may import only
+  the domain, Vitest and `fast-check` (rule `domain-tests-use-only-the-domain-and-test-tools`); property tests run
+  with a fixed seed (`test/helpers/fast-check-setup.ts`).
 - Only `src/platform/db` and repository files (`*repository.ts`) use the query builder (`drizzle-orm`); the drivers
   and every SQL fragment stay in `src/platform/db` (dependency-cruiser + ESLint, ADR-0003 amendment). Services and
   routes call repositories.
@@ -282,7 +284,8 @@ reason here and a line in the next milestone report.
 No 1Password SDK: the Connect API is called with Node's built-in `fetch` (ADR-0013).
 
 Everything else (`vitest`, `testcontainers`, `drizzle-kit`, `typescript`, `eslint`, `@stryker-mutator/*`, `ajv`,
-`ajv-formats`, `yaml`, `@redocly/cli`, `fast-check`, `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
+`ajv-formats`, `yaml`, `@redocly/cli`, `fast-check` (4.10.2 with `pure-rand`, added in M3 for the domain property
+tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
 `@commitlint/*`, `lefthook`, and `smtp-server` 3.21.1 as the local SMTP stand-in, with `punycode.js` and
 `ipv6-normalize`, confirmed in M2) is a dev dependency and never ships in the container.
 

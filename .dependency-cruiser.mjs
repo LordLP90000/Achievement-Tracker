@@ -13,8 +13,15 @@ export default {
       name: 'domain-is-pure',
       comment: 'src/domain holds pure functions: no platform, modules, Node.js built-ins or packages.',
       severity: 'error',
-      from: { path: '^src/domain/' },
+      from: { path: '^src/domain/', pathNot: '\\.test\\.ts$' },
       to: { pathNot: '^src/domain/' },
+    },
+    {
+      name: 'domain-tests-use-only-the-domain-and-test-tools',
+      comment: 'Domain tests stay pure as well: the domain itself, Vitest and fast-check (property tests), no I/O.',
+      severity: 'error',
+      from: { path: '^src/domain/.+\\.test\\.ts$' },
+      to: { pathNot: '^(src/domain/|node_modules/(vitest|fast-check)/)' },
     },
     {
       name: 'database-drivers-only-in-platform-db',

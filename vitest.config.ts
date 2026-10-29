@@ -1,11 +1,14 @@
 import { defineConfig } from 'vitest/config';
 
+/** Fixed fast-check seed for the domain property tests (also in vitest.unit.config.ts). */
+const FAST_CHECK_SETUP = 'test/helpers/fast-check-setup.ts';
+
 export default defineConfig({
   test: {
     retry: 0,
     restoreMocks: true,
     projects: [
-      { extends: true, test: { name: 'unit', include: ['src/**/*.test.ts'] } },
+      { extends: true, test: { name: 'unit', include: ['src/**/*.test.ts'], setupFiles: [FAST_CHECK_SETUP] } },
       {
         extends: true,
         test: {
