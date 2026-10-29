@@ -1,9 +1,11 @@
 import sodium from 'sodium-native';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ARGON2ID_POLICY, createArgon2idHasher } from './password.ts';
 import { SemaphoreFullError } from './semaphore.ts';
 
 const PASSWORD = 'correct horse battery staple';
+const PHC = /^\$argon2id\$v=19\$m=65536,t=3,p=1\$[\w+/]+\$[\w+/]+$/;
+const isWiped = (buffer: Uint8Array) => buffer.every((byte) => byte === 0);
 
 function legacyHash(password: string, opslimit: number, memlimit: number): string {
   const out = Buffer.alloc(sodium.crypto_pwhash_STRBYTES);
@@ -19,7 +21,7 @@ describe('Argon2id password hasher (ADR-0005) [R-AUTH-02]', () => {
     const hasher = await newHasher();
 
     expect(ARGON2ID_POLICY).toEqual({ opslimit: 3, memlimitBytes: 64 * 1024 * 1024 });
-    expect(await hasher.hash(PASSWORD)).toMatch(/^\$argon2id\$v=19\$m=65536,t=3,p=1\$[\w+/]+\$[\w+/]+$/);
+    expect(await hasher.hash(PASSWORD)).toMatch(PHC);
   });
 
   it('salts every hash and verifies only the right password', async () => {
@@ -48,10 +50,44 @@ describe('Argon2id password hasher (ADR-0005) [R-AUTH-02]', () => {
     expect(await hasher.verify(stored, `${long}c`)).toBe(false);
   });
 
-  it('answers false for an unknown account after doing the same work, so timing does not reveal accounts', async () => {
+  it('answers false for an unknown account after the same work: one verification against a real hash with the same parameters', async () => {
     const hasher = await newHasher();
+    const verification = vi.spyOn(sodium, 'crypto_pwhash_str_verify_async');
 
     expect(await hasher.verify(undefined, PASSWORD)).toBe(false);
+    expect(verification).toHaveBeenCalledTimes(1);
+    const [dummy] = verification.mock.calls[0] ?? [];
+    const dummyHash = Buffer.from(dummy ?? []).toString();
+    expect(dummyHash.replace(/\0+$/, '')).toMatch(PHC);
+  });
+
+  it('refuses a stored hash that does not fit the PHC buffer, even when it starts with a valid hash', async () => {
+    const hasher = await newHasher();
+    const valid = await hasher.hash(PASSWORD);
+    // Exactly the buffer size: a NUL right after the valid hash would end the string if the length were not checked.
+    const oversized = `${valid}\u0000${'x'.repeat(sodium.crypto_pwhash_STRBYTES - valid.length - 1)}`;
+
+    expect(Buffer.byteLength(oversized)).toBe(sodium.crypto_pwhash_STRBYTES);
+    expect(await hasher.verify(oversized, PASSWORD)).toBe(false);
+    expect(await hasher.verify(`${oversized}x`, PASSWORD)).toBe(false);
+    expect(hasher.needsRehash(oversized)).toBe(true);
+  });
+
+  it('wipes its copy of the password after hashing and after every verification', async () => {
+    const hasher = await newHasher();
+    const hashing = vi.spyOn(sodium, 'crypto_pwhash_str_async');
+    const verification = vi.spyOn(sodium, 'crypto_pwhash_str_verify_async');
+
+    const stored = await hasher.hash(PASSWORD);
+    await hasher.verify(stored, PASSWORD);
+    await hasher.verify(undefined, PASSWORD);
+
+    const copies = [...hashing.mock.calls, ...verification.mock.calls].map(([, password]) => password);
+    expect(copies).toHaveLength(3);
+    for (const copy of copies) {
+      expect(copy).toHaveLength(Buffer.byteLength(PASSWORD));
+      expect(isWiped(copy)).toBe(true);
+    }
   });
 
   it('answers false for a malformed stored hash instead of throwing', async () => {

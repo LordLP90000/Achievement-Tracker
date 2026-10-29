@@ -24,7 +24,7 @@ export interface PasswordHasherOptions {
 const PHC_BYTES = sodium.crypto_pwhash_STRBYTES;
 
 function phcBuffer(stored: string): Buffer | undefined {
-  const bytes = Buffer.from(stored, 'utf8');
+  const bytes = Buffer.from(stored);
   if (bytes.length >= PHC_BYTES) return undefined;
   const buffer = Buffer.alloc(PHC_BYTES);
   bytes.copy(buffer);
@@ -36,7 +36,7 @@ export async function createArgon2idHasher(options: PasswordHasherOptions): Prom
 
   const hash = (password: string): Promise<string> =>
     semaphore.run(async () => {
-      const secret = Buffer.from(password.normalize('NFKC'), 'utf8');
+      const secret = Buffer.from(password.normalize('NFKC'));
       const out = Buffer.alloc(PHC_BYTES);
       try {
         await sodium.crypto_pwhash_str_async(out, secret, ARGON2ID_POLICY.opslimit, ARGON2ID_POLICY.memlimitBytes);
@@ -46,17 +46,23 @@ export async function createArgon2idHasher(options: PasswordHasherOptions): Prom
       return out.subarray(0, out.indexOf(0)).toString('utf8');
     });
 
-  const dummy = phcBuffer(await hash(randomBytes(32).toString('base64url'))) ?? Buffer.alloc(PHC_BYTES);
+  // A real hash with the current parameters (always shorter than the buffer, so it stays NUL-terminated).
+  const dummy = Buffer.alloc(PHC_BYTES);
+  dummy.write(await hash(randomBytes(32).toString('base64url')));
 
   const verify = (storedHash: string | undefined, password: string): Promise<boolean> =>
     semaphore.run(async () => {
       const stored = storedHash === undefined ? undefined : phcBuffer(storedHash);
-      const secret = Buffer.from(password.normalize('NFKC'), 'utf8');
+      const secret = Buffer.from(password.normalize('NFKC'));
       try {
         // libsodium refuses empty input; an empty password still costs one full verification and never matches.
         const input = secret.length > 0 ? secret : Buffer.alloc(1);
-        const matches = await sodium.crypto_pwhash_str_verify_async(stored ?? dummy, input);
-        return matches && stored !== undefined && secret.length > 0;
+        if (stored === undefined) {
+          // Unknown account or unreadable hash: the same work against the dummy hash, and never a match.
+          await sodium.crypto_pwhash_str_verify_async(dummy, input);
+          return false;
+        }
+        return (await sodium.crypto_pwhash_str_verify_async(stored, input)) && secret.length > 0;
       } finally {
         sodium.sodium_memzero(secret);
       }
