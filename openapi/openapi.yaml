@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.2-draft
+  version: 0.2.3-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -9,6 +9,8 @@ info:
     0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
     0.2.2 (2026-10-29): `429` documented on every authenticated operation (Q-30); gamble rules for parallel stakes
     and for the size of wins and losses (Q-31).
+    0.2.3 (2026-10-29): habit quests show their `current_period` (Q-35); first weekly period and `week_start`
+    changes (Q-33, Q-34).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -328,7 +330,8 @@ paths:
       operationId: updateMe
       summary: Update nickname, timezone, locale or week start
       description: |
-        Changing `timezone` or `week_start` applies to periods that start after the change; closed periods are never
+        Changing `timezone` applies to dates from the change on, and changing `week_start` applies to habits created or
+        restarted afterwards — a running habit keeps the week start it began with (Q-34); closed periods are never
         re-bucketed (R-QST-09, A-23).
       parameters:
         - $ref: '#/components/parameters/IfMatch'
@@ -1587,7 +1590,7 @@ components:
         period_count: { type: integer, minimum: 1, maximum: 520 }
         start_date:
           allOf: [{ $ref: '#/components/schemas/LocalDate' }]
-          description: Defaults to today in the account timezone; must not be in the past (`422`) because back-dated check-ins never count (R-CHK-04). A new `start_date` restarts a quest in state `needs_restart` (R-QST-04).
+          description: Defaults to today in the account timezone; must not be in the past (`422`) because back-dated check-ins never count (R-CHK-04). A new `start_date` restarts a quest in state `needs_restart` (R-QST-04). The first period of a weekly habit runs from `start_date` to the end of the first full week (7–13 days, Q-33).
     TargetConfig:
       type: object
       additionalProperties: false
@@ -1636,10 +1639,33 @@ components:
         current: { type: integer, minimum: 0 }
         best: { type: integer, minimum: 0 }
         period: { $ref: '#/components/schemas/HabitPeriod' }
+    CurrentPeriod:
+      type: object
+      additionalProperties: false
+      description: |
+        The open period of a running habit (Q-35), computed by the server: a day for daily habits; for weekly habits a
+        calendar week from the week start the run began with (Q-34) — except the first period, which runs from
+        `start_date` to the end of the first full week (7–13 days, Q-33). A period that has not begun yet (a future
+        `start_date`) is shown with 0 check-ins.
+      required: [start, end, check_ins, required_check_ins]
+      properties:
+        start: { $ref: '#/components/schemas/LocalDate' }
+        end:
+          allOf: [{ $ref: '#/components/schemas/LocalDate' }]
+          description: Last day of the period (inclusive).
+        check_ins:
+          type: integer
+          minimum: 0
+          description: Counting check-ins of the current attempt in this period (R-CHK-04).
+        required_check_ins:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Check-ins needed to meet the period (`times_per_period`); fewer when it closes reset the quest (R-QST-04).
     Quest:
       type: object
       additionalProperties: false
-      required: [id, achievement_id, title, notes, type, size, xp, duration_factor, is_required, position, prerequisite_quest_id, state, progress, reset_count, habit, target, current_value, streak, completed_at, created_at, updated_at, version]
+      required: [id, achievement_id, title, notes, type, size, xp, duration_factor, is_required, position, prerequisite_quest_id, state, progress, reset_count, habit, target, current_value, streak, current_period, completed_at, created_at, updated_at, version]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         achievement_id: { $ref: '#/components/schemas/Uuid' }
@@ -1668,6 +1694,9 @@ components:
         target: { oneOf: [{ $ref: '#/components/schemas/TargetConfig' }, { type: 'null' }] }
         current_value: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: Target quests only. }
         streak: { oneOf: [{ $ref: '#/components/schemas/Streak' }, { type: 'null' }], description: Habit quests only. }
+        current_period:
+          oneOf: [{ $ref: '#/components/schemas/CurrentPeriod' }, { type: 'null' }]
+          description: Habit quests whose run is open (Q-35); null for one_time and target quests, a completed habit and a habit in state `needs_restart`.
         completed_at: { oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }] }
         created_at: { $ref: '#/components/schemas/Timestamp' }
         updated_at: { $ref: '#/components/schemas/Timestamp' }

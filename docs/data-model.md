@@ -222,6 +222,7 @@ History of won/lost gambles is kept (counts against Champion, R-RANK-02) until t
 | `habit_times_per_period` | integer NULL CHECK 1..50 | habit only |
 | `habit_period_count` | integer NULL CHECK 1..520 | habit only |
 | `habit_start_date` | date NULL | habit only; start of the current attempt's period sequence (re-set on restart) |
+| `habit_week_start` | text NULL CHECK IN (`monday`, `sunday`, `saturday`) | weekly habits only (NOT NULL iff `habit_period = 'week'`): the account's `week_start` when this run started, kept until the next restart (Q-34) |
 | `reset_count` | integer NOT NULL DEFAULT 0 | habit resets within the current achievement attempt (R-QST-04, R-RANK-01) |
 | `needs_restart` | boolean NOT NULL DEFAULT false | set by a habit reset; cleared when the user edits `habit.start_date` |
 | `completed_at` | timestamptz NULL | set/cleared by the effects engine |

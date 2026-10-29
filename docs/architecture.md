@@ -197,7 +197,7 @@ Pure, exhaustively tested functions:
 | `constants.ts` | Every tunable number in one place (ADR-0015): size XP 10/25/50, duration-factor table, level base 100 and factor 3, rank thresholds and multipliers, lateness window 30 d, −10 per lost gamble, back-dating limit 7 d |
 | `progress.ts` | `oneTimeProgress`, `targetProgress(start, target, current)`, `habitProgress(periods, N, K)` (consecutive met periods of the current run), `achievementProgress(quests)` (weighted by effective XP) |
 | `habit-reset.ts` | `evaluateHabit(config, countingCheckIns, today)` → met periods, reset on a closed period with < N counting check-ins, `needs_restart`; identical result for lazy (read/write) and daily-job evaluation (A-21) |
-| `periods.ts` | `periodKeyFor(localDate, period, weekStart)`, `enumeratePeriods(start, until, period, weekStart)`; weeks start on `monday`, `sunday` or `saturday` (R-QST-09) |
+| `periods.ts` | `periodKeyFor(localDate, period, weekStart)`, `enumeratePeriods(start, until, period, weekStart)`; weeks start on `monday`, `sunday` or `saturday` (R-QST-09); a habit's first weekly period runs to the end of the first full week (Q-33) and a run keeps the week start it began with (Q-34) |
 | `duration.ts` | `durationFactor(quest)` from the habit span in days, `effectiveXp(size, factor)` (R-XP-02) |
 | `streak.ts` | `currentStreak(...)` of the current attempt, `bestStreak(...)` across attempts |
 | `xp.ts` | `xpThreshold(level)` (`100 × 3^(L−2)`), `levelForXp`, `xpToNextLevel`, safe-integer assertions (R-XP-03/04) |

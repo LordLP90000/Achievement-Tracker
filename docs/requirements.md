@@ -7,6 +7,7 @@ Later on 2026-10-22: R-TLS/R-LOG/R-SUP rows restored from v1 (R-SUP-04 adapted t
 open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.1); O-02/O-03 moved to "before M6".
 2026-10-29: A-26…A-28 accepted with the PM's "go" for M2. 2026-10-29 (M2 review, the PM's "go" for M3): A-02 as
 refined and A-29…A-33 accepted; decisions Q-30…Q-32 (§6.3) close O-05, O-06 and O-07; A-34 and A-35 proposed.
+Later on 2026-10-29: Q-33…Q-35 on habit periods (§6.4).
 
 ## 1. Product summary
 
@@ -49,7 +50,7 @@ Vocabulary used verbatim in code, API and docs: `Achievement`, `Quest`, `Check-i
 | R-QST-06 | `title`, `notes`, `unit`, `start_value`, `target_value` are encrypted at the application level. |
 | R-QST-07 | Quests can be edited (title, notes, position, required flag, size, prerequisite, type-specific parameters); `type` is immutable. Progress/XP are recomputed; XP follows R-XP-*. Quests of a `completed` achievement are read-only. |
 | R-QST-08 | Deleting a quest deletes its check-ins, revokes XP earned through it and clears `prerequisite_quest_id` on quests that referenced it. |
-| R-QST-09 | Week-based periods start on the user's configured `week_start` (`monday | sunday | saturday`, default `monday`) **[PM 2026-10-22, Q-18]**. Changing `week_start` applies to periods that start after the change. |
+| R-QST-09 | Week-based periods start on the user's configured `week_start` (`monday | sunday | saturday`, default `monday`) **[PM 2026-10-22, Q-18]**. Each habit run keeps the `week_start` in effect when it started (creation or restart); a change applies to habits created or restarted afterwards **[PM 2026-10-29, Q-34]**. The first period of a weekly habit runs from its `start_date` to the end of the first full week, so it lasts 7–13 days; every later period is a calendar week **[PM 2026-10-29, Q-33]**. |
 
 ### 2.3 Check-ins
 
@@ -217,7 +218,7 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | A-20 | **Gamble settlement for a missed `target_date`** runs daily after local midnight in the user's timezone; an unlock on the target date itself counts as on time. |
 | A-21 | **Habit period closing** is evaluated lazily on read/write and by the daily job, so a reset is detected even if the user does not open the app (needed for gamble losses). |
 | A-22 | **Deactivated accounts** (pending deletion) cannot use any endpoint except login (which reactivates after password check and re-verifies nothing else); their emails are not sent; their data is excluded from nothing (it is simply retained encrypted). |
-| A-23 | `week_start` change does not retroactively re-bucket already closed periods. |
+| A-23 | `week_start` change does not retroactively re-bucket already closed periods (with Q-34 a running habit keeps its week start altogether). |
 | A-24 | The PM's own hosting must satisfy H-1…H-7 in `docs/hosting-options.md`; until named, deployment artefacts stay provider-neutral (Docker image + Compose). |
 | A-25 | SMTP sender uses `nodemailer` with TLS required (STARTTLS or implicit TLS), credentials from 1Password/env, per-account send limit 3/h, outbox dedupe. |
 | A-26 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** While a gamble is pending, the achievement's `target_date` cannot be changed or removed (`409 gamble-pending`); otherwise a loss could be avoided by moving the date (T-17). |
@@ -285,6 +286,14 @@ the emails) stays open until launch.
 | Q-30 | **`429` on every authenticated operation (O-07):** the contract documents `429` on the 22 authenticated operations that lacked it (additive, `0.2.2-draft`), so the per-user limit of A-31 applies to every authenticated operation; done before the first M3 endpoint. |
 | Q-31 | **Integrity of ranks and gambles (O-06), the recommended package including its optional rule:** (1) one pending gamble per **user**, not per achievement (R-GMB-01); (2) a loss removes `min(stake, XP above the current level's threshold)` (R-GMB-03, R-XP-03); (3) a win pays at most the achievement's required XP (R-GMB-02); (4) lateness and Champion's deadline are measured against the earliest `target_date` in effect during the attempt (R-RANK-01/02, A-35); (5) the rank bonus and a gamble win only for achievements unlocked at least 7 days after their creation (R-RANK-03, R-GMB-02, A-34). The numbers live in `src/domain/constants.ts` (ADR-0015). |
 | Q-32 | **Gambles for users aged 13–15 (O-05, DPIA R-15) — the PM's product review:** gambles stay available to every user ≥ 13 with the Q-31 safeguards: XP only (no money, purchases or real-world value), no chance element (the outcome depends only on the user finishing their own achievement), one at a time, never cancellable, a loss never lowers the level, wins capped. Not chosen: opt-in per account, no gambles in v1, an age bracket at registration (new personal data, conflicts with Q-23). Re-assessed with legal input if a reward currency arrives (R-RANK-05). |
+
+### 6.4 Decisions during M3 (PM)
+
+| ID | Decision |
+|----|----------|
+| Q-33 | **First period of a weekly habit (2026-10-29):** it runs from `start_date` to the end of the first full calendar week (7–13 days) and still needs `times_per_period` check-ins; every later period is a calendar week (R-QST-09). The duration factor stays based on `period_count × 7` days (R-XP-02). Not chosen: a proportional target for a partial week, 7-day blocks counted from `start_date`, a partial week as a normal period (impossible to meet, e.g. 5× per week started on a Saturday). |
+| Q-34 | **`week_start` changes and running habits (2026-10-29):** each habit run keeps the week start it began with (stored per quest); a new setting applies to habits created or restarted afterwards. Not chosen: switching running habits with transitional periods. |
+| Q-35 | **Contract, additive (2026-10-29):** habit quests show a read-only `current_period` — start, end, counting check-ins and the number required — so the app never re-implements Q-33/Q-34. Computed, nothing new stored. |
 
 ## 7. Open items (non-blocking)
 
