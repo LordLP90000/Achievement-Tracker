@@ -30,6 +30,14 @@ declare module 'sodium-native' {
     randombytes_buf(buffer: Uint8Array): void;
     sodium_malloc(size: number): SecureBuffer;
     sodium_memzero(buffer: Uint8Array): void;
+    /** Size of the PHC string buffer, including the terminating NUL. */
+    readonly crypto_pwhash_STRBYTES: number;
+    crypto_pwhash_str(out: Uint8Array, passwd: Uint8Array, opslimit: number, memlimit: number): void;
+    /** Argon2id13 on the libuv thread pool; resolves when `out` holds the NUL-terminated PHC string. */
+    crypto_pwhash_str_async(out: Uint8Array, passwd: Uint8Array, opslimit: number, memlimit: number): Promise<void>;
+    /** Resolves `false` for a wrong password or an unreadable hash; never rejects for those. */
+    crypto_pwhash_str_verify_async(str: Uint8Array, passwd: Uint8Array): Promise<boolean>;
+    crypto_pwhash_str_needs_rehash(str: Uint8Array, opslimit: number, memlimit: number): boolean;
   }
 
   const sodium: Sodium;

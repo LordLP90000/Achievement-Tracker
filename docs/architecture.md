@@ -110,7 +110,7 @@ Rules enforced by lint/tests:
 | `KekSource` (interface) | Provides the 32-byte KEK once at startup: `EnvKekSource` (dev/test, `LOCAL_KEK`) and `OnePasswordConnectKekSource` (production: `GET /v1/vaults/{vault}/items/{item}` on the self-hosted Connect server with Node's built-in `fetch`, timeout, ≥ 32-byte check). Any failure → the process refuses to start. The KEK lives only in `sodium_malloc` guarded memory and is never logged (R-ENC-05). |
 | `KeyService` | Creates a DEK at registration, stores the wrapped DEK in `user_keys`, unwraps on demand, caches plaintext DEKs ≤ 5 min in `sodium_malloc` guarded memory, wipes on eviction/shutdown, destroys on account deletion. |
 | `FieldCipher` | `encrypt(dek, {userId, recordId, field}, plaintext)` → `0x01‖nonce‖ct`; `decrypt` verifies AD. Typed helpers for strings and decimals. Built on `aead.ts` (`seal`/`open`, one uniform `DecryptionError` for every failure). |
-| `PasswordHasher` | Argon2id (ADR-0005) with `needsRehash` for parameter upgrades. |
+| `PasswordHasher` | Argon2id (ADR-0005) with `needsRehash` for parameter upgrades; NFKC before hashing; at most N hashes at once with a bounded queue (`Semaphore`, D-01 — overflow is refused, not queued forever); `verify(undefined, …)` does the same work against a startup dummy hash, so unknown accounts take as long as known ones. |
 | `BlindIndex` | HMAC-SHA256(`BLIND_INDEX_KEY`, NFKC-normalised, lower-cased, trimmed email). |
 | `Tokens` | Random tokens with type prefixes, SHA-256 digests, constant-time comparison. `ql_vt_` serves email verification and email-change confirmation; the stored `purpose` keeps them apart. |
 

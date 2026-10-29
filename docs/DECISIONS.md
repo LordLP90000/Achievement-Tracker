@@ -205,14 +205,20 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Status:** accepted (2026-10-22, PM "go" for M1)
 - **Context:** NIST SP 800-63B requires blocking commonly used / breached passwords; the brief requires an offline
   list (no network calls to HIBP).
-- **Decision:** `scripts/build-password-filter.ts` builds a Bloom filter (1 % false-positive rate, ≈ 1.2 MB) from a
-  pinned, checksum-verified public list (SecLists "top 1,000,000", MIT licence) plus context words (app name).
-  The filter binary is committed and loaded at startup; a false positive merely asks the user for a different
-  password. Passwords are compared case-sensitively after NFKC normalisation; length policy 12–128 chars
-  (minimum 12 confirmed by the PM, Q-06).
-- **Consequences:** No external dependency at runtime; the list can be refreshed with a documented script.
-- **Tests:** `unit/accounts/password-policy.test.ts` (top-100 passwords rejected, long passphrases accepted,
-  ≥ 64 chars allowed, no composition rules, no truncation).
+- **Decision:** `scripts/build-password-filter.ts` (`npm run build:password-filter`) builds a Bloom filter (1 %
+  false-positive rate) from a pinned, checksum-verified public list: SecLists `xato-net-10-million-passwords-1000000.txt`
+  (MIT; the former "top 1,000,000" file, renamed upstream in 2025), commit `c205c36`, SHA-256 `424a3e03…0caf51`. Only
+  entries that could pass the length rule (≥ 12 code points after NFKC, no control characters) are kept: 46 296 of
+  999 999 entries, 7 hashes, 55 KB instead of the 1.2 MB a filter of the whole list would need. The file records the
+  list's SHA-256 and is committed and loaded at startup; a false positive merely asks the user for a different
+  password. Passwords are compared case-sensitively after NFKC normalisation; additionally any password containing
+  the service name (`questline`, case-insensitive, NFKC) is rejected as a context-specific word. Length policy 12–128
+  code points (minimum 12 confirmed by the PM, Q-06).
+- **Consequences:** No external dependency at runtime; the list can be refreshed with the documented script. If
+  the PM lowers the minimum length, the filter must be rebuilt with the new minimum.
+- **Tests:** `src/modules/accounts/password-policy.test.ts` (breached entries and their full-width spellings rejected,
+  context word rejected, long passphrases accepted, 12–128 code points, no composition rules, shipped filter built
+  from the pinned list), `bloom-filter.test.ts` (membership, false-positive rate, file format, corrupt files refused).
 
 ## ADR-0013 · Production KEK sourced from a self-hosted 1Password Connect server
 

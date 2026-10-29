@@ -1,0 +1,2 @@
+# Binary assets are never line-ending converted (the dev machine checks out with core.autocrlf=true).
+*.bloom binary

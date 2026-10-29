@@ -9,7 +9,7 @@
     "node": ">=26.0.0 <27"
   },
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node -e \"require('node:fs').cpSync('src/platform/db/migrations', 'dist/platform/db/migrations', { recursive: true })\"",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json && node -e \"const fs = require('node:fs'); fs.cpSync('src/platform/db/migrations', 'dist/platform/db/migrations', { recursive: true }); fs.cpSync('src/modules/accounts/breached-passwords.bloom', 'dist/modules/accounts/breached-passwords.bloom')\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -19,6 +19,7 @@
     "test:unit": "vitest run --project unit",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "build:password-filter": "node scripts/build-password-filter.ts",
     "deps:check": "depcruise src test --config .dependency-cruiser.mjs",
     "mutation": "stryker run",
     "check": "npm run -s format:check && npm run -s lint && npm run -s typecheck && npm run -s deps:check && npm run -s lint:openapi && npm run -s test:coverage"
