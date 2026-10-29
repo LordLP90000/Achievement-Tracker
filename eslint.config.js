@@ -13,6 +13,24 @@ const forbiddenModules = [
   'node:worker_threads',
 ];
 
+const RAW_SQL = {
+  selector: 'MemberExpression[object.name=/^(sql|tx)$/][property.name=/^(raw|unsafe)$/]',
+  message: 'Raw SQL is only allowed inside src/platform/db (ADR-0003).',
+};
+
+const CLOCK_MESSAGE = 'Inject a Clock (src/platform/time) instead of reading the time (architecture §4.6).';
+const CLOCK_READS = [
+  { selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']", message: CLOCK_MESSAGE },
+  { selector: "NewExpression[callee.name='Date'][arguments.length=0]", message: CLOCK_MESSAGE },
+  { selector: "CallExpression[callee.type='Identifier'][callee.name='Date']", message: CLOCK_MESSAGE },
+  { selector: "MemberExpression[object.name='Temporal'][property.name='Now']", message: CLOCK_MESSAGE },
+];
+
+const RANDOMNESS = {
+  selector: "CallExpression[callee.object.name='Math'][callee.property.name='random']",
+  message: 'The domain is pure: no randomness.',
+};
+
 export default defineConfig(
   // .semgrep/ holds Semgrep rule tests with deliberate violations; they are checked by `semgrep --test` in CI.
   globalIgnores([
@@ -47,18 +65,18 @@ export default defineConfig(
           })),
         },
       ],
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: 'MemberExpression[object.name=/^(sql|tx)$/][property.name=/^(raw|unsafe)$/]',
-          message: 'Raw SQL is only allowed inside src/platform/db (ADR-0003).',
-        },
-      ],
+      'no-restricted-syntax': ['error', RAW_SQL],
     },
   },
   {
+    // Production code reads the time only through an injected Clock; platform/time is where the real clock lives.
+    files: ['src/**/*.ts'],
+    ignores: ['src/platform/time/**'],
+    rules: { 'no-restricted-syntax': ['error', RAW_SQL, ...CLOCK_READS] },
+  },
+  {
     files: ['src/platform/db/**/*.ts'],
-    rules: { 'no-restricted-syntax': 'off' },
+    rules: { 'no-restricted-syntax': ['error', ...CLOCK_READS] },
   },
   {
     // The end-to-end smoke test drives the Docker CLI; nothing else may spawn processes.
@@ -67,23 +85,7 @@ export default defineConfig(
   },
   {
     files: ['src/domain/**/*.ts'],
-    rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: "CallExpression[callee.object.name='Date'][callee.property.name='now']",
-          message: 'The domain is pure: inject a Clock instead of reading the time.',
-        },
-        {
-          selector: "NewExpression[callee.name='Date'][arguments.length=0]",
-          message: 'The domain is pure: inject a Clock instead of reading the time.',
-        },
-        {
-          selector: "CallExpression[callee.object.name='Math'][callee.property.name='random']",
-          message: 'The domain is pure: no randomness.',
-        },
-      ],
-    },
+    rules: { 'no-restricted-syntax': ['error', RAW_SQL, ...CLOCK_READS, RANDOMNESS] },
   },
   {
     files: ['**/*.js', '**/*.cjs', '**/*.mjs'],

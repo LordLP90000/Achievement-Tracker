@@ -136,7 +136,9 @@ content-type enforcement.
 
 ### 4.6 Time (`platform/time`)
 
-- `Clock` interface (`now(): Date`) injected everywhere; tests use a controllable clock.
+- `Clock` interface (`now(): Date`) injected everywhere; tests use `FakeClock` (`test/helpers/fake-clock.ts`), which
+  accepts only instants with `Z` or an explicit offset and moves only through `set`/`advance`. ESLint forbids
+  `Date.now()`, `new Date()`, `Date()` and `Temporal.Now` in `src/` outside `platform/time`.
 - `tz.ts`: `localDate(instant, timeZone)`, `isValidTimeZone`, ISO-week helpers, all based on `Intl`
   (ADR-0011) and pure date arithmetic.
 
