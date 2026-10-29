@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance } from 'fastify';
+import { passwordRoutes } from './modules/accounts/password-routes.ts';
+import type { PasswordsService } from './modules/accounts/password-service.ts';
 import { accountsRoutes } from './modules/accounts/routes.ts';
 import type { AccountsService } from './modules/accounts/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
@@ -17,6 +19,7 @@ export const API_PREFIX = '/v1';
 
 export interface AppServices {
   readonly accounts: AccountsService;
+  readonly passwords: PasswordsService;
   readonly sessions: SessionsService;
 }
 
@@ -56,6 +59,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       // Deny by default: every /v1 route needs an access token unless it is public in the contract (R-AUTHZ-01).
       registerAuthGuard(v1, deps.services.sessions);
       void v1.register(accountsRoutes, { accounts: deps.services.accounts });
+      void v1.register(passwordRoutes, { passwords: deps.services.passwords });
       void v1.register(sessionsRoutes, { sessions: deps.services.sessions });
       done();
     },

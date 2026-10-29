@@ -106,6 +106,19 @@ describe('no account enumeration [R-AUTH-07, S-02]', () => {
     for (const answer of answers.slice(1)) expect(answer).toEqual(answers[0]);
   });
 
+  it('answers a password-reset request identically for an unknown, an unverified, a verified and a deactivated address', async () => {
+    const unverified = email();
+    await register(unverified);
+    const addresses = [email(), unverified, await verifiedAccount(), await deactivatedAccount()];
+
+    const answers = [];
+    for (const address of addresses)
+      answers.push(observable(await post('/v1/auth/password/forgot', { email: address })));
+
+    expect(answers[0]).toMatchObject({ status: 202 });
+    for (const answer of answers.slice(1)) expect(answer).toEqual(answers[0]);
+  });
+
   it('answers a failed login identically for an unknown address, a wrong password and an unverified account, verifying once each [I-05]', async () => {
     const verified = await verifiedAccount();
     const unverified = email();

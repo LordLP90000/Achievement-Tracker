@@ -3,7 +3,7 @@ import { emailBlindIndex } from '../../platform/crypto/blind-index.ts';
 import type { DataKeys } from '../../platform/crypto/data-keys.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
 import type { PasswordHasher } from '../../platform/crypto/password.ts';
-import { issueToken, tokenHash } from '../../platform/crypto/tokens.ts';
+import { tokenHash } from '../../platform/crypto/tokens.ts';
 import { inTransaction, setUserContext, type Database, type Transaction } from '../../platform/db/database.ts';
 import { enqueueEmail } from '../../platform/email/outbox-repository.ts';
 import { DEFAULT_LOCALE } from '../../platform/i18n/locales.ts';
@@ -11,6 +11,7 @@ import type { Clock } from '../../platform/time/clock.ts';
 import { DEFAULT_TIME_ZONE } from '../../platform/time/time-zones.ts';
 import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent } from '../audit/repository.ts';
+import { emailField, sendTokenEmail, VERIFY_EMAIL, withAccountKey } from './account-mail.ts';
 import { checkPassword, type BreachedPasswordFilter } from './password-policy.ts';
 import {
   consumeOneTimeToken,
@@ -19,15 +20,11 @@ import {
   insertUserKey,
   isOneTimeTokenUsed,
   markEmailVerified,
-  replaceOneTimeToken,
-  requireWrappedKey,
   type AccountRecord,
 } from './repository.ts';
 import type { RegisterRequest } from './schemas.ts';
 
 /** Registration and email verification (R-AUTH-02, -03, -07, -09, -11; R-ENC-01, -02). */
-
-export const VERIFICATION_TOKEN_LIFETIME_MS = 30 * 60 * 1000;
 
 export interface AccountsServiceDependencies {
   readonly db: Database;
@@ -47,53 +44,12 @@ export interface AccountsService {
   resendVerification(email: string): Promise<void>;
 }
 
-const emailField = (userId: string) => ({ userId, recordId: userId, field: 'email_enc' });
-
 export function createAccountsService(deps: AccountsServiceDependencies): AccountsService {
-  /** Runs `work` with the account's data key; the transaction is bound to the account from here on. */
-  const withAccountKey = async <T>(
-    tx: Transaction,
-    userId: string,
-    work: (dataKey: Uint8Array) => Promise<T>,
-  ): Promise<T> => {
-    await setUserContext(tx, userId);
-    return deps.dataKeys.withKey(userId, await requireWrappedKey(tx, userId), work);
-  };
-
-  const sendVerification = async (
-    tx: Transaction,
-    dataKey: Uint8Array,
-    recipient: { userId: string; to: string; locale: string },
-    now: Date,
-  ): Promise<void> => {
-    const { token, hash } = issueToken('verification');
-    await replaceOneTimeToken(
-      tx,
-      {
-        userId: recipient.userId,
-        purpose: 'verify_email',
-        tokenHash: hash,
-        expiresAt: new Date(now.getTime() + VERIFICATION_TOKEN_LIFETIME_MS),
-      },
-      now,
-    );
-    await enqueueEmail(
-      tx,
-      dataKey,
-      {
-        userId: recipient.userId,
-        template: 'verify_email',
-        payload: { to: recipient.to, locale: recipient.locale, token },
-      },
-      now,
-    );
-  };
-
   /** The address is registered already: its owner learns about the attempt, the requester learns nothing. */
   const notifyOwner = async (tx: Transaction, account: AccountRecord | undefined, now: Date): Promise<void> => {
     // Gone meanwhile, or pending deletion: no email (A-22).
     if (account?.deactivatedAt !== null) return;
-    await withAccountKey(tx, account.id, async (dataKey) => {
+    await withAccountKey(tx, deps.dataKeys, account.id, async (dataKey) => {
       const to = decryptText(dataKey, emailField(account.id), account.emailEnc);
       await enqueueEmail(
         tx,
@@ -129,7 +85,7 @@ export function createAccountsService(deps: AccountsServiceDependencies): Accoun
           if (!(await insertAccount(tx, account, now))) return false;
           await setUserContext(tx, userId);
           await insertUserKey(tx, userId, wrapped, now);
-          await sendVerification(tx, dataKey, { userId, to: request.email, locale }, now);
+          await sendTokenEmail(tx, dataKey, { userId, to: request.email, locale }, VERIFY_EMAIL, now);
           return true;
         });
         if (!created) await notifyOwner(tx, await findAccountByBlindIndex(tx, blindIndex), now);
@@ -168,9 +124,9 @@ export function createAccountsService(deps: AccountsServiceDependencies): Accoun
         const account = await findAccountByBlindIndex(tx, blindIndex);
         // Unknown, verified and deactivated addresses get nothing, and the same answer (R-AUTH-07, A-22).
         if (account?.emailVerifiedAt !== null || account.deactivatedAt !== null) return;
-        await withAccountKey(tx, account.id, async (dataKey) => {
+        await withAccountKey(tx, deps.dataKeys, account.id, async (dataKey) => {
           const to = decryptText(dataKey, emailField(account.id), account.emailEnc);
-          await sendVerification(tx, dataKey, { userId: account.id, to, locale: account.locale }, now);
+          await sendTokenEmail(tx, dataKey, { userId: account.id, to, locale: account.locale }, VERIFY_EMAIL, now);
         });
       });
     },

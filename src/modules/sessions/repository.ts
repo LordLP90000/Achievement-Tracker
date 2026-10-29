@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
 import type { Transaction } from '../../platform/db/database.ts';
 import { increment } from '../../platform/db/expressions.ts';
 import { sessions, sessionTokens, users } from '../../platform/db/schema/index.ts';
@@ -188,18 +188,27 @@ export async function findAccessToken(
   return token;
 }
 
-/** Revokes every session of the user that is not revoked yet and deletes all their tokens. */
+/** Revokes every session of the user that is not revoked yet, except `keep`, and deletes their tokens. */
 export async function revokeAllSessions(
   tx: Transaction,
   userId: string,
   reason: RevokedReason,
   now: Date,
+  keep?: string,
 ): Promise<void> {
   await tx
     .update(sessions)
     .set({ revokedAt: now, revokedReason: reason })
-    .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
-  await tx.delete(sessionTokens).where(eq(sessionTokens.userId, userId));
+    .where(
+      and(
+        eq(sessions.userId, userId),
+        isNull(sessions.revokedAt),
+        keep === undefined ? undefined : ne(sessions.id, keep),
+      ),
+    );
+  await tx
+    .delete(sessionTokens)
+    .where(and(eq(sessionTokens.userId, userId), keep === undefined ? undefined : ne(sessionTokens.sessionId, keep)));
 }
 
 export interface SessionRecord {

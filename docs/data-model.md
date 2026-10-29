@@ -102,7 +102,7 @@ Deleting this row (with the user) is the crypto-shredding step (ADR-0006).
 | `used_at` | timestamptz NULL | single use |
 | `created_at` | timestamptz NOT NULL | |
 
-Issuing a new token of the same purpose deletes the older unused ones. A used `verify_email` token is kept until the
+Issuing a new token of the same purpose deletes the older unused ones. A completed `reset_password` also sets `users.email_verified_at` if it was empty: the link reached the address (A-30). A used `verify_email` token is kept until the
 cleanup, so a repeated verification answers `204` and changes nothing (contract); used/expired rows are deleted
 hourly.
 

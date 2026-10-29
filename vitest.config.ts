@@ -13,6 +13,8 @@ export default defineConfig({
           include: ['test/**/*.test.ts'],
           exclude: ['test/e2e/**'],
           globalSetup: ['test/helpers/global-setup.ts'],
+          // Real Argon2id (64 MiB) and PostgreSQL work runs in parallel across files; 5 s timed out once under load.
+          testTimeout: 20_000,
         },
       },
     ],

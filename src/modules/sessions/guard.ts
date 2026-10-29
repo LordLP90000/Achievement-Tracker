@@ -54,9 +54,7 @@ export function principalOf(request: FastifyRequest): Principal {
 /** R-AUTH-06 / Q-07: sensitive operations need the password entered (login or re-auth) within this window. */
 export const REAUTH_WINDOW_MS = 10 * 60 * 1000;
 
-/** Throws 403 `reauthentication-required` unless the session entered the password less than 10 minutes ago. */
-export function requireRecentReauth(principal: Principal, now: Date): void {
-  if (now.getTime() - principal.lastReauthAt.getTime() >= REAUTH_WINDOW_MS) {
-    throw new ProblemError(Problems.reauthenticationRequired);
-  }
+/** True when the session entered the password less than 10 minutes before `now` (else: 403 for sensitive work). */
+export function hasRecentReauth(principal: Principal, now: Date): boolean {
+  return now.getTime() - principal.lastReauthAt.getTime() < REAUTH_WINDOW_MS;
 }

@@ -223,6 +223,7 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | A-27 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** After a lost gamble, no new gamble can be placed on the same achievement in the same attempt (`409 gamble-lost-this-attempt`, T-16). |
 | A-28 | **[accepted 2026-10-29 with the M2 go; proposed 2026-10-22]** A habit `start_date` (on creation and on restart) must be today or later (`422`): a period before today could never be met because back-dated check-ins never count (R-CHK-04). |
 | A-29 | **[proposed 2026-10-29]** A registration without `locale` gets `de-CH` (the service starts in German-speaking Switzerland, like the default timezone `Europe/Zurich`); the app is expected to send the device locale. |
+| A-30 | **[proposed 2026-10-29]** Forgot-password also emails an **unverified** account, and a completed reset marks the address verified: the link proves control of the address. This also closes account pre-hijacking — if someone registered another person's address first, the owner takes it over with a reset, which ends every session and replaces the password. |
 
 ## 6. Decisions taken by the PM (2026-10-22)
 

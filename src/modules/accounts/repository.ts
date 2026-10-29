@@ -50,6 +50,44 @@ export async function findAccountByBlindIndex(tx: Transaction, blindIndex: Buffe
   return account;
 }
 
+export async function findAccountById(
+  tx: Transaction,
+  userId: string,
+): Promise<(AccountRecord & { readonly passwordHash: string }) | undefined> {
+  const [account] = await tx
+    .select({
+      id: users.id,
+      emailEnc: users.emailEnc,
+      locale: users.locale,
+      emailVerifiedAt: users.emailVerifiedAt,
+      deactivatedAt: users.deactivatedAt,
+      passwordHash: users.passwordHash,
+    })
+    .from(users)
+    .where(eq(users.id, userId));
+  return account;
+}
+
+/**
+ * Stores a new password hash and `password_changed_at`. With `previous`, only if the stored hash is still that one
+ * (a concurrent change wins); returns whether the password was changed.
+ */
+export async function changePasswordHash(
+  tx: Transaction,
+  userId: string,
+  hashes: { readonly previous?: string; readonly next: string },
+  now: Date,
+): Promise<boolean> {
+  const changed = await tx
+    .update(users)
+    .set({ passwordHash: hashes.next, passwordChangedAt: now, updatedAt: now })
+    .where(
+      and(eq(users.id, userId), hashes.previous === undefined ? undefined : eq(users.passwordHash, hashes.previous)),
+    )
+    .returning({ id: users.id });
+  return changed.length === 1;
+}
+
 /** Creates the account unless its address is taken (also by a concurrent registration); true when created. */
 export async function insertAccount(tx: Transaction, account: NewAccount, now: Date): Promise<boolean> {
   const created = await tx
@@ -135,6 +173,27 @@ export async function isOneTimeTokenUsed(
     .from(oneTimeTokens)
     .where(and(eq(oneTimeTokens.tokenHash, tokenHash), eq(oneTimeTokens.purpose, purpose)));
   return token !== undefined && token.usedAt !== null;
+}
+
+/** True while the token is unused and unexpired; it is consumed later with `consumeOneTimeToken`. */
+export async function isOneTimeTokenUsable(
+  tx: Transaction,
+  purpose: OneTimeTokenPurpose,
+  tokenHash: Buffer,
+  now: Date,
+): Promise<boolean> {
+  const [token] = await tx
+    .select({ id: oneTimeTokens.id })
+    .from(oneTimeTokens)
+    .where(
+      and(
+        eq(oneTimeTokens.tokenHash, tokenHash),
+        eq(oneTimeTokens.purpose, purpose),
+        isNull(oneTimeTokens.usedAt),
+        gt(oneTimeTokens.expiresAt, now),
+      ),
+    );
+  return token !== undefined;
 }
 
 /** True when the address was unverified until now. */
