@@ -3,12 +3,21 @@ import { randomBytes } from 'node:crypto';
 import { createServer, type AddressInfo } from 'node:net';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { checkPassword, loadBreachedPasswordFilter } from '../../src/modules/accounts/password-policy.ts';
 
 const run = promisify(execFile);
 const COMPOSE = ['compose', '-f', 'docker/compose.yml', '-p', 'questline-e2e'];
 const MAX_BUFFER = 64 * 1024 * 1024;
 const secret = () => randomBytes(24).toString('base64url');
 const key = () => randomBytes(32).toString('base64');
+
+/** A random password the offline breach filter accepts: about 1 % of random strings are false positives (ADR-0012). */
+function acceptedPassword(): string {
+  const breached = loadBreachedPasswordFilter();
+  let candidate = secret();
+  while (checkPassword(breached, candidate) !== 'ok') candidate = secret();
+  return candidate;
+}
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -120,7 +129,7 @@ describe('container smoke test', () => {
 
   it('registers an account in the built image: one user, its data key, two queued emails, nothing logged [R-AUTH-07, R-LOG-02]', async () => {
     const email = `e2e-${randomBytes(6).toString('hex')}@example.test`;
-    const password = secret();
+    const password = acceptedPassword();
     const register = (chosen: string) =>
       fetch(`${baseUrl}/v1/auth/register`, {
         method: 'POST',
