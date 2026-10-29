@@ -238,9 +238,10 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   server must run in the private network, its token is rotated with the KEK, and its access is logged.
   No runtime dependency is needed (plain `fetch`); 1Password (AgileBits Inc., Canada) is recorded in
   `processors.md` as a security service provider that holds **no personal data**.
-- **Tests:** `unit/config.test.ts` (missing/short KEK → refuse to start), `unit/crypto/kek-source.test.ts`
-  (Connect client against a local stub: happy path, 401/404/timeout → startup failure, no token in logs),
-  `integration/key-rotation.test.ts`.
+- **Tests:** `src/platform/config` tests (missing/short KEK, `KEK_SOURCE=env` in production → refuse to start),
+  `src/platform/crypto/kek-source.test.ts` (Connect client against a local stub: happy path, 401/403/404/500, redirect,
+  timeout, unreachable, malformed items and keys → startup failure; no token or key in any error),
+  `key-wrapper.test.ts`, `integration/key-rotation.test.ts`.
 
 ## ADR-0014 · Email delivery via generic SMTP (`nodemailer`)
 

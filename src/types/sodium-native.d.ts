@@ -3,7 +3,7 @@
  * types. Only `src/platform/crypto` may import it (dependency-cruiser rule).
  */
 declare module 'sodium-native' {
-  interface SecureBuffer extends Buffer {
+  export interface SecureBuffer extends Buffer {
     /** True when the memory comes from `sodium_malloc` (guard pages, locked, wiped on free). */
     readonly secure: boolean;
   }
