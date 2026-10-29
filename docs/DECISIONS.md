@@ -111,6 +111,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
     Record IDs are therefore generated application-side (random UUID v4) before the insert.
   - Unwrapped DEKs are cached in process memory (`sodium_malloc` guarded buffers) for at most 5 minutes per user
     and wiped on eviction, to bound unwrap work and latency while limiting how long plaintext DEKs stay in memory.
+    **Amended in M2 (2026-10-29):** no cache at all while the KEK is held locally (ADR-0013) — unwrapping costs
+    microseconds, so a DEK is unwrapped into guarded memory for one unit of work and wiped right after
+    (`src/platform/crypto/data-keys.ts`). The 5-minute bound applies only if a remote KMS is introduced later.
   - **Crypto-shredding scope (honest statement):** deleting a user hard-deletes all rows including the wrapped DEK.
     Backups taken before the deletion still contain the wrapped DEK and the ciphertext; they can be decrypted only
     by a party that has **both** the backup **and** the KEK (1Password vault access or a running app process,
