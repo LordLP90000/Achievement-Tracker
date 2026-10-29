@@ -11,7 +11,7 @@
 #   approved_by/approved_on : required for exceptions
 
 version: 2
-updated: 2026-10-22
+updated: 2026-10-29
 
 defaults:
   export: included
@@ -146,6 +146,7 @@ tables:
   quests:
     user_relation: user_id
     deletion: consent-withdrawal
+    retention: until account deletion or withdrawal of goal_content consent (Q-10)
     columns:
       id:                      { category: C6, personal: true }
       user_id:                 { category: C6, personal: true }
@@ -175,6 +176,7 @@ tables:
   check_ins:
     user_relation: user_id
     deletion: consent-withdrawal
+    retention: until account deletion or withdrawal of goal_content consent (Q-10)
     columns:
       id:           { category: C6, personal: true }
       user_id:      { category: C6, personal: true }
@@ -190,6 +192,7 @@ tables:
   xp_events:
     user_relation: user_id
     deletion: consent-withdrawal
+    retention: until account deletion or withdrawal of goal_content consent (Q-10)
     columns:
       id:              { category: C7, personal: true }
       user_id:         { category: C7, personal: true }
@@ -204,6 +207,7 @@ tables:
   badges:
     user_relation: user_id
     deletion: consent-withdrawal
+    retention: until account deletion or withdrawal of goal_content consent (Q-10)
     columns:
       id:              { category: C7, personal: true }
       user_id:         { category: C7, personal: true }

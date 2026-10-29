@@ -5,6 +5,26 @@ import { createTestDatabase, type TestDatabase } from '../helpers/database.ts';
 
 const INSUFFICIENT_PRIVILEGE = { code: '42501' };
 
+const PRIVILEGES = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'] as const;
+
+/**
+ * Least privilege per table and role (docs/data-model.md §4). A new table fails this test until its grants are
+ * reviewed and listed here; nobody gets TRUNCATE, REFERENCES or TRIGGER.
+ */
+const EXPECTED_GRANTS: Readonly<Record<string, { readonly app: string[]; readonly worker: string[] }>> = {
+  audit_events: { app: ['INSERT'], worker: ['SELECT', 'DELETE'] },
+  consents: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: [] },
+  deleted_user_tombstones: { app: [], worker: ['SELECT', 'INSERT', 'DELETE'] },
+  email_outbox: { app: ['INSERT'], worker: ['SELECT', 'UPDATE', 'DELETE'] },
+  job_runs: { app: [], worker: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'] },
+  one_time_tokens: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
+  rate_limit_buckets: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
+  session_tokens: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
+  sessions: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
+  user_keys: { app: ['SELECT', 'INSERT'], worker: ['SELECT'] },
+  users: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
+};
+
 describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {
   let database: TestDatabase;
   let app: DatabaseClient;
@@ -70,5 +90,39 @@ describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {
       select has_schema_privilege('public', 'public', 'CREATE') as allowed`;
 
     expect(row?.allowed).toBe(false);
+  });
+
+  it('grants each role exactly the documented privileges on every table (least privilege)', async () => {
+    const rows = await migrator.sql<{ table: string; role: string; privilege: string }[]>`
+      select c.relname as table, r.role, p.privilege
+      from pg_class c
+      join pg_namespace n on n.oid = c.relnamespace
+      cross join (values ('questline_app'), ('questline_worker')) as r (role)
+      cross join unnest(${[...PRIVILEGES]}::text[]) as p (privilege)
+      where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm')
+        and has_table_privilege(r.role, c.oid, p.privilege)`;
+    const tables = await migrator.sql<{ table: string }[]>`
+      select c.relname as table from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm') order by c.relname`;
+
+    const actual = Object.fromEntries(
+      tables.map(({ table }) => {
+        const held = (role: string) =>
+          PRIVILEGES.filter((privilege) =>
+            rows.some((row) => row.table === table && row.role === role && row.privilege === privilege),
+          );
+        return [table, { app: held('questline_app'), worker: held('questline_worker') }];
+      }),
+    );
+    const expected = Object.fromEntries(
+      Object.entries(EXPECTED_GRANTS).map(([table, grants]) => [
+        table,
+        {
+          app: PRIVILEGES.filter((privilege) => grants.app.includes(privilege)),
+          worker: PRIVILEGES.filter((privilege) => grants.worker.includes(privilege)),
+        },
+      ]),
+    );
+    expect(actual).toEqual(expected);
   });
 });

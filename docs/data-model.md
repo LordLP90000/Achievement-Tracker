@@ -284,9 +284,9 @@ Removed on re-lock (R-ACH-05) and on achievement deletion.
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid NULL → `users` CASCADE | NULL for failed logins against unknown emails |
-| `event_type` | text NOT NULL | `login_succeeded`, `login_failed`, `logout`, `session_revoked`, `refresh_reuse_detected`, `password_changed`, `password_reset_requested`, `password_reset_completed`, `email_change_requested`, `email_changed`, `email_verified`, `consent_granted`, `consent_withdrawn`, `export_requested`, `account_deleted`, `reauth_succeeded`, `reauth_failed`, `rate_limited` |
+| `event_type` | text NOT NULL | `login_succeeded`, `login_failed`, `logout`, `session_revoked`, `refresh_reuse_detected`, `password_changed`, `password_reset_requested`, `password_reset_completed`, `email_change_requested`, `email_changed`, `email_verified`, `consent_granted`, `consent_withdrawn`, `export_requested`, `account_deleted`, `account_reactivated` (§5 step 2, added in M2), `reauth_succeeded`, `reauth_failed`, `rate_limited` |
 | `session_id` | uuid NULL | not a FK (session may be gone) |
-| `ip_prefix` | text NULL | truncated: IPv4 /24, IPv6 /48 |
+| `ip_prefix` | cidr NULL | truncated: IPv4 /24, IPv6 /48 — `cidr` refuses host bits and a CHECK refuses longer masks, so the database cannot store a full address (M2; was `text`) |
 | `client` | text NULL | `ios` / `android` |
 | `outcome` | text CHECK IN (`success`, `failure`) | |
 | `metadata` | jsonb NOT NULL DEFAULT '{}' | allowlisted keys only (reason codes) |
@@ -356,23 +356,47 @@ CREATE ROLE questline_migrator LOGIN;          -- owner of all objects, runs mig
 CREATE ROLE questline_app      LOGIN NOBYPASSRLS;
 CREATE ROLE questline_worker   LOGIN NOBYPASSRLS;
 
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO questline_app, questline_worker;
-GRANT SELECT, INSERT, UPDATE, DELETE ON <allowlisted tables> TO questline_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON <allowlisted tables> TO questline_worker;
--- no TRUNCATE, no REFERENCES, no TRIGGER, no sequences needed (uuid ids)
+-- per-table grants: see the matrix below; no TRUNCATE, no REFERENCES, no TRIGGER, no sequences (uuid ids)
 
--- example policy, repeated for every RLS table
-ALTER TABLE achievements ENABLE ROW LEVEL SECURITY;
-ALTER TABLE achievements FORCE ROW LEVEL SECURITY;
-CREATE POLICY achievements_owner ON achievements TO questline_app
-  USING  (user_id = current_setting('app.user_id', true)::uuid)
-  WITH CHECK (user_id = current_setting('app.user_id', true)::uuid);
-CREATE POLICY achievements_worker ON achievements TO questline_worker USING (true) WITH CHECK (true);
+-- policy shape, repeated for every RLS table (helper from migration 0000: NULL without a user context)
+ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions FORCE ROW LEVEL SECURITY;
+CREATE POLICY sessions_app ON sessions TO questline_app
+  USING (user_id = app_current_user_id()) WITH CHECK (user_id = app_current_user_id());
+CREATE POLICY sessions_worker ON sessions TO questline_worker USING (true) WITH CHECK (true);
 ```
 
-`current_setting('app.user_id', true)` returns NULL when unset, so a transaction that forgot `SET LOCAL` sees
+`app_current_user_id()` returns NULL when `app.user_id` is unset, so a transaction that forgot `SET LOCAL` sees
 **no rows** and can insert **nothing** — a fail-closed default.
+
+**Least-privilege grants (M2).** Tested exactly by `test/security/db-roles.test.ts`: a new table fails until its
+row is added here and in the test. Cascading deletes need no grant (they run as the table owner).
+
+| Table | `questline_app` (API) | `questline_worker` | Row-level security |
+|-------|----------------------|--------------------|--------------------|
+| `users` | SELECT, INSERT, UPDATE | SELECT, DELETE | ⟂ lookup by blind index before the user is known |
+| `user_keys` | SELECT, INSERT | SELECT | RLS |
+| `one_time_tokens` | SELECT, INSERT, UPDATE, DELETE | SELECT, DELETE | ⟂ lookup by token hash |
+| `sessions` | SELECT, INSERT, UPDATE | SELECT, DELETE | RLS |
+| `session_tokens` | SELECT, INSERT, UPDATE, DELETE | SELECT, DELETE | ⟂ lookup by token hash; a composite FK `(session_id, user_id)` → `sessions(id, user_id)` keeps its user equal to the session's |
+| `consents` | SELECT, INSERT, UPDATE | — | RLS |
+| `audit_events` | INSERT (own user, or NULL for unknown accounts) | SELECT, DELETE | RLS; the API cannot read audit events |
+| `email_outbox` | INSERT | SELECT, UPDATE, DELETE | RLS |
+| `rate_limit_buckets` | SELECT, INSERT, UPDATE | SELECT, DELETE | ⟂ no user relation; UNLOGGED |
+| `deleted_user_tombstones` | — | SELECT, INSERT, DELETE | ⟂ no user relation |
+| `job_runs` | — | SELECT, INSERT, UPDATE, DELETE | ⟂ no personal data |
+
+Goal-content tables (M3) and `idempotency_keys` (M3) are added with their grants when they are migrated.
+`test/security/rls-coverage.test.ts` fails for any table that is neither RLS-protected nor listed as ⟂, and for any
+API policy that is not bound to `app_current_user_id()`.
+
+**Constraints as a second line of defence (M2).** CHECK constraints refuse what the code must never write:
+one-time tokens living longer than 30 minutes or mixing up purpose and pending email; access tokens over 15 minutes,
+refresh tokens over 30 days, sessions over 180 days; revocation without reason; `age_confirmed = false`; a second
+active consent of one type; hashes, blind indexes and bucket keys that are not 32 bytes; outbox error codes that are
+not short identifiers (no free text that could contain an address). Tested in `test/integration/account-schema.test.ts`.
 
 ## 5. Deactivation and deletion (R-PRIV-06)
 

@@ -80,7 +80,8 @@ relay (O-02).
 
 ## 6. Guard test specification (R-PRIV-08)
 
-`test/privacy/data-inventory-guard.test.ts` (M4):
+`test/privacy/data-inventory-guard.test.ts` (implemented in M2 for steps 1–5 and 7; step 6 follows with the export
+service in M4):
 
 1. Connects to the migrated test database and lists every table/column in schema `public` (ignoring `drizzle.*`).
 2. Loads `docs/privacy/data-inventory.yaml`.
@@ -91,6 +92,10 @@ relay (O-02).
 6. Cross-checks `export: included` tables against the keys produced by the export service on a seeded account.
 7. Exceptions must carry `approved_by: PM` and a date.
 
+Additionally (M2): the YAML is parsed strictly, so a misspelled key fails instead of silently dropping a rule;
+`*_enc` columns and `encrypted: true` must coincide and be `bytea`; inventory tables that are not migrated yet must
+be named in a shrink-only list in the test.
+
 ## 7. Change log
 
 | Date | Change |
@@ -98,3 +103,4 @@ relay (O-02).
 | 2026-10-22 | Initial inventory for M0. |
 | 2026-10-22 (v2) | PM decisions applied: approved Q-09 (device label), Q-13 (tombstones), Q-14 (hashed IPs). New elements: `users.week_start`, `users.age_confirmed` (C3), `users.deactivated_at` (C3; **deactivated accounts retained 30 days, then hard-deleted**, Q-11), `achievements.attempt/rank/execution_score`, `quests.reset_count/needs_restart`, `check_ins.attempt/counts_for_progress` (C6/C7), new table `gambles` (C7: stake, status, loss reason — derived gamification data, exported, cascade/consent-withdrawal), `target_date` now encrypted (C6), `achievement_pauses` removed. Processors: 1Password (Connect, holds the KEK — no personal data), SMTP relay operator (email addresses + one-time links; **Google = US jurisdiction if Gmail is used**, DPIA R-9). Hosting: PM's own option, location TBD. Minimum age 13 self-declared (Q-23). The machine-readable `data-inventory.yaml` was updated in the next row. |
 | 2026-10-22 (yaml v2) | `data-inventory.yaml` v2: the columns and table above added, `achievement_pauses` removed, approvals for Q-09/Q-13/Q-14 recorded (`approved_by: PM`, `approved_on`); C3/C6/C7 rows of this document aligned. Fixed two `export_reason` values that contained an unquoted comma inside a YAML flow mapping and therefore silently produced bogus keys. Checked against `docs/data-model.md`: 18 tables, 175 columns, no differences. |
+| 2026-10-29 (M2) | Guard test implemented (`test/privacy/data-inventory-guard.test.ts`) against the migrated account tables. It found that `quests`, `check_ins`, `xp_events` and `badges` were deleted on consent withdrawal without a retention rule, contrary to the inventory's own rule; added the same rule as for `achievements`. No new data categories; `audit_events.ip_prefix` is now stored as `cidr` with a /24 or /48 limit (same data, enforced truncation). |
