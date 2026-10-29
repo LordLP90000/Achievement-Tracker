@@ -32,14 +32,17 @@ const BEARER = /^bearer (\S+)$/i;
  * its config says `public: true`. Runs before the body is parsed, so unauthenticated requests cost no parsing.
  */
 export function registerAuthGuard(app: FastifyInstance, authenticator: Authenticator): void {
-  if (!app.hasRequestDecorator('principal')) app.decorateRequest('principal', null);
+  app.decorateRequest('principal', null);
   app.addHook('onRequest', async (request) => {
     if (request.routeOptions.config.public === true) return;
     const token = BEARER.exec(request.headers.authorization ?? '')?.[1];
     const principal = token === undefined ? undefined : await authenticator.authenticate(token);
-    if (principal === undefined) throw new ProblemError(Problems.unauthorized);
-    request.principal = principal;
+    request.principal = principal ?? deny();
   });
+}
+
+function deny(): never {
+  throw new ProblemError(Problems.unauthorized);
 }
 
 /** The principal of a guarded route; calling it on a public route is a programming error. */
