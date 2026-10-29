@@ -210,6 +210,25 @@ describe('email change [A-12, R-AUTH-06, R-AUTH-07, S-08, I-06]', () => {
       });
       expect(response.statusCode).toBe(401);
     });
+
+    it('fails closed when the data key is missing: 500, address unchanged [R-ENC-01]', async () => {
+      const account = await ctx.account();
+      const target = newAddress();
+      await request(await session(account), target);
+      const token = await changeToken(target);
+      await ctx.admin.sql`delete from user_keys where user_id = ${account.userId}`;
+
+      // An internal failure is outside the contract (no operation documents 500): plain inject.
+      const response = await ctx.app.inject({
+        method: 'POST',
+        url: '/v1/me/email-change/confirm',
+        headers: { 'content-type': 'application/json' },
+        payload: JSON.stringify({ token }),
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(await userRow(account.userId)).toMatchObject({ email_blind_index: ctx.blindIndex(account.email) });
+    });
   });
 
   it('never writes an address or a token to the log [R-LOG-02]', async () => {

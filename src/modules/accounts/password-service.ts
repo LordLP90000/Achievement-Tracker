@@ -51,8 +51,9 @@ export interface PasswordsService {
 export function createPasswordsService(deps: PasswordsServiceDependencies): PasswordsService {
   const isWeak = (password: string) => checkPassword(deps.breachedPasswords, password) !== 'ok';
 
-  const audit = async (tx: Transaction, event: AuditEvent, now: Date): Promise<void> => {
-    if (event.userId !== null) await setUserContext(tx, event.userId);
+  /** Every event here concerns a known account, so the transaction is bound to it first (RLS). */
+  const audit = async (tx: Transaction, event: AuditEvent & { readonly userId: string }, now: Date): Promise<void> => {
+    await setUserContext(tx, event.userId);
     await recordAuditEvent(tx, event, now);
   };
 
