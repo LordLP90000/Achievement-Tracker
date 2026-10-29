@@ -333,7 +333,7 @@ Sent rows are deleted immediately; dead letters after 7 days.
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `bucket_key` | bytea(32) PK | HMAC(daily key, `scope:subject`) — never a raw IP or email (Q-14) |
+| `bucket_key` | bytea(32) PK | HMAC(daily key, `scope:subject`) — never a raw IP or email (Q-14); daily key = HMAC(`RATE_LIMIT_KEY`, UTC date); subjects: IPv4 address, IPv6 /64, normalised email, user ID |
 | `tokens` | double precision NOT NULL | token bucket level |
 | `failures` | integer NOT NULL DEFAULT 0 | consecutive failures for progressive backoff |
 | `blocked_until` | timestamptz NULL | |

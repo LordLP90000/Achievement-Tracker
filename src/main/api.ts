@@ -7,6 +7,7 @@ import { createPasswordsService } from '../modules/accounts/password-service.ts'
 import { createProfileService } from '../modules/accounts/profile-service.ts';
 import { createAccountsService } from '../modules/accounts/service.ts';
 import { createConsentsService } from '../modules/consents/service.ts';
+import { createRateLimiter } from '../modules/rate-limit/limiter.ts';
 import { createSessionsService } from '../modules/sessions/service.ts';
 import type { ApiConfig } from '../platform/config/config.ts';
 import { createDataKeys } from '../platform/crypto/data-keys.ts';
@@ -26,6 +27,7 @@ export interface RunningApi extends Stoppable {
 export interface ApiKeyMaterial {
   readonly kek: Kek;
   readonly blindIndexKey: Uint8Array;
+  readonly rateLimitKey: Uint8Array;
 }
 
 /**
@@ -53,6 +55,7 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
     emailChanges: createEmailChangeService(shared),
     profiles: createProfileService(shared),
     consents: createConsentsService(shared),
+    rateLimiter: createRateLimiter({ ...shared, rateLimitKey: keys.rateLimitKey }),
     sessions: createSessionsService(shared),
   };
   const app = buildApp({ http: config.http, logger, readiness: databaseReadiness(database), services });

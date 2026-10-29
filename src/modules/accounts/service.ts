@@ -39,7 +39,8 @@ export type RegisterResult = 'accepted' | 'weak_password';
 export type VerifyEmailResult = 'verified' | 'invalid_token';
 
 export interface AccountsService {
-  register(request: RegisterRequest): Promise<RegisterResult>;
+  /** `admit` runs once the password passed the breach check, before any hashing; it throws to refuse. */
+  register(request: RegisterRequest, admit: () => Promise<void>): Promise<RegisterResult>;
   verifyEmail(token: string, context: RequestContext): Promise<VerifyEmailResult>;
   resendVerification(email: string): Promise<void>;
 }
@@ -61,9 +62,10 @@ export function createAccountsService(deps: AccountsServiceDependencies): Accoun
   };
 
   return {
-    async register(request) {
+    async register(request, admit) {
       // The answer depends on the password only, never on the address (R-AUTH-07).
       if (checkPassword(deps.breachedPasswords, request.password) !== 'ok') return 'weak_password';
+      await admit();
       // Exactly one hash for new and existing addresses alike, so timing does not tell them apart.
       const passwordHash = await deps.hasher.hash(request.password);
       const blindIndex = emailBlindIndex(deps.blindIndexKey, request.email);

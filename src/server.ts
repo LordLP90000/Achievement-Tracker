@@ -13,7 +13,11 @@ process.exitCode = await runCli(
     const logger = createLogger({ service: 'questline-api', level: config.logLevel });
     // Without the KEK no user data can be read or written: the API does not start (R-ENC-05).
     const kek = await kekSourceFor(keys.kek)();
-    stopOnSignals(process, await startApi(config, { kek, blindIndexKey: keys.blindIndexKey }, logger), logger);
+    stopOnSignals(
+      process,
+      await startApi(config, { kek, blindIndexKey: keys.blindIndexKey, rateLimitKey: keys.rateLimitKey }, logger),
+      logger,
+    );
   },
   (line) => process.stderr.write(`${line}\n`),
 );

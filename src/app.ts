@@ -11,6 +11,8 @@ import type { AccountsService } from './modules/accounts/service.ts';
 import { consentsRoutes } from './modules/consents/routes.ts';
 import type { ConsentsService } from './modules/consents/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
+import { registerRequestLimits } from './modules/rate-limit/http.ts';
+import type { RateLimiter } from './modules/rate-limit/limiter.ts';
 import { registerAuthGuard } from './modules/sessions/guard.ts';
 import { sessionsRoutes } from './modules/sessions/routes.ts';
 import type { SessionsService } from './modules/sessions/service.ts';
@@ -29,6 +31,7 @@ export interface AppServices {
   readonly emailChanges: EmailChangeService;
   readonly passwords: PasswordsService;
   readonly profiles: ProfileService;
+  readonly rateLimiter: RateLimiter;
   readonly sessions: SessionsService;
 }
 
@@ -67,12 +70,15 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
     (v1, _options, done) => {
       // Deny by default: every /v1 route needs an access token unless it is public in the contract (R-AUTHZ-01).
       registerAuthGuard(v1, deps.services.sessions);
-      void v1.register(accountsRoutes, { accounts: deps.services.accounts });
-      void v1.register(passwordRoutes, { passwords: deps.services.passwords });
-      void v1.register(emailChangeRoutes, { emailChanges: deps.services.emailChanges });
+      // After the guard: per client network on public routes, per user on authenticated ones (R-AUTH-08).
+      const limiter = deps.services.rateLimiter;
+      registerRequestLimits(v1, limiter);
+      void v1.register(accountsRoutes, { accounts: deps.services.accounts, limiter });
+      void v1.register(passwordRoutes, { passwords: deps.services.passwords, limiter });
+      void v1.register(emailChangeRoutes, { emailChanges: deps.services.emailChanges, limiter });
       void v1.register(profileRoutes, { profiles: deps.services.profiles });
       void v1.register(consentsRoutes, { consents: deps.services.consents });
-      void v1.register(sessionsRoutes, { sessions: deps.services.sessions });
+      void v1.register(sessionsRoutes, { sessions: deps.services.sessions, limiter });
       done();
     },
     { prefix: API_PREFIX },

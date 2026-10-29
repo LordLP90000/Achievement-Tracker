@@ -24,7 +24,7 @@ export function registerErrorHandling(app: FastifyInstance): void {
     if (error instanceof ProblemError) return sendProblem(request, reply, error.problem);
     if (error instanceof SemaphoreFullError) {
       request.log.warn('password hashing saturated');
-      return sendProblem(request, reply, Problems.busy);
+      return sendProblem(request, reply, Problems.rateLimited);
     }
     const problem = problemFor(error);
     if (problem.status >= 500) {

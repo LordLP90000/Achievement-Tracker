@@ -134,7 +134,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | I-16 | SMTP relay operator sees addresses and tokens | Necessary processor under DPA (PM approval, `processors.md`); tokens single-use, ≤ 30 min; emails contain no goal content | `unit/email/templates.test.ts`, `docs/privacy/processors.md` |
 | I-17 | 1Password holds the KEK | The KEK is stored end-to-end encrypted in the 1Password vault and fetched once by the private Connect server; DEK unwrap happens in-process, so 1Password never sees DEKs or field data; Connect access logged (ADR-0013) | documented; `unit/crypto/kek-source.test.ts` |
 | I-18 | Backups readable after account deletion | Wrapped DEK deleted with the user; backups expire after 30 days; tombstone replay after restore (ADR-0006, Q-13) | `integration/account-deletion.test.ts`, M6 restore drill checklist |
-| I-19 | Rate-limit storage reveals IPs/emails | Bucket keys are HMACs with a daily-rotated key (Q-14) | `unit/rate-limit/keys.test.ts` (no raw subject persisted; keys differ per day) |
+| I-19 | Rate-limit storage reveals IPs/emails | Bucket keys are HMACs with a daily-rotated key (Q-14) | `src/modules/rate-limit/keys.test.ts` (no raw subject persisted; keys differ per day), `security/rate-limit.test.ts` (table holds 32-byte keys and counters only; buckets reset with the UTC day) |
 | I-20 | Goal content in push notifications | No server push in v1; client guidance (M6) | n/a |
 | I-21 | SSRF via user-supplied URLs | No feature fetches user URLs; Semgrep rule flags `fetch`/`http.request` with non-constant URLs | `ci` SAST |
 | I-22 | Verbose validation errors echo submitted values (e.g. a password that failed policy) | Static messages + JSON pointers only | `contract/problem-details.test.ts` |

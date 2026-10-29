@@ -45,8 +45,9 @@ export const Problems = {
   payloadTooLarge: { status: 413, slug: 'payload-too-large', title: 'Payload Too Large' },
   unsupportedMediaType: { status: 415, slug: 'unsupported-media-type', title: 'Unsupported Media Type' },
   weakPassword: { status: 422, slug: 'weak-password', title: 'Password is too easy to guess' },
-  /** Password hashing is saturated (D-01): the client retries shortly instead of the server queueing forever. */
-  busy: { status: 429, slug: 'rate-limited', title: 'Too Many Requests', retryAfterSeconds: 1 },
+  /** A rate limit (R-AUTH-08) or saturated password hashing (D-01); set 
+etryAfterSeconds to the real wait. */
+  rateLimited: { status: 429, slug: 'rate-limited', title: 'Too Many Requests', retryAfterSeconds: 1 },
   internal: { status: 500, slug: 'internal', title: 'Internal Server Error' },
 } as const satisfies Record<string, ProblemDefinition>;
 

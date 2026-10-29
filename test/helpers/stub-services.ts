@@ -1,4 +1,12 @@
 import type { AppServices } from '../../src/app.ts';
+import type { RateLimiter } from '../../src/modules/rate-limit/limiter.ts';
+
+/** A limiter that never refuses: for apps that test something else (rate limits have their own suite). */
+export const ALLOW_ALL: RateLimiter = Object.freeze({
+  take: () => Promise.resolve(0),
+  blocked: () => Promise.resolve(0),
+  record: () => Promise.resolve(),
+});
 
 const unavailable = (): Promise<never> =>
   Promise.reject(new Error('this test app has no database: use test/helpers/accounts-app.ts'));
@@ -13,6 +21,7 @@ export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
   emailChanges: { request: unavailable, confirm: unavailable },
   profiles: { get: unavailable, update: unavailable },
   consents: { list: unavailable, grant: unavailable, withdraw: unavailable },
+  rateLimiter: ALLOW_ALL,
   sessions: {
     login: unavailable,
     refresh: unavailable,

@@ -1,7 +1,10 @@
 import type { FastifyPluginCallback } from 'fastify';
 import { Problems } from '../../platform/http/problem.ts';
 import { isUuidV4, parseRequest, ProblemError } from '../../platform/http/validation.ts';
+import { normalizeEmail } from '../../platform/crypto/blind-index.ts';
 import { requestContext } from '../audit/context.ts';
+import { enforce } from '../rate-limit/http.ts';
+import { BACKOFFS, type RateLimiter } from '../rate-limit/limiter.ts';
 import { principalOf } from './guard.ts';
 import { loginRequest, reauthRequest, refreshRequest } from './schemas.ts';
 import type { IssuedTokens, SessionsService } from './service.ts';
@@ -10,10 +13,14 @@ import type { IssuedTokens, SessionsService } from './service.ts';
 
 export interface SessionsRoutesOptions {
   readonly sessions: SessionsService;
+  readonly limiter: RateLimiter;
 }
 
 /** `security: []` in the contract. */
 const PUBLIC = { config: { public: true } };
+
+/** Authenticated and documenting `429`: limited per user as well. */
+const USER_LIMITED = { config: { userRateLimit: true } };
 
 /** `TokenPair` in the contract; lifetimes in whole seconds from the moment of issue. */
 export function tokenPair(tokens: IssuedTokens) {
@@ -28,9 +35,15 @@ export function tokenPair(tokens: IssuedTokens) {
   };
 }
 
-export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app, { sessions }, done) => {
+export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app, { sessions, limiter }, done) => {
   app.post('/auth/login', PUBLIC, async (request, reply) => {
-    const result = await sessions.login(parseRequest(loginRequest, request.body), requestContext(request));
+    const body = parseRequest(loginRequest, request.body);
+    // Per submitted address, registered or not, so the backoff itself reveals nothing (R-AUTH-07, D-04).
+    const subject = normalizeEmail(body.email);
+    const backoff = BACKOFFS.emailLogin;
+    await enforce(limiter.blocked(backoff, subject), request, backoff.scope);
+    const result = await sessions.login(body, requestContext(request));
+    await limiter.record(backoff, subject, result.outcome !== 'invalid_credentials');
     if (result.outcome === 'invalid_credentials') throw new ProblemError(Problems.invalidCredentials);
     if (result.outcome === 'email_not_verified') throw new ProblemError(Problems.emailNotVerified);
     return reply.code(200).send(tokenPair(result.tokens));
@@ -53,9 +66,14 @@ export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app
     return reply.code(204).send();
   });
 
-  app.post('/auth/reauth', async (request, reply) => {
+  app.post('/auth/reauth', USER_LIMITED, async (request, reply) => {
     const { password } = parseRequest(reauthRequest, request.body);
-    if (!(await sessions.reauthenticate(principalOf(request), password, requestContext(request)))) {
+    const principal = principalOf(request);
+    const backoff = BACKOFFS.userPassword;
+    await enforce(limiter.blocked(backoff, principal.userId), request, backoff.scope);
+    const valid = await sessions.reauthenticate(principal, password, requestContext(request));
+    await limiter.record(backoff, principal.userId, valid);
+    if (!valid) {
       throw new ProblemError(Problems.invalidCredentials);
     }
     return reply.code(204).send();

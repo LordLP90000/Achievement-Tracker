@@ -8,7 +8,8 @@ import { createPasswordsService } from '../../src/modules/accounts/password-serv
 import { createProfileService } from '../../src/modules/accounts/profile-service.ts';
 import { createAccountsService } from '../../src/modules/accounts/service.ts';
 import { createConsentsService } from '../../src/modules/consents/service.ts';
-import { createSessionsService } from '../../src/modules/sessions/service.ts';
+import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
+import { createSessionsService, type SessionsService } from '../../src/modules/sessions/service.ts';
 import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
 import { emailBlindIndex } from '../../src/platform/crypto/blind-index.ts';
 import { createDataKeys } from '../../src/platform/crypto/data-keys.ts';
@@ -24,6 +25,7 @@ import { contractInject } from './contract.ts';
 import { createTestDatabase, type TestDatabase } from './database.ts';
 import { FakeClock } from './fake-clock.ts';
 import type { LogCapture } from './log-capture.ts';
+import { ALLOW_ALL } from './stub-services.ts';
 
 export interface QueuedEmail {
   readonly userId: string;
@@ -52,14 +54,21 @@ export interface AccountsApp {
   hashCount(): number;
   /** Number of Argon2id verifications (including those against the dummy hash) so far. */
   verifyCount(): number;
-  /** JSON POST through the contract-validating inject. */
-  post(url: string, body: unknown, headers?: Record<string, string>): Promise<LightMyRequestResponse>;
+  /** JSON POST through the contract-validating inject, optionally from another client address. */
+  post(
+    url: string,
+    body: unknown,
+    headers?: Record<string, string>,
+    remoteAddress?: string,
+  ): Promise<LightMyRequestResponse>;
   /** Registers an account through the API and, unless `verified: false`, verifies it with the emailed token. */
   account(options?: { readonly verified?: boolean }): Promise<TestAccount>;
   /** Decrypts a field with the user's data key, as the API does. */
   decrypt(userId: string, recordId: string, field: string, blob: Buffer): Promise<string>;
   /** Queued emails, decrypted as the worker will (KEK → data key → payload). */
   emails(): Promise<QueuedEmail[]>;
+  /** Another API instance on the same database and keys (as a second container would be); closed with close. */
+  createInstance(): Promise<FastifyInstance>;
   close(): Promise<void>;
 }
 
@@ -67,6 +76,8 @@ export interface AccountsAppOptions {
   readonly logCapture?: LogCapture;
   /** Argon2id concurrency; the default never refuses work in tests. */
   readonly hashing?: { readonly maxConcurrent: number; readonly maxQueued: number };
+  /** Real PostgreSQL rate limits (R-AUTH-08); other suites send many requests from one address and opt out. */
+  readonly rateLimits?: 'enforced';
 }
 
 export const TEST_PASSWORD = 'purple elephants dance quietly';
@@ -82,6 +93,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
   const clock = new FakeClock('2026-10-29T12:00:00Z');
   const wrapper = localKeyWrapper(await envKekSource(randomBytes(32))());
   const blindIndexKey = randomBytes(32);
+  const rateLimitKey = randomBytes(32);
   const argon2 = await createArgon2idHasher(options.hashing ?? { maxConcurrent: 4, maxQueued: 64 });
   let hashes = 0;
   let verifications = 0;
@@ -101,26 +113,32 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
   const logger = options.logCapture
     ? createLogger({ service: 'questline-api', level: 'info' }, options.logCapture.stream)
     : createLogger({ service: 'questline-api', level: 'silent' });
-  const shared = {
-    db: createDatabase(api),
-    clock,
-    hasher,
-    blindIndexKey,
-    dataKeys: createDataKeys(wrapper),
-  };
   const breachedPasswords = loadBreachedPasswordFilter();
-  const accounts = createAccountsService({ ...shared, breachedPasswords });
-  const passwords = createPasswordsService({ ...shared, breachedPasswords });
-  const emailChanges = createEmailChangeService(shared);
-  const profiles = createProfileService(shared);
-  const consents = createConsentsService(shared);
-  const sessions = createSessionsService(shared);
-  const app = buildApp({
-    http: { trustProxyHops: 0 },
-    logger,
-    readiness: () => Promise.resolve(true),
-    services: { accounts, consents, emailChanges, passwords, profiles, sessions },
-  });
+  const extraClients: DatabaseClient[] = [];
+  const extraApps: FastifyInstance[] = [];
+
+  /** One API instance: its own pool and services on the shared database, keys and clock. */
+  const buildInstance = (client: DatabaseClient): { app: FastifyInstance; sessions: SessionsService } => {
+    const shared = { db: createDatabase(client), clock, hasher, blindIndexKey, dataKeys: createDataKeys(wrapper) };
+    const sessions = createSessionsService(shared);
+    const instance = buildApp({
+      http: { trustProxyHops: 0 },
+      logger,
+      readiness: () => Promise.resolve(true),
+      services: {
+        accounts: createAccountsService({ ...shared, breachedPasswords }),
+        consents: createConsentsService(shared),
+        emailChanges: createEmailChangeService(shared),
+        passwords: createPasswordsService({ ...shared, breachedPasswords }),
+        profiles: createProfileService(shared),
+        rateLimiter: options.rateLimits === 'enforced' ? createRateLimiter({ ...shared, rateLimitKey }) : ALLOW_ALL,
+        sessions,
+      },
+    });
+    return { app: instance, sessions };
+  };
+
+  const { app, sessions } = buildInstance(api);
   // A test-only route behind the same guard as `/v1`, to observe authentication without side effects.
   void app.register((scope, _options, done) => {
     registerAuthGuard(scope, sessions);
@@ -130,8 +148,16 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
   await app.ready();
 
   const json = { 'content-type': 'application/json' };
-  const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
-    contractInject(app, { method: 'POST', url, headers: { ...json, ...headers }, payload: JSON.stringify(body) });
+  const post = (url: string, body: unknown, headers: Record<string, string> = {}, remoteAddress = '127.0.0.1') =>
+    contractInject(app, {
+      method: 'POST',
+      url,
+      headers: { ...json, ...headers },
+      payload: JSON.stringify(body),
+      remoteAddress,
+    });
+  /** Fixtures come from their own address, so they never use up a client's per-IP allowance. */
+  const fixtureAddress = () => `198.18.${String(randomBytes(1)[0])}.${String(randomBytes(1)[0])}`;
 
   const emails = async (): Promise<QueuedEmail[]> => {
     const rows = await worker.sql<
@@ -181,19 +207,19 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
     post,
     async account(accountOptions = {}) {
       const email = `user-${randomUUID().slice(0, 8)}@example.test`;
-      const registered = await post('/v1/auth/register', {
-        email,
-        password: TEST_PASSWORD,
-        privacy_policy_version: '2026-10-01',
-        age_confirmed: true,
-      });
+      const registered = await post(
+        '/v1/auth/register',
+        { email, password: TEST_PASSWORD, privacy_policy_version: '2026-10-01', age_confirmed: true },
+        {},
+        fixtureAddress(),
+      );
       if (registered.statusCode !== 202) throw new Error(`registration failed: ${String(registered.statusCode)}`);
       const [user] = await worker.sql<{ id: string }[]>`
         select id from users where email_blind_index = ${emailBlindIndex(blindIndexKey, email)}`;
       if (user === undefined) throw new Error('registered account not found');
       if (accountOptions.verified !== false) {
         const token = (await emails()).findLast((queued) => queued.payload.to === email)?.payload.token ?? '';
-        const verified = await post('/v1/auth/verify-email', { token });
+        const verified = await post('/v1/auth/verify-email', { token }, {}, fixtureAddress());
         if (verified.statusCode !== 204) throw new Error(`verification failed: ${String(verified.statusCode)}`);
       }
       return { email, password: TEST_PASSWORD, userId: user.id };
@@ -209,9 +235,17 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
       });
     },
     emails,
+    async createInstance() {
+      const client = role(database.urls.app);
+      extraClients.push(client);
+      const instance = buildInstance(client).app;
+      extraApps.push(instance);
+      await instance.ready();
+      return instance;
+    },
     async close() {
-      await app.close();
-      await Promise.all([api.close(), worker.close(), admin.close()]);
+      await Promise.all([app, ...extraApps].map((instance) => instance.close()));
+      await Promise.all([api, worker, admin, ...extraClients].map((client) => client.close()));
       await database.drop();
     },
   };

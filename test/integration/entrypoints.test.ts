@@ -25,6 +25,7 @@ describe('entrypoints against a real database', () => {
   const keys = async (): Promise<ApiKeyMaterial> => ({
     kek: await envKekSource(randomBytes(32))(),
     blindIndexKey: randomBytes(32),
+    rateLimitKey: randomBytes(32),
   });
 
   it('starts the API on a real socket, serves readiness with security headers and stops cleanly', async () => {

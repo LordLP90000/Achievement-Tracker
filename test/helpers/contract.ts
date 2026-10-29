@@ -18,6 +18,8 @@ export interface ContractRequest {
   readonly url: string;
   readonly headers?: Record<string, string>;
   readonly payload?: string;
+  /** Client address as the server sees it (default 127.0.0.1). */
+  readonly remoteAddress?: string;
 }
 
 const coverageDir = inject('contractCoverageDir');
