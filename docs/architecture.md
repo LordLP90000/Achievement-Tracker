@@ -58,10 +58,12 @@ Rules enforced by lint/tests:
 - Goal-content repositories (M3) are created per request via `repos.forUser(userId)`; there is no API to build one
   without a user ID. Before a user is known (registration, verification, login, password reset) the account
   repositories read only the RLS-exempt tables — `users` by email blind index, `one_time_tokens` and
-  `session_tokens` by token hash. Cross-user access exists only in `src/modules/privacy/retention/*` (worker role).
+  `session_tokens` by token hash. Cross-user access exists only in worker-role code: the retention jobs
+  (`src/modules/privacy/retention*.ts`) and the outbox delivery (`src/platform/email/delivery.ts`).
 - Every transaction is bound to its user with a transaction-local `app.user_id` (RLS, ADR-0003) before it reads or
   writes an RLS table; pre-authentication transactions bind as soon as the account is identified. Worker
-  transactions set `app.user_id` to the user being processed, or run as `questline_worker` for cross-user retention.
+  transactions set `app.user_id` to the user being processed, or run as `questline_worker`, whose policies see every
+  row, for retention and the outbox.
 - Output goes through a Zod response schema (`.strict().parse`) before serialisation, so a new column can never
   leak into a response by accident.
 
@@ -141,8 +143,8 @@ content-type enforcement.
 - Fastify's own "Server listening at <address>" announcements (one per network interface, with internal IP
   addresses) are dropped by a pino `logMethod` hook; the API logs one `api listening` line with the port (Q-28).
 - Audit events are **not** logs: they are rows in `audit_events` with minimal, allowlisted metadata.
-- Worker lines carry only `template`, `attempt`, `error_code`, `pause_ms` and `email_delivery` besides the message:
-  never an address, token or account ID.
+- Worker lines carry only `template`, `attempt`, `error_code`, `pause_ms`, `email_delivery`, `job` and `processed`
+  besides the message: never an address, token or account ID. A job run that processed nothing logs at `debug`.
 - Test harness captures every log line of the whole run (API + worker) and asserts that no seeded secret or
   personal value appears (R-LOG-02).
 
@@ -167,11 +169,19 @@ content-type enforcement.
   unreadable payload, is dead-lettered at once. A failure of the relay itself pauses all delivery for 60 s, so a
   broken relay or wrong credentials are not hammered (D-07). `last_error_code` holds only a class such as
   `smtp_eenvelope_550`, `payload_unreadable` or `send_failed`.
-- `Scheduler`: fixed-interval jobs guarded by `pg_try_advisory_lock` so only one worker instance runs a job.
-  Jobs: unverified-account purge (7 d), expired one-time tokens, expired/revoked sessions & tokens,
-  idempotency keys (24 h), audit events (90 d), tombstones (35 d), stale rate-limit buckets, dead letters (7 d),
-  daily habit-period closing and gamble settlement after local midnight per user timezone (A-20, A-21), hard
-  delete of deactivated accounts after 30 days with tombstone (R-PRIV-06).
+- `Scheduler` (`platform/jobs/scheduler.ts`, M2): the worker checks every 60 s which jobs are due. A job runs in one
+  transaction that first takes `pg_try_advisory_xact_lock` named after the job, so only one worker instance runs it
+  at a time, and then reads `job_runs`: the last run of any outcome decides when it is due again, so all instances
+  share one schedule and a failing job is retried after its interval instead of every minute. The work and its
+  `job_runs` row commit together; a failure rolls the work back and is recorded with an error class only
+  (`pg_57014`). Retention jobs (`modules/privacy/retention.ts`, hourly, R-PRIV-07) delete in batches of 1 000 (at
+  most 100 per run): unverified accounts after 7 d (cascade), used or expired one-time tokens, session token
+  generations whose refresh token expired (rotated ones are kept until then for reuse detection; revocation deletes
+  a session's tokens at once), sessions 7 d after revocation, absolute expiry or the end of their refresh lifetime,
+  audit events after 90 d, rate-limit buckets untouched for 24 h, dead letters after 7 d, tombstones after 35 d and
+  job runs after 30 d. Later milestones add idempotency keys (24 h, M3), daily habit-period closing and gamble
+  settlement after local midnight per user timezone (A-20, A-21, M3) and the hard delete of deactivated accounts
+  after 30 days with tombstone (R-PRIV-06, M4).
 - Email sending is the worker's only outbound call: `SmtpEmailSender` (`nodemailer`, TLS required — STARTTLS on
   587 or implicit TLS on 465, ADR-0014). Tests use `FakeEmailSender`, which exposes delivered messages (so tests
   can extract verification links), and a local SMTP test server for the real sender.
@@ -222,7 +232,7 @@ settlement exactly-once under concurrency.
 │   │   ├── db/{bootstrap.ts, client.ts, migrate.ts, schema/, migrations/}   # roles, grants, RLS helpers
 │   │   ├── email/                     # EmailSender, SmtpEmailSender (nodemailer), templates, outbox repository + delivery
 │   │   ├── http/
-│   │   ├── jobs/                      # poller (outbox); scheduler for retention and settlement jobs
+│   │   ├── jobs/                      # poller (outbox, scheduler tick), scheduler with advisory locks and job_runs
 │   │   ├── logging/
 │   │   └── time/
 │   └── modules/

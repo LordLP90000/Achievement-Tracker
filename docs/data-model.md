@@ -120,7 +120,7 @@ hourly.
 | `revoked_at` | timestamptz NULL | |
 | `revoked_reason` | text NULL CHECK IN (`logout`, `logout_all`, `user_revoked`, `password_changed`, `password_reset`, `refresh_reuse`, `expired`, `account_deleted`, `session_limit`) | `session_limit`: logged out to make room for a new login (Q-29, migration 0003) |
 
-Revoked/expired session rows are deleted after 7 days (their tokens immediately).
+Session rows are deleted 7 days after their revocation, their absolute expiry or the end of their refresh lifetime (last use + 30 d). Revocation deletes a session's tokens at once; otherwise a token generation is deleted when its refresh token expires — rotated generations stay until then, so a replayed refresh token is still recognised as reuse (hourly purge jobs, architecture §4.7).
 
 #### `session_tokens` ⟂
 
@@ -353,7 +353,7 @@ replaced by a newer one or expired) is deleted unsent (D-05); notices are always
 |--------|------|
 | `id` uuid PK · `job_name` text · `started_at`, `finished_at` timestamptz · `status` text · `processed` integer · `error_code` text NULL |
 
-Retention 30 days.
+One row per finished run (`succeeded`, or `failed` with an error class such as `pg_57014`); the latest run of a job decides when it is due again (architecture §4.7). Retention 30 days.
 
 ## 4. Roles, grants and RLS (ADR-0003)
 

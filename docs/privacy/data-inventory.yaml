@@ -82,7 +82,7 @@ tables:
 
   session_tokens:
     user_relation: user_id
-    retention: with the session (purge-job); cascade on deletion
+    retention: until the refresh token expires (purge-job, hourly) or the session is revoked (deleted at once); cascade on deletion
     columns:
       id:                  { category: C2, personal: false, export: excluded, export_reason: secret record }
       session_id:          { category: C2, personal: true, export: excluded, export_reason: secret record; sessions themselves are exported }

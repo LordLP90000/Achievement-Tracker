@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startWorker } from '../../src/main/worker.ts';
 import type { EmailConfig, WorkerConfig } from '../../src/platform/config/config.ts';
+import type { ScheduledJob } from '../../src/platform/jobs/scheduler.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
 import { startAccountsApp, TEST_PASSWORD, type AccountsApp } from '../helpers/accounts-app.ts';
 import { FakeEmailSender, tokenIn } from '../helpers/fake-email-sender.ts';
@@ -36,6 +37,7 @@ describe('startWorker', () => {
 
   beforeEach(async () => {
     await ctx.admin.sql`delete from email_outbox`;
+    await ctx.admin.sql`delete from job_runs`;
   });
 
   const loggerFor = (logs: LogCapture) => createLogger({ service: 'questline-worker', level: 'info' }, logs.stream);
@@ -60,6 +62,7 @@ describe('startWorker', () => {
       emailSender: sender,
       clock: ctx.clock,
       pollIntervalMs: 20,
+      jobs: [],
     });
     await vi.waitFor(() => {
       expect(sender.sent.map((message) => message.to)).toEqual([email]);
@@ -75,10 +78,21 @@ describe('startWorker', () => {
   it('runs no further round once stopped', async () => {
     const sender = new FakeEmailSender();
     const logs = new LogCapture();
+    let jobRuns = 0;
+    const counting: ScheduledJob = {
+      name: 'count_runs',
+      intervalMs: 0,
+      run: () => {
+        jobRuns += 1;
+        return Promise.resolve(0);
+      },
+    };
     const worker = await startWorker(config, { kek: ctx.kek }, loggerFor(logs), {
       emailSender: sender,
       clock: ctx.clock,
       pollIntervalMs: 10,
+      jobs: [counting],
+      schedulerTickMs: 10,
     });
     await worker.stop();
 
@@ -86,13 +100,14 @@ describe('startWorker', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
 
     expect(sender.attempts).toBe(0);
+    expect(jobRuns).toBe(1);
     expect(logs.records().map((record) => record['msg'])).toEqual(['worker ready']);
   });
 
   it('builds the SMTP sender from the configuration when none is given', async () => {
     const logs = new LogCapture();
 
-    const worker = await startWorker(config, { kek: ctx.kek }, loggerFor(logs));
+    const worker = await startWorker(config, { kek: ctx.kek }, loggerFor(logs), { jobs: [] });
     await worker.stop();
 
     expect(logs.records()[0]).toMatchObject({ msg: 'worker ready', email_delivery: 'on' });
@@ -104,6 +119,7 @@ describe('startWorker', () => {
 
     const worker = await startWorker({ ...config, email: undefined }, { kek: ctx.kek }, loggerFor(logs), {
       pollIntervalMs: 20,
+      jobs: [],
     });
     await new Promise((resolve) => setTimeout(resolve, 100));
     await worker.stop();
@@ -139,6 +155,33 @@ describe('startWorker', () => {
     expect(logs.records()).toContainEqual(
       expect.objectContaining({ level: 'error', msg: 'email delivery round failed', err: { name: 'Error' } }),
     );
+    expect(logs.records()).toContainEqual(
+      expect.objectContaining({ level: 'error', msg: 'scheduled jobs failed', err: { name: 'Error' } }),
+    );
     expect(logs.text).not.toContain('clock unavailable');
+  });
+
+  it('runs the retention jobs on their schedule with the worker role, also without SMTP settings', async () => {
+    const email = await register();
+    const [user] = await ctx.worker.sql<{ id: string }[]>`
+      select id from users where email_blind_index = ${ctx.blindIndex(email)}`;
+    ctx.clock.advance({ days: 8 });
+    const logs = new LogCapture();
+
+    const worker = await startWorker({ ...config, email: undefined }, { kek: ctx.kek }, loggerFor(logs), {
+      clock: ctx.clock,
+      schedulerTickMs: 20,
+    });
+    await vi.waitFor(async () => {
+      const runs = await ctx.worker.sql<{ count: number }[]>`select count(*)::int as count from job_runs`;
+      expect(runs[0]?.count).toBe(9);
+    });
+    await worker.stop();
+
+    const left = await ctx.worker.sql`select 1 from users where id = ${user?.id ?? ''}`;
+    expect(left).toHaveLength(0);
+    expect(logs.records()).toContainEqual(
+      expect.objectContaining({ level: 'info', msg: 'job finished', job: 'purge_unverified_accounts' }),
+    );
   });
 });

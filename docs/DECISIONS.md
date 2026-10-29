@@ -179,7 +179,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   rate-limit precision is per-second, which is sufficient.
 - **Tests:** `security/rate-limit.test.ts` (per-IP and per-account limits, progressive backoff, `Retry-After`,
   multi-instance consistency using two app instances on one DB), `integration/outbox-delivery.test.ts` (two workers
-  draining at once, leases, retries, dead letters), `integration/retention.test.ts` (with injected clock).
+  draining at once, leases, retries, dead letters), `integration/scheduler.test.ts` (advisory lock, shared schedule,
+  failures), `integration/retention.test.ts` (with injected clock).
 
 ## ADR-0010 · Spec-first OpenAPI 3.1 enforced by Ajv contract tests and a spec-coverage test
 

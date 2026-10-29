@@ -99,6 +99,25 @@ describe('container smoke test', () => {
     expect(stdout.split(/\r?\n/).filter(Boolean).sort()).toEqual(['api', 'db', 'worker']);
   });
 
+  it('runs every retention job in the worker container with the worker role [R-PRIV-07, ADR-0009]', async () => {
+    const succeededJobs = async () =>
+      (
+        await compose(
+          ...['exec', '-T', 'db', 'psql', '-U', 'postgres', '-d', 'questline', '-tAc'],
+          "select count(distinct job_name) from job_runs where status = 'succeeded'",
+        )
+      ).stdout.trim();
+    let succeeded = await succeededJobs();
+    for (let attempt = 0; attempt < 20 && succeeded !== '9'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      succeeded = await succeededJobs();
+    }
+
+    expect(succeeded).toBe('9');
+    const { stdout } = await compose('logs', '--no-color', 'worker');
+    expect(stdout).toContain('email delivery off: no SMTP settings, emails stay queued');
+  });
+
   it('registers an account in the built image: one user, its data key, two queued emails, nothing logged [R-AUTH-07, R-LOG-02]', async () => {
     const email = `e2e-${randomBytes(6).toString('hex')}@example.test`;
     const password = secret();
