@@ -32,6 +32,13 @@ describe('runCli', () => {
     expect(result).toEqual({ code: 1, lines: ['Startup failed (Error).'] });
   });
 
+  it('reports a rejection that is not an Error without its value', async () => {
+    // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- under test: libraries may reject with any value
+    const result = await run(() => Promise.reject(new Map([['password', 'SecretPass']])));
+
+    expect(result).toEqual({ code: 1, lines: ['Startup failed (UnknownError).'] });
+  });
+
   it('adds the code of an error that carries one, e.g. why the KEK could not be loaded [E-11]', async () => {
     const result = await run(() => Promise.reject(new KekSourceError('connect_timeout')));
 
