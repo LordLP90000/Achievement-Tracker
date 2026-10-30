@@ -2,6 +2,7 @@ import type { DataKeys } from '../../platform/crypto/data-keys.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
 import { inTransaction, type Database, type Transaction } from '../../platform/db/database.ts';
 import type { Clock } from '../../platform/time/clock.ts';
+import { totalXp } from '../goals/ledger-repository.ts';
 import type { Principal } from '../sessions/guard.ts';
 import { emailField, withAccountKey } from './account-mail.ts';
 import { findProfile, updateProfile, type Profile, type ProfileChanges } from './repository.ts';
@@ -24,6 +25,8 @@ export interface AccountView {
   readonly weekStart: string;
   readonly emailVerified: boolean;
   readonly createdAt: Date;
+  /** The XP ledger's total (R-XP-04); the level follows from it. */
+  readonly xpTotal: number;
   readonly version: number;
 }
 
@@ -45,7 +48,7 @@ export class AccountGoneError extends Error {
 const nicknameField = (userId: string) => ({ userId, recordId: userId, field: 'nickname_enc' });
 
 export function createProfileService(deps: ProfileServiceDependencies): ProfileService {
-  const view = (profile: Profile, dataKey: Uint8Array): AccountView => ({
+  const view = async (tx: Transaction, profile: Profile, dataKey: Uint8Array): Promise<AccountView> => ({
     id: profile.id,
     email: decryptText(dataKey, emailField(profile.id), profile.emailEnc),
     nickname:
@@ -55,6 +58,7 @@ export function createProfileService(deps: ProfileServiceDependencies): ProfileS
     weekStart: profile.weekStart,
     emailVerified: profile.emailVerifiedAt !== null,
     createdAt: profile.createdAt,
+    xpTotal: await totalXp(tx, profile.id),
     version: profile.version,
   });
 
@@ -68,9 +72,7 @@ export function createProfileService(deps: ProfileServiceDependencies): ProfileS
     async get(principal) {
       return inTransaction(deps.db, async (tx) => {
         const profile = await load(tx, principal.userId);
-        return withAccountKey(tx, deps.dataKeys, principal.userId, (dataKey) =>
-          Promise.resolve(view(profile, dataKey)),
-        );
+        return withAccountKey(tx, deps.dataKeys, principal.userId, (dataKey) => view(tx, profile, dataKey));
       });
     },
 
@@ -95,7 +97,7 @@ export function createProfileService(deps: ProfileServiceDependencies): ProfileS
           if (updated === undefined) {
             return { outcome: 'version_conflict', currentVersion: (await load(tx, principal.userId)).version };
           }
-          return { outcome: 'updated', account: view(updated, dataKey) };
+          return { outcome: 'updated', account: await view(tx, updated, dataKey) };
         }),
       );
     },

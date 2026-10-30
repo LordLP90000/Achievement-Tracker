@@ -27,6 +27,15 @@ export interface LedgerFacts {
 
 const amount = (total: string | null): number => Number(total ?? 0);
 
+/** The user's XP total (R-XP-04): the sum of the ledger, never below 0 (A-38). */
+export async function totalXp(tx: Transaction, userId: string): Promise<number> {
+  const [total] = await tx
+    .select({ xp: sum(xpEvents.amount) })
+    .from(xpEvents)
+    .where(eq(xpEvents.userId, userId));
+  return amount(total?.xp ?? null);
+}
+
 export async function ledgerFacts(
   tx: Transaction,
   userId: string,
@@ -34,10 +43,6 @@ export async function ledgerFacts(
   questIds: readonly string[],
 ): Promise<LedgerFacts> {
   const mine = eq(xpEvents.userId, userId);
-  const [total] = await tx
-    .select({ xp: sum(xpEvents.amount) })
-    .from(xpEvents)
-    .where(mine);
   const credits =
     questIds.length === 0
       ? []
@@ -51,7 +56,7 @@ export async function ledgerFacts(
     .from(xpEvents)
     .where(and(mine, eq(xpEvents.achievementId, achievementId), inArray(xpEvents.kind, RANK_BONUS_KINDS)));
   return {
-    totalXp: amount(total?.xp ?? null),
+    totalXp: await totalXp(tx, userId),
     questCredits: new Map(credits.map((credit) => [credit.questId ?? '', amount(credit.xp)])),
     rankBonusCredited: amount(bonus?.xp ?? null),
   };

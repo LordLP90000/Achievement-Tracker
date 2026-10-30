@@ -18,6 +18,7 @@ const unavailable = (): Promise<never> =>
 export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
   accounts: { register: unavailable, verifyEmail: unavailable, resendVerification: unavailable },
   achievements: { list: unavailable, create: unavailable, get: unavailable },
+  checkIns: { create: unavailable, list: unavailable, undo: unavailable },
   passwords: { change: unavailable, requestReset: unavailable, reset: unavailable },
   emailChanges: { request: unavailable, confirm: unavailable },
   profiles: { get: unavailable, update: unavailable },

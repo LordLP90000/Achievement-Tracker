@@ -31,7 +31,7 @@ import {
   type AchievementsRepository,
 } from '../achievements/repository.ts';
 import { checkInsRepository, type CountingCheckInRecord } from '../check-ins/repository.ts';
-import { gambleFacts, settleGamble } from '../gambles/repository.ts';
+import { gambleFacts, hasPendingGamble, settleGamble } from '../gambles/repository.ts';
 import { questsRepository, type HabitSettings, type QuestRecord, type QuestStateChange } from '../quests/repository.ts';
 import {
   appendXpEvents,
@@ -117,6 +117,18 @@ export function effectsOf(before: GoalSync, after: GoalSync): GoalEffects {
 /** The quests a view shows as locked, for the sync after a change (Q-38). */
 export const lockedQuestsOf = (view: AchievementView): ReadonlySet<string> =>
   new Set(view.quests.filter((quest) => quest.evaluation.state === 'locked').map((quest) => quest.record.id));
+
+/** The quest's view in a sync of its achievement. */
+export const questView = (synced: GoalSync | undefined, questId: string): QuestView | undefined =>
+  synced?.view.quests.find((quest) => quest.record.id === questId);
+
+/**
+ * An undo would return a won gamble to pending while the user has another one pending: one at a time (R-GMB-01,
+ * Q-31), so the undo is refused (Q-43). Thrown inside the transaction, which rolls back.
+ */
+export class PendingGambleConflict extends Error {
+  override readonly name = 'PendingGambleConflict';
+}
 
 /** A transaction bound to the user (RLS) under their goal lock, with their data key and their today. */
 export function withGoals<T>(
@@ -378,6 +390,9 @@ async function settle(
           { habitReset },
         );
 
+  if (outcome.gamble?.outcome === 'reverted' && (await hasPendingGamble(tx, userId))) {
+    throw new PendingGambleConflict();
+  }
   await appendXpEvents(tx, userId, achievement.id, outcome.events, scope.today, scope.now);
   const stored = await storeCompletion(scope, achievements, achievement, outcome);
   if (outcome.gamble !== null) await settleGamble(tx, userId, outcome.gamble, scope.now);

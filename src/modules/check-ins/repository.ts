@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type { LocalDate } from '../../domain/dates.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
 import type { Transaction } from '../../platform/db/database.ts';
+import { afterPosition } from '../../platform/db/expressions.ts';
 import { checkIns } from '../../platform/db/schema/index.ts';
 import type { UserDataKey } from '../accounts/data-key.ts';
 
@@ -37,15 +38,40 @@ export interface CountingCheckInRecord {
 
 export interface CheckInsRepository {
   insert(checkIn: NewCheckIn, now: Date): Promise<CheckInRecord>;
+  find(id: string): Promise<CheckInRecord | undefined>;
+  /** The quest's check-ins, newest first, after the position of a page cursor (R-IN-01). */
+  listByQuest(
+    questId: string,
+    page: { readonly after: { readonly createdAt: Date; readonly id: string } | null; readonly limit: number },
+  ): Promise<CheckInRecord[]>;
+  /** The quest's check-ins dated `localDate`, counting or not (R-IN-01, A-42). */
+  countOnDate(questId: string, localDate: LocalDate): Promise<number>;
+  /** An undo (R-CHK-03). */
+  remove(id: string): Promise<void>;
   /** The counting check-ins of one attempt per quest, oldest first. */
   countingByQuest(questIds: readonly string[], attempt: number): Promise<Map<string, CountingCheckInRecord[]>>;
 }
+
+type Row = typeof checkIns.$inferSelect;
 
 export function checkInsRepository(tx: Transaction, userId: string, dataKey: UserDataKey): CheckInsRepository {
   const seal = (recordId: string, field: string, value: string | null): Buffer | null =>
     value === null ? null : encryptText(dataKey.key, { userId, recordId, field }, value);
   const open = (recordId: string, field: string, blob: Buffer | null): string | null =>
     blob === null ? null : decryptText(dataKey.key, { userId, recordId, field }, blob);
+
+  const toRecord = (row: Row): CheckInRecord => ({
+    id: row.id,
+    questId: row.questId,
+    localDate: row.localDate,
+    attempt: row.attempt,
+    countsForProgress: row.countsForProgress,
+    value: open(row.id, 'value_enc', row.valueEnc),
+    note: open(row.id, 'note_enc', row.noteEnc),
+    createdAt: row.createdAt,
+  });
+
+  const mine = eq(checkIns.userId, userId);
 
   return {
     async insert(checkIn, now) {
@@ -65,6 +91,38 @@ export function checkInsRepository(tx: Transaction, userId: string, dataKey: Use
       return { id, ...checkIn, createdAt: now };
     },
 
+    async find(id) {
+      const [row] = await tx
+        .select()
+        .from(checkIns)
+        .where(and(mine, eq(checkIns.id, id)));
+      return row === undefined ? undefined : toRecord(row);
+    },
+
+    async listByQuest(questId, page) {
+      const rows = await tx
+        .select()
+        .from(checkIns)
+        .where(
+          and(
+            mine,
+            eq(checkIns.questId, questId),
+            page.after === null ? undefined : afterPosition(checkIns.createdAt, checkIns.id, page.after),
+          ),
+        )
+        .orderBy(desc(checkIns.createdAt), desc(checkIns.id))
+        .limit(page.limit);
+      return rows.map(toRecord);
+    },
+
+    countOnDate(questId, localDate) {
+      return tx.$count(checkIns, and(mine, eq(checkIns.questId, questId), eq(checkIns.localDate, localDate)));
+    },
+
+    async remove(id) {
+      await tx.delete(checkIns).where(and(mine, eq(checkIns.id, id)));
+    },
+
     async countingByQuest(questIds, attempt) {
       const counting = new Map<string, CountingCheckInRecord[]>();
       if (questIds.length === 0) return counting;
@@ -79,7 +137,7 @@ export function checkInsRepository(tx: Transaction, userId: string, dataKey: Use
         .from(checkIns)
         .where(
           and(
-            eq(checkIns.userId, userId),
+            mine,
             inArray(checkIns.questId, [...questIds]),
             eq(checkIns.attempt, attempt),
             eq(checkIns.countsForProgress, true),

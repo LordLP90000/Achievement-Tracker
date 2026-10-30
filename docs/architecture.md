@@ -237,7 +237,9 @@ time anyone looks (A-21). A change syncs the achievement first — the request i
 syncs, so a gamble lost since the last request shows up too. The second sync is told which quests were locked
 before, so a habit unlocked by the change (a prerequisite removed or deleted) starts its run today (Q-38).
 `deleteQuest` reconciles the remaining quests with the quest's credit revoked (`deleteQuestEffects`), detaches the
-quests that required it and deletes it last, so its revocation still names it.
+quests that required it and deletes it last, so its revocation still names it. A sync that would return a won gamble
+to pending while the user has another one pending raises `PendingGambleConflict`, which rolls the whole transaction
+back; only an undo can cause it, and it answers `409 gamble-pending` (Q-43).
 
 ## 6. Folder structure
 

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.8-draft
+  version: 0.2.9-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -18,6 +18,8 @@ info:
     0.2.7 (2026-10-29): the limit of 200 achievements counts active and paused ones only (`422 limit-reached`, Q-40).
     0.2.8 (2026-10-29): editing a quest keeps an omitted `start_date` or `unit`; `unit: null` removes it (Q-41); a
     malformed `If-Match` → `400` on the deletions too.
+    0.2.9 (2026-10-29): no check-in on a completed quest (`409 quest-completed`, Q-42); no undo that would make a
+    second gamble pending (`409 gamble-pending`, Q-43); the check-in limit counts by `local_date` (A-42).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -977,11 +979,13 @@ paths:
         and rank; a back-dated check-in (up to 7 days) is stored as history with `counts_for_progress = false` and
         never counts (R-CHK-04). Rejected with `409 urn:questline:problem:quest-locked` if the prerequisite is not
         completed, `409 urn:questline:problem:quest-needs-restart` if a habit quest was reset and must be restarted
-        first, `409 urn:questline:problem:achievement-not-active` if the achievement is paused or completed
-        (R-CHK-05), and `422` for a future `local_date`, a `local_date` older than 7 days, a check-in dated today on a
-        habit whose run has not begun (`start_date` after today, A-36), a missing `value` on a target quest or a
-        `value` on a non-target quest. Returns the check-in, the updated quest and achievement, the
-        XP delta and any unlock, rank and gamble outcome (R-CHK-06).
+        first, `409 urn:questline:problem:quest-completed` if the quest is already completed (Q-42; an undo on the
+        same day reopens it), `409 urn:questline:problem:achievement-not-active` if the achievement is paused or
+        completed (R-CHK-05), and `422` for a future `local_date`, a `local_date` older than 7 days, a check-in dated
+        today on a habit whose run has not begun (`start_date` after today, A-36), a missing `value` on a target quest
+        or a `value` on a non-target quest. At most 50 check-ins of a quest are dated any one day; the next →
+        `422 urn:questline:problem:limit-reached` (R-IN-01, A-42). Returns the check-in, the updated quest and
+        achievement, the XP delta and any unlock, rank and gamble outcome (R-CHK-06).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -1020,9 +1024,10 @@ paths:
       description: |
         Reverses progress, completion, XP, streak, rank and gamble effects (R-CHK-03). Undoing the check-in that
         unlocked an achievement re-locks it, removes rank, badge and rank bonus, and returns a gamble won by that
-        unlock to pending (R-ACH-05, R-RANK-04). A check-in can be undone only on the day it was made (account
-        timezone); afterwards → `409 urn:questline:problem:check-in-final`, so closed periods and completed
-        achievements never change (Q-36).
+        unlock to pending (R-ACH-05, R-RANK-04) — unless another gamble of the user is pending by then: one at a time
+        (R-GMB-01), so the undo → `409 urn:questline:problem:gamble-pending` (Q-43). A check-in can be undone only on
+        the day it was made (account timezone); afterwards → `409 urn:questline:problem:check-in-final`, so closed
+        periods and completed achievements never change (Q-36).
       responses:
         '200':
           description: Undone; returns the resulting quest/achievement state and XP delta.

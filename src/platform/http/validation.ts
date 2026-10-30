@@ -76,3 +76,6 @@ const UUID_V4 = /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}
 export function isUuidV4(value: string): boolean {
   return UUID_V4.test(value);
 }
+
+/** Contract `Decimal`: at most 10 digits before and 3 after the point; the ±10^9 bound is a rule (`422`, A-05). */
+export const decimalText = z.string().regex(/^-?\d{1,10}(?:\.\d{1,3})?$/);

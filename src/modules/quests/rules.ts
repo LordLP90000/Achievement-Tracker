@@ -54,19 +54,23 @@ export interface RuleViolation {
   readonly message: string;
 }
 
-const violation = (pointer: string, message: string): RuleViolation => ({ outcome: 'invalid', pointer, message });
+export const violation = (pointer: string, message: string): RuleViolation => ({
+  outcome: 'invalid',
+  pointer,
+  message,
+});
 
 const isViolation = (value: object | null): value is RuleViolation => value !== null && 'outcome' in value;
 
 const PAST_START = 'must be today or later: back-dated check-ins never count';
-const OUT_OF_RANGE = 'must lie within ±1000000000';
+export const OUT_OF_RANGE = 'must lie within ±1000000000';
 const FIXED_WHILE_RUNNING = 'cannot change while the habit runs or after it completed, only before or at a restart';
 
 /** Stands for the quest being created in prerequisite checks; never a UUID, so never an existing quest. */
 const NEW_QUEST = 'new-quest';
 
 /** Thousandths of a decimal within ±10^9 (A-05), or null beyond it. */
-function decimalOf(text: string): number | null {
+export function decimalOf(text: string): number | null {
   try {
     return parseDecimal(text);
   } catch {

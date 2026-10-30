@@ -11,6 +11,7 @@ import {
   deleteQuest,
   effectsOf,
   lockedQuestsOf,
+  questView,
   syncAchievement,
   withGoals,
   type GoalDependencies,
@@ -73,10 +74,6 @@ class CreateRefused extends Error {
   }
 }
 
-/** The quest's view in a sync of its achievement. */
-const questIn = (synced: GoalSync | undefined, questId: string): QuestView | undefined =>
-  synced?.view.quests.find((quest) => quest.record.id === questId);
-
 /**
  * The quest and its achievement as of now (A-21), if the request may change it. A completed achievement answers 409
  * whatever the version: a precondition only matters for a request that could succeed (RFC 9110 §13.2.1).
@@ -88,7 +85,7 @@ async function changeable(
 ): Promise<{ readonly before: GoalSync; readonly quest: QuestView } | QuestChangeRefusal> {
   const record = await questsRepository(scope.tx, scope.userId, scope.dataKey).find(questId);
   const before = record === undefined ? undefined : await syncAchievement(scope, record.achievementId);
-  const quest = questIn(before, questId);
+  const quest = questView(before, questId);
   if (before === undefined || quest === undefined) return { outcome: 'not_found' };
   if (before.view.record.status === 'completed') return { outcome: 'achievement_completed' };
   if (quest.record.version !== expectedVersion) {
@@ -100,7 +97,7 @@ async function changeable(
 export function createQuestsService(deps: GoalDependencies): QuestsService {
   /** The quest's view after the engine looked at its achievement now (A-21). */
   const viewOf = async (scope: GoalScope, achievementId: string, questId: string): Promise<QuestView | undefined> =>
-    questIn(await syncAchievement(scope, achievementId), questId);
+    questView(await syncAchievement(scope, achievementId), questId);
 
   return {
     async create(principal, achievementId, input, request, render) {
@@ -198,7 +195,7 @@ export function createQuestsService(deps: GoalDependencies): QuestsService {
         const after = await syncAchievement(scope, quest.record.achievementId, {
           lockedBefore: lockedQuestsOf(before.view),
         });
-        const updated = questIn(after, questId);
+        const updated = questView(after, questId);
         if (after === undefined || updated === undefined) throw new Error('the edited quest is gone');
         return { outcome: 'updated', quest: updated, effects: effectsOf(before, after) };
       });

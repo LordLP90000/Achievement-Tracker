@@ -3,7 +3,13 @@ import { z } from 'zod';
 import { etagOf, requireIfMatch } from '../../platform/http/concurrency.ts';
 import { idempotentRequest, sendIdempotent } from '../../platform/http/idempotency.ts';
 import { limitReached, Problems, unprocessable, type ProblemDefinition } from '../../platform/http/problem.ts';
-import { boundedText, isUuidV4, parseRequest, ProblemError } from '../../platform/http/validation.ts';
+import {
+  boundedText,
+  decimalText as decimal,
+  isUuidV4,
+  parseRequest,
+  ProblemError,
+} from '../../platform/http/validation.ts';
 import { effectsJson, questJson } from '../goals/representations.ts';
 import { principalOf } from '../sessions/guard.ts';
 import type { HabitInput, QuestEdit } from './rules.ts';
@@ -15,8 +21,6 @@ export interface QuestsRoutesOptions {
   readonly quests: QuestsService;
 }
 
-/** Contract `Decimal`: at most 10 digits before and 3 after the point; the ±10^9 bound is a rule (422, A-05). */
-const decimal = z.string().regex(/^-?\d{1,10}(?:\.\d{1,3})?$/);
 const uuid = z.string().refine((value) => isUuidV4(value));
 
 const habitConfig = z.strictObject({

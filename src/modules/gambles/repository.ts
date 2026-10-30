@@ -39,6 +39,11 @@ export interface GambleSettlement {
   readonly lossReason: GambleLossReason | null;
 }
 
+/** Whether the user has a pending gamble, on any achievement (R-GMB-01, Q-31). */
+export async function hasPendingGamble(tx: Transaction, userId: string): Promise<boolean> {
+  return (await tx.$count(gambles, and(eq(gambles.userId, userId), eq(gambles.status, 'pending')))) > 0;
+}
+
 /** Records how the effects engine settled a gamble; settled exactly once per transition (T-17). */
 export async function settleGamble(
   tx: Transaction,

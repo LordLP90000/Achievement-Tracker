@@ -261,7 +261,8 @@ the composite foreign keys.
 | `created_at` | timestamptz NOT NULL | |
 
 Immutable (no `version`, no UPDATE grant); an undo deletes the row, possible only on the day it was created in the
-account's time zone (Q-36). Index `(quest_id, attempt, local_date) WHERE counts_for_progress` and
+account's time zone (Q-36). A completed quest takes no further check-ins (Q-42). At most 50 check-ins of a quest are
+dated any one day (R-IN-01, A-42). Index `(quest_id, attempt, local_date) WHERE counts_for_progress` and
 `(quest_id, created_at, id)` (scanned backwards for newest-first pages).
 
 ### 3.4 Gamification

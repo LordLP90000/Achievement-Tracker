@@ -43,6 +43,18 @@ export const Problems = {
   consentAlreadyGranted: { status: 409, slug: 'consent-already-granted', title: 'Consent already granted' },
   /** R-ACH-07, R-QST-07: a completed achievement and its quests are the user's read-only archive. */
   achievementCompleted: { status: 409, slug: 'achievement-completed', title: 'Completed achievements are read-only' },
+  /** R-CHK-05: check-ins only on quests of an active achievement… */
+  achievementNotActive: { status: 409, slug: 'achievement-not-active', title: 'The achievement is not active' },
+  /** …whose prerequisite is completed… */
+  questLocked: { status: 409, slug: 'quest-locked', title: 'The quest waits for its prerequisite' },
+  /** …that were not reset (R-QST-04)… */
+  questNeedsRestart: { status: 409, slug: 'quest-needs-restart', title: 'The habit was reset and needs a restart' },
+  /** …and are not completed yet (Q-42). */
+  questCompleted: { status: 409, slug: 'quest-completed', title: 'The quest is already completed' },
+  /** Q-36: an undo only on the day the check-in was made. */
+  checkInFinal: { status: 409, slug: 'check-in-final', title: 'The check-in can no longer be undone' },
+  /** One pending gamble per user (R-GMB-01, Q-31, Q-43); its target date is fixed (T-17). */
+  gamblePending: { status: 409, slug: 'gamble-pending', title: 'A gamble is pending' },
   /** Use with `extensions: { current_version }` (contract `VersionConflictProblem`). */
   versionConflict: { status: 409, slug: 'version-conflict', title: 'The resource was changed meanwhile' },
   preconditionRequired: { status: 428, slug: 'precondition-required', title: 'If-Match header required' },

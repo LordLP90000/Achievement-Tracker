@@ -11,9 +11,6 @@ export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   'deleteAchievement',
   'listGambles',
   'placeGamble',
-  'listCheckIns',
-  'createCheckIn',
-  'undoCheckIn',
   // M4 — privacy rights
   'exportData',
   'deleteAccount',

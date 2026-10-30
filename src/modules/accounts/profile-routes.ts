@@ -1,4 +1,5 @@
 import type { FastifyPluginCallback } from 'fastify';
+import { levelForXp } from '../../domain/xp.ts';
 import { etagOf, requireIfMatch } from '../../platform/http/concurrency.ts';
 import { Problems } from '../../platform/http/problem.ts';
 import { parseRequest, ProblemError } from '../../platform/http/validation.ts';
@@ -12,9 +13,6 @@ export interface ProfileRoutesOptions {
   readonly profiles: ProfileService;
 }
 
-/** XP and levels arrive with the domain in M3; until then no account can have earned any. */
-const NO_XP_YET = { xp_total: 0, level: 1 } as const;
-
 /** `Account` in the contract. */
 function accountJson(account: AccountView) {
   return {
@@ -26,7 +24,8 @@ function accountJson(account: AccountView) {
     week_start: account.weekStart,
     email_verified: account.emailVerified,
     created_at: account.createdAt.toISOString(),
-    ...NO_XP_YET,
+    xp_total: account.xpTotal,
+    level: levelForXp(account.xpTotal),
     version: account.version,
   };
 }

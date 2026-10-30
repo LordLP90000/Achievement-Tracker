@@ -1,9 +1,10 @@
 import { formatDecimal } from '../../domain/decimal.ts';
 import { levelForXp } from '../../domain/xp.ts';
 import type { AchievementRecord } from '../achievements/repository.ts';
+import type { CheckInRecord } from '../check-ins/repository.ts';
 import type { AchievementView, GoalEffects, QuestView } from './engine.ts';
 
-/** Goal views as the contract represents them (`Achievement`, `AchievementDetail`, `Quest`, `Effects`). */
+/** Goal views as the contract represents them (`Achievement`, `AchievementDetail`, `Quest`, `Effects`, `CheckIn`). */
 
 export interface AchievementFigures {
   readonly progress: number;
@@ -123,3 +124,23 @@ export function effectsJson(quest: QuestView | null, effects: GoalEffects) {
         : { gamble_id: gamble.id, outcome: gamble.outcome, xp_delta: gamble.xpDelta, loss_reason: gamble.lossReason },
   };
 }
+
+/** `CheckIn` (R-CHK-01, R-CHK-04): the value as stored, a canonical decimal. */
+export function checkInJson(checkIn: CheckInRecord) {
+  return {
+    id: checkIn.id,
+    quest_id: checkIn.questId,
+    local_date: checkIn.localDate,
+    attempt: checkIn.attempt,
+    counts_for_progress: checkIn.countsForProgress,
+    value: checkIn.value,
+    note: checkIn.note,
+    created_at: checkIn.createdAt.toISOString(),
+  };
+}
+
+/** `CheckInResult`: the new check-in and what it did, so the app needs no second round trip (R-CHK-06). */
+export const checkInResultJson = (checkIn: CheckInRecord, quest: QuestView, effects: GoalEffects) => ({
+  ...effectsJson(quest, effects),
+  check_in: checkInJson(checkIn),
+});
