@@ -204,7 +204,7 @@ Pure, exhaustively tested functions:
 | `duration.ts` | `durationFactor(quest)` from the habit span in days, `effectiveXp(size, factor)` (R-XP-02) |
 | `streak.ts` | `habitStreak(evaluation, bestOfEndedRuns)` → current (met periods of the open or completed run, 0 after a reset) and best; `bestAfterRunEnds` (stored per quest as `habit_best_streak` when a run ends by a reset or pause); `topStreaks` for the stats (best, then current, then quest ID) |
 | `xp.ts` | `xpThreshold(level)` (`100 × 3^(L−2)`), `levelForXp`, `xpToNextLevel`, safe-integer assertions (R-XP-03/04) |
-| `rank.ts` | `executionScore(...)`, `isFlawless(...)`, `rankForScore(score, flawless)`, `rankBonus(requiredXp, rank)` (R-RANK-01…03) |
+| `rank.ts` | `executionScore(...)` (two decimals), `isFlawless(...)`, `rankForScore(score, flawless)`, `rankBonus(requiredXp, rank, achievementAgeMs)` (0 under 7 × 24 h, A-34), `deadlineAfterTargetChange` (the attempt's deadline, A-35) (R-RANK-01…03, Q-31) |
 | `gamble.ts` | `canPlace(...)` guards, `stakeFor(totalXp)`, `settle(gamble, event)` → won / lost / reverted with XP delta (R-GMB-*) |
 | `transitions.ts` | Achievement status state machine (`active ↔ paused`, `completed` system-only), quest states (`locked`, `available`, `needs_restart`, `completed`) |
 | `effects.ts` | Given previous and next states, derive XP ledger entries (quest, rank bonus, pause revocation, gamble), badge awards/removals, rank and score, gamble settlements and status changes — used by the check-in, undo, pause, edit and delete paths so they are exact inverses |
