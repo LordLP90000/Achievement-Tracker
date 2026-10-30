@@ -7,7 +7,7 @@ Later on 2026-10-22: R-TLS/R-LOG/R-SUP rows restored from v1 (R-SUP-04 adapted t
 open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.1); O-02/O-03 moved to "before M6".
 2026-10-29: A-26…A-28 accepted with the PM's "go" for M2. 2026-10-29 (M2 review, the PM's "go" for M3): A-02 as
 refined and A-29…A-33 accepted; decisions Q-30…Q-32 (§6.3) close O-05, O-06 and O-07; A-34 and A-35 proposed.
-Later on 2026-10-29: Q-33…Q-37 on habit periods, undo and habit edits (§6.4); A-36 proposed.
+Later on 2026-10-29: Q-33…Q-38 on habit periods, undo, habit edits and locked habits (§6.4); A-36 and A-37 proposed.
 
 ## 1. Product summary
 
@@ -43,7 +43,7 @@ Vocabulary used verbatim in code, API and docs: `Achievement`, `Quest`, `Check-i
 | ID | Requirement |
 |----|-------------|
 | R-QST-01 | A quest belongs to exactly one achievement, has a `position`, is `required` or `bonus`, and has a `size` `S/M/L` worth base `10/25/50` XP. Effective `xp` = base × duration factor (R-XP-02). |
-| R-QST-02 | A quest may name one `prerequisite_quest_id` of the **same** achievement; it is `locked` until the prerequisite is completed. No cycles. |
+| R-QST-02 | A quest may name one `prerequisite_quest_id` of the **same** achievement; it is `locked` until the prerequisite is completed. No cycles. A locked habit never resets; its run starts when it unlocks **[PM 2026-10-29, Q-38]**. |
 | R-QST-03 | Type `one_time`: completed by a single counting check-in; progress 0 or 1. |
 | R-QST-04 | Type `habit`: `times_per_period` N, `period` `day|week`, `period_count` K, `start_date`. Progress = (consecutive fully-met periods since the attempt's start) / K; a period is met when it has ≥ N counting check-ins. **A closed period with < N counting check-ins resets the quest** **[PM 2026-10-22, Q-04]**: progress → 0, state → `needs_restart` (no check-ins accepted), `reset_count + 1`. The user restarts by editing the quest (new `start_date` ≥ today, optionally new N/K); earlier check-ins remain visible as history and do not count. Completed when K consecutive periods are met. |
 | R-QST-05 | Type `target`: `start_value`, `target_value` (≠ start), optional `unit`; increasing or decreasing. Progress = `clamp((current − start) / (target − start), 0, 1)`, `current` = value of the latest counting check-in (by `local_date`, then `created_at`); none ⇒ `start`. Completed when progress = 1. |
@@ -232,6 +232,7 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | A-34 | **[proposed 2026-10-29]** The 7-day rule of Q-31 compares instants: an unlock earns its rank bonus and pays a gamble win only if it comes at least 7 × 24 h after the achievement's `created_at` — not calendar days, so changing the time zone cannot shorten the wait. An earlier unlock still records score, rank and badge; a pending gamble is then settled as `won` with +0 XP (it counts as won in the gamble record and returns to pending like any win if the unlock is undone, R-ACH-05). |
 | A-35 | **[proposed 2026-10-29]** The **deadline** of an attempt (Q-31, R-RANK-01 b) is the earliest `target_date` in effect at any time during the attempt: it starts as the `target_date` when the attempt starts (creation, or the resume that starts attempt n + 1); an earlier new date moves it, a later date or removing the date does not. It is stored encrypted like `target_date` (Q-24) in `achievements.deadline_enc` and is not an API field (it shows through score and rank; the export, M4, includes it — exposing it would be an additive contract change). Gamble settlement keeps using `target_date`, which cannot change while a gamble is pending (A-26). |
 | A-36 | **[proposed 2026-10-29]** A counting check-in (dated today) on a habit whose run has not begun yet (`start_date` after today) is refused with `422`: it would belong to no period and silently count for nothing. Back-dated check-ins stay possible as history (R-CHK-04). |
+| A-37 | **[proposed 2026-10-29]** A completed quest keeps its target values (`start_value`, `target_value`; `422`): changing them could make it incomplete again and re-lock a running habit that requires it, which would stop that habit's periods (Q-38) — a way around a reset. Title, notes, unit and the other fields stay editable. |
 
 ## 6. Decisions taken by the PM (2026-10-22)
 
@@ -297,6 +298,7 @@ the emails) stays open until launch.
 | Q-35 | **Contract, additive (2026-10-29):** habit quests show a read-only `current_period` — start, end, counting check-ins and the number required — so the app never re-implements Q-33/Q-34. Computed, nothing new stored. |
 | Q-36 | **Undo window (2026-10-29):** a check-in can be undone only on the day it was made (account time zone); later → `409 urn:questline:problem:check-in-final` (additive contract change). Closed periods and completed achievements never change afterwards (R-CHK-03, R-ACH-05, R-ACH-07). Not chosen: undo at any time with recomputed effects; answering 404 for older check-ins. |
 | Q-37 | **Editing a running habit (2026-10-29):** while a habit's run is open or completed, its `period`, `times_per_period`, `period_count` and `start_date` are fixed (`422`); they change at a restart (`needs_restart`) or before the run's `start_date`. Title, notes, size, required flag, position and prerequisite stay editable (R-QST-07). Not chosen: a change that restarts the habit as a reset; a change that restarts it without penalty (which would let a user dodge a reset and a gamble loss). |
+| Q-38 | **Habits with a prerequisite (2026-10-29):** a locked habit never resets; if its start date has passed when it unlocks, its run starts on the unlock day (with the week start of that day, Q-34). A habit's prerequisite changes only before its run begins (a future start date, or while locked) or at a restart, like the Q-37 fields — otherwise adding a prerequisite could freeze a running habit before a missed period. Not chosen: periods running while the habit is locked (resets the user could not prevent); periods closed while locked counting as met. |
 
 ## 7. Open items (non-blocking)
 

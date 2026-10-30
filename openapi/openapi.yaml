@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.4-draft
+  version: 0.2.5-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -13,6 +13,7 @@ info:
     changes (Q-33, Q-34).
     0.2.4 (2026-10-29): undo only on the day of the check-in (`409`, Q-36); habit settings fixed while a run is
     open (Q-37); no counting check-in before a habit's run begins (A-36).
+    0.2.5 (2026-10-29): locked habits and their prerequisite (Q-38); a completed quest keeps its target values (A-37).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -881,9 +882,10 @@ paths:
         A habit quest in state `needs_restart` is restarted by sending `habit` with a new `start_date` (today or
         later), optionally with new `times_per_period`/`period_count`; earlier check-ins stay visible as history and
         do not count (R-QST-04). While a habit's run is open or completed, `period`, `times_per_period`,
-        `period_count` and `start_date` cannot change (`422`): only at a restart or before the run's `start_date`
-        (Q-37). Quests of a `completed` achievement are read-only →
-        `409 urn:questline:problem:achievement-completed` (R-QST-07).
+        `period_count`, `start_date` and `prerequisite_quest_id` cannot change (`422`): only at a restart or before the
+        run begins (Q-37, Q-38). A locked habit never resets; if its `start_date` has passed when it unlocks, its run
+        starts on the unlock day (Q-38). A completed quest keeps its `target` values (`422`, A-37). Quests of a
+        `completed` achievement are read-only → `409 urn:questline:problem:achievement-completed` (R-QST-07).
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:

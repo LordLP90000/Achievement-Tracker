@@ -212,7 +212,7 @@ History of won/lost gambles is kept (counts against Champion, R-RANK-02) until t
 | `type` | text CHECK IN (`one_time`, `habit`, `target`) NOT NULL | immutable |
 | `size` | text CHECK IN (`S`, `M`, `L`) NOT NULL | XP 10/25/50 derived in code |
 | `is_required` | boolean NOT NULL DEFAULT true | |
-| `prerequisite_quest_id` | uuid NULL → `quests` ON DELETE SET NULL | same achievement, acyclic (checked in service) |
+| `prerequisite_quest_id` | uuid NULL → `quests` ON DELETE SET NULL | same achievement, acyclic, chains ≤ 20 links (checked in service, A-16); for a habit fixed once its run has begun (Q-38) |
 | `title_enc` 🔒 | bytea NOT NULL | |
 | `notes_enc` 🔒 | bytea NULL | |
 | `unit_enc` 🔒 | bytea NULL | target only |
@@ -221,7 +221,7 @@ History of won/lost gambles is kept (counts against Champion, R-RANK-02) until t
 | `habit_period` | text NULL CHECK IN (`day`, `week`) | habit only |
 | `habit_times_per_period` | integer NULL CHECK 1..50 | habit only |
 | `habit_period_count` | integer NULL CHECK 1..520 | habit only |
-| `habit_start_date` | date NULL | habit only; start of the current attempt's period sequence (re-set on restart) |
+| `habit_start_date` | date NULL | habit only; start of the current attempt's period sequence (re-set on restart; moved to the unlock day when a locked habit unlocks after it, Q-38) |
 | `habit_week_start` | text NULL CHECK IN (`monday`, `sunday`, `saturday`) | weekly habits only (NOT NULL iff `habit_period = 'week'`): the account's `week_start` when this run started, kept until the next restart (Q-34) |
 | `reset_count` | integer NOT NULL DEFAULT 0 | habit resets within the current achievement attempt (R-QST-04, R-RANK-01) |
 | `habit_best_streak` | integer NOT NULL DEFAULT 0 CHECK ≥ 0 | the longest met-period count of this quest's ended runs (a reset or a pause); kept because a restart replaces `habit_start_date`. The API's best streak is the larger of this and the current run (R-STR-01) |

@@ -56,3 +56,6 @@ export const RANK_MULTIPLIERS: Readonly<Record<Rank, number>> = Object.freeze({
 
 /** An unlock pays its rank bonus and a gamble win only this long after the achievement was created (Q-31, A-34). */
 export const MIN_ACHIEVEMENT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Longest chain of prerequisite links within an achievement (A-16). */
+export const MAX_PREREQUISITE_DEPTH = 20;
