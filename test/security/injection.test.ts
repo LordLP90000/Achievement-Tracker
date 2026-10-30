@@ -2,9 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startAccountsApp, type AccountsApp } from '../helpers/accounts-app.ts';
 import { contractInject } from '../helpers/contract.ts';
+import { bearer, createAchievement, goalUser } from '../helpers/goals.ts';
 
-/** SQL meta-characters in user input (33 characters: within every field's length limit). */
+/** SQL meta-characters in user input (33 characters: within every field's length limit but a unit's). */
 const META = `'); DROP TABLE users;-- "\\ %_$1:n`;
+/** The same within a target's unit (20 characters). */
+const SHORT_META = `';DROP TABLE x;--%_\\`;
 
 interface TokenPair {
   readonly access_token: string;
@@ -12,7 +15,7 @@ interface TokenPair {
 
 /**
  * Every query is parameterized (ADR-0003; ESLint bans string-built SQL): meta-characters in any field are data and
- * come back unchanged (T-03, R-IN-02). M3 extends this to the goal-content fields.
+ * come back unchanged (T-03, R-IN-02), in the account's fields and in every goal-content field.
  */
 describe('SQL meta-characters [T-03, R-IN-02]', () => {
   let ctx: AccountsApp;
@@ -58,5 +61,54 @@ describe('SQL meta-characters [T-03, R-IN-02]', () => {
       select count(*)::int as count from information_schema.tables
       where table_schema = 'public' and table_name in ('users', 'sessions')`;
     expect(tables[0]?.count).toBe(2);
+  });
+
+  it('keeps them as data in every goal-content field: achievement, quest, target unit, check-in note', async () => {
+    const user = await goalUser(ctx);
+    const headers = (key = true) => ({ ...bearer(user.token), ...(key ? { 'idempotency-key': randomUUID() } : {}) });
+    const created = await createAchievement(ctx, user.token, {
+      title: META,
+      description: META,
+      motivation: META,
+      category: META,
+    });
+    const achievementId = created.json<{ id: string }>().id;
+    const quest = await ctx.post(
+      `/v1/achievements/${achievementId}/quests`,
+      {
+        title: META,
+        notes: META,
+        type: 'target',
+        size: 'M',
+        target: { start_value: '0', target_value: '10', unit: SHORT_META },
+      },
+      headers(),
+    );
+    const questId = quest.json<{ id: string }>().id;
+    const checkIn = await ctx.post(
+      `/v1/quests/${questId}/check-ins`,
+      { local_date: '2026-10-29', value: '1', note: META },
+      headers(),
+    );
+    const get = async (url: string) =>
+      (await contractInject(ctx.app, { method: 'GET', url, headers: headers(false) })).json<Record<string, unknown>>();
+
+    expect([created.statusCode, quest.statusCode, checkIn.statusCode]).toEqual([201, 201, 201]);
+    expect(await get(`/v1/achievements/${achievementId}`)).toMatchObject({
+      title: META,
+      description: META,
+      motivation: META,
+      category: META,
+    });
+    expect(await get(`/v1/quests/${questId}`)).toMatchObject({
+      title: META,
+      notes: META,
+      target: { unit: SHORT_META },
+    });
+    expect((await get(`/v1/quests/${questId}/check-ins`))['items']).toEqual([expect.objectContaining({ note: META })]);
+    const tables = await ctx.admin.sql<{ count: number }[]>`
+      select count(*)::int as count from information_schema.tables
+      where table_schema = 'public' and table_name in ('users', 'achievements', 'quests', 'check_ins', 'xp_events')`;
+    expect(tables[0]?.count).toBe(5);
   });
 });

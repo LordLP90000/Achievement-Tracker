@@ -416,6 +416,26 @@ describe('check-ins [R-CHK-01…06, R-ACH-05, R-IN-01, Q-36, Q-42, Q-43, A-36, A
     expect(await storedCheckIns(quest.id)).toHaveLength(1);
   });
 
+  it('credits each of ten simultaneous check-ins on different quests once, one after another [T-06]', async () => {
+    const user = await goalUser(ctx);
+    const achievementId = await achievementOf(user);
+    const quests: Resource[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      quests.push(await createQuest(user, achievementId, { title: `Quest ${String(index)}` }));
+    }
+    await createQuest(user, achievementId, { title: 'Keeps the achievement open' });
+
+    const responses = await Promise.all(quests.map((quest) => checkIn(user, quest.id)));
+
+    expect(responses.map((response) => response.statusCode)).toEqual(quests.map(() => 201));
+    // Under the user's goal lock each check-in sees the ones before it: the totals they report are 25, 50 … 250.
+    const totals = responses.map((response) => response.json<CheckInResult>()['xp_total'] as number);
+    expect(totals.toSorted((a, b) => a - b)).toEqual(quests.map((_, index) => 25 * (index + 1)));
+    expect(await ledger(user.userId)).toEqual(quests.map(() => ({ kind: 'quest_completed', amount: 25 })));
+    expect(await get(user, '/v1/me')).toMatchObject({ xp_total: 250 });
+    expect(await get(user, `/v1/achievements/${achievementId}`)).toMatchObject({ status: 'active', xp_earned: 250 });
+  });
+
   it('accepts 50 check-ins of a quest dated one day and refuses the 51st with 422 limit-reached [R-IN-01, A-42]', async () => {
     const user = await goalUser(ctx);
     const quest = await createQuest(user, await achievementOf(user));
