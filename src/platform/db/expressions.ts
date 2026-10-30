@@ -9,3 +9,15 @@ import { sql, type AnyColumn, type SQL } from 'drizzle-orm';
 export function increment(column: AnyColumn): SQL {
   return sql`${column} + 1`;
 }
+
+/**
+ * The rows after `position` in `created_at desc, id desc` order (cursor pagination, R-IN-01). One row comparison, so
+ * an index ending in `(created_at, id)` serves it as a single range scan; the values are encoded like their columns.
+ */
+export function afterPosition(
+  createdAt: AnyColumn,
+  id: AnyColumn,
+  position: { readonly createdAt: Date; readonly id: string },
+): SQL {
+  return sql`(${createdAt}, ${id}) < (${sql.param(position.createdAt, createdAt)}, ${sql.param(position.id, id)})`;
+}

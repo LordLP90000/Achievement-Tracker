@@ -134,6 +134,13 @@ Problem details factory (ADR-0007), security headers, auth guard, re-auth guard,
 cursor `{created_at, id}` validated by Zod), idempotency, optimistic concurrency (`If-Match` ↔ `version`),
 content-type enforcement.
 
+Pagination (`pagination.ts`, M3): every list is newest first, ordered by `created_at desc, id desc`. A repository
+reads `limit + 1` rows after the cursor's position with `afterPosition` (`platform/db/expressions.ts`: one row
+comparison `(created_at, id) < (…)`, served by an index ending in `(created_at, id)`); `pageOf` drops the extra row
+and encodes the last returned row as `next_cursor`. Keyset pages neither repeat nor skip rows when rows are created or
+deleted between requests. A cursor that does not decode to a canonical instant and a UUID v4 → `400` (pointer
+`/cursor`, static message); `limit` accepts plain decimals 1–100 only, default 20 (R-IN-01).
+
 ### 4.5 Logging (`platform/logging`)
 
 - Pino JSON logs. The default Fastify request/response serializers are replaced by an **allowlist** serializer:
