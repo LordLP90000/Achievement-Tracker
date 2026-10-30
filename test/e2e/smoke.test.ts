@@ -4,6 +4,7 @@ import { createServer, type AddressInfo } from 'node:net';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { checkPassword, loadBreachedPasswordFilter } from '../../src/modules/accounts/password-policy.ts';
+import { retentionJobs } from '../../src/modules/privacy/retention.ts';
 
 const run = promisify(execFile);
 const COMPOSE = ['compose', '-f', 'docker/compose.yml', '-p', 'questline-e2e'];
@@ -109,6 +110,7 @@ describe('container smoke test', () => {
   });
 
   it('runs every retention job in the worker container with the worker role [R-PRIV-07, ADR-0009]', async () => {
+    const expected = String(retentionJobs().length);
     const succeededJobs = async () =>
       (
         await compose(
@@ -117,12 +119,12 @@ describe('container smoke test', () => {
         )
       ).stdout.trim();
     let succeeded = await succeededJobs();
-    for (let attempt = 0; attempt < 20 && succeeded !== '9'; attempt += 1) {
+    for (let attempt = 0; attempt < 20 && succeeded !== expected; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       succeeded = await succeededJobs();
     }
 
-    expect(succeeded).toBe('9');
+    expect(succeeded).toBe(expected);
     const { stdout } = await compose('logs', '--no-color', 'worker');
     expect(stdout).toContain('email delivery off: no SMTP settings, emails stay queued');
   });
