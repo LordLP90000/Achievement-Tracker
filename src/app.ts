@@ -8,6 +8,8 @@ import type { ProfileService } from './modules/accounts/profile-service.ts';
 import type { PasswordsService } from './modules/accounts/password-service.ts';
 import { accountsRoutes } from './modules/accounts/routes.ts';
 import type { AccountsService } from './modules/accounts/service.ts';
+import { achievementsRoutes } from './modules/achievements/routes.ts';
+import type { AchievementsService } from './modules/achievements/service.ts';
 import { consentsRoutes } from './modules/consents/routes.ts';
 import type { ConsentsService } from './modules/consents/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
@@ -27,6 +29,7 @@ export const API_PREFIX = '/v1';
 
 export interface AppServices {
   readonly accounts: AccountsService;
+  readonly achievements: AchievementsService;
   readonly consents: ConsentsService;
   readonly emailChanges: EmailChangeService;
   readonly passwords: PasswordsService;
@@ -79,6 +82,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(profileRoutes, { profiles: deps.services.profiles });
       void v1.register(consentsRoutes, { consents: deps.services.consents });
       void v1.register(sessionsRoutes, { sessions: deps.services.sessions, limiter });
+      void v1.register(achievementsRoutes, { achievements: deps.services.achievements });
       done();
     },
     { prefix: API_PREFIX },

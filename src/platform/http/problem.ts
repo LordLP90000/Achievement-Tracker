@@ -36,6 +36,8 @@ export const Problems = {
   unauthorized: { status: 401, slug: 'unauthorized', title: 'Unauthorized', headers: { 'www-authenticate': 'Bearer' } },
   emailNotVerified: { status: 403, slug: 'email-not-verified', title: 'Email address not verified' },
   reauthenticationRequired: { status: 403, slug: 'reauthentication-required', title: 'Re-authentication required' },
+  /** Goal content is created only with the active `goal_content` consent (R-PRIV-04). */
+  consentRequired: { status: 403, slug: 'consent-required', title: 'Consent to store goal content required' },
   notFound: { status: 404, slug: 'not-found', title: 'Not Found' },
   emailTaken: { status: 409, slug: 'email-taken', title: 'Email address already in use' },
   consentAlreadyGranted: { status: 409, slug: 'consent-already-granted', title: 'Consent already granted' },
@@ -56,6 +58,11 @@ export const Problems = {
   rateLimited: { status: 429, slug: 'rate-limited', title: 'Too Many Requests', retryAfterSeconds: 1 },
   internal: { status: 500, slug: 'internal', title: 'Internal Server Error' },
 } as const satisfies Record<string, ProblemDefinition>;
+
+/** A per-user limit of R-IN-01 (Q-16) is reached; `message` names it, statically. */
+export function limitReached(message: string): ProblemDefinition {
+  return { status: 422, slug: 'limit-reached', title: 'Limit reached', errors: [{ pointer: '', message }] };
+}
 
 function instanceOf(url: string): string {
   const queryStart = url.indexOf('?');

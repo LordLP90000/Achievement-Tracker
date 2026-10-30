@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.6-draft
+  version: 0.2.7-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -15,6 +15,7 @@ info:
     open (Q-37); no counting check-in before a habit's run begins (A-36).
     0.2.5 (2026-10-29): locked habits and their prerequisite (Q-38); a completed quest keeps its target values (A-37).
     0.2.6 (2026-10-29): `Idempotency-Key` replays successful responses only; a reused key → `422` (Q-39, ADR-0008).
+    0.2.7 (2026-10-29): the limit of 200 achievements counts active and paused ones only (`422 limit-reached`, Q-40).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -629,7 +630,10 @@ paths:
       tags: [achievements]
       operationId: createAchievement
       summary: Create an achievement
-      description: Requires active `goal_content` consent, otherwise `403 urn:questline:problem:consent-required`.
+      description: >-
+        Requires active `goal_content` consent, otherwise `403 urn:questline:problem:consent-required`. A user has at
+        most 200 achievements that are `active` or `paused`; completed ones, the read-only archive, do not count
+        (Q-40). The next one → `422 urn:questline:problem:limit-reached`.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:

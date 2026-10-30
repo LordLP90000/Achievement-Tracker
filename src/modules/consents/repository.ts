@@ -52,3 +52,12 @@ export async function withdrawConsent(tx: Transaction, userId: string, type: Con
     .returning({ type: consents.type });
   return withdrawn.length === 1;
 }
+
+/** Whether a consent of the type is active; goal content may only be created while `goal_content` is (R-PRIV-04). */
+export async function hasActiveConsent(tx: Transaction, userId: string, type: ConsentType): Promise<boolean> {
+  const [active] = await tx
+    .select({ type: consents.type })
+    .from(consents)
+    .where(and(eq(consents.userId, userId), eq(consents.type, type), isNull(consents.withdrawnAt)));
+  return active !== undefined;
+}

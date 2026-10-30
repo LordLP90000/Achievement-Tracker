@@ -57,8 +57,9 @@ Rules enforced by lint/tests:
 - Only `src/platform/db` and repository files (`*repository.ts`) use the query builder (`drizzle-orm`); the drivers
   and every SQL fragment stay in `src/platform/db` (dependency-cruiser + ESLint, ADR-0003 amendment). Services and
   routes call repositories.
-- Goal-content repositories (M3) are created per request via `repos.forUser(userId)`; there is no API to build one
-  without a user ID. Before a user is known (registration, verification, login, password reset) the account
+- Goal-content repositories (M3) are built per transaction for one user and their data key
+  (`achievementsRepository(tx, userId, dataKey)`); there is no API to build one without a user ID, and every query
+  filters by it. Before a user is known (registration, verification, login, password reset) the account
   repositories read only the RLS-exempt tables — `users` by email blind index, `one_time_tokens` and
   `session_tokens` by token hash. Cross-user access exists only in worker-role code: the retention jobs
   (`src/modules/privacy/retention*.ts`) and the outbox delivery (`src/platform/email/delivery.ts`).

@@ -7,6 +7,7 @@ import { createEmailChangeService } from '../../src/modules/accounts/email-chang
 import { createPasswordsService } from '../../src/modules/accounts/password-service.ts';
 import { createProfileService } from '../../src/modules/accounts/profile-service.ts';
 import { createAccountsService } from '../../src/modules/accounts/service.ts';
+import { createAchievementsService } from '../../src/modules/achievements/service.ts';
 import { createConsentsService } from '../../src/modules/consents/service.ts';
 import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
 import { createSessionsService, type SessionsService } from '../../src/modules/sessions/service.ts';
@@ -132,6 +133,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
       readiness: () => Promise.resolve(true),
       services: {
         accounts: createAccountsService({ ...shared, breachedPasswords }),
+        achievements: createAchievementsService(shared),
         consents: createConsentsService(shared),
         emailChanges: createEmailChangeService(shared),
         passwords: createPasswordsService({ ...shared, breachedPasswords }),

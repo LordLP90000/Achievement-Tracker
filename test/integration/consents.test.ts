@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startAccountsApp, type AccountsApp, type TestAccount } from '../helpers/accounts-app.ts';
 import { contractInject } from '../helpers/contract.ts';
+import { createAchievement, goalUser, insertAchievements } from '../helpers/goals.ts';
 
 interface TokenPair {
   access_token: string;
@@ -25,6 +27,14 @@ describe('consents [R-PRIV-04, R-AUTHZ-02, A-14]', () => {
       await ctx.worker.sql<Record<string, unknown>[]>`
         select outcome, metadata from audit_events where user_id = ${userId} and event_type = ${type}`
     ).map((row) => ({ ...row }));
+  const goalContent = async (userId: string) => ({
+    ...(
+      await ctx.admin.sql<{ achievements: number; xp_events: number; idempotency_keys: number }[]>`
+        select (select count(*)::int from achievements where user_id = ${userId}) as achievements,
+               (select count(*)::int from xp_events where user_id = ${userId}) as xp_events,
+               (select count(*)::int from idempotency_keys where user_id = ${userId}) as idempotency_keys`
+    )[0],
+  });
 
   beforeAll(async () => {
     ctx = await startAccountsApp();
@@ -107,6 +117,28 @@ describe('consents [R-PRIV-04, R-AUTHZ-02, A-14]', () => {
     const pair = await session(await ctx.account());
 
     expect((await withdraw(pair, 'marketing')).statusCode).toBe(404);
+  });
+
+  it('deletes all goal content with the goal-content consent — the archive, the XP ledger and stored responses too — and nothing of others [Q-10]', async () => {
+    const owner = await goalUser(ctx);
+    const other = await goalUser(ctx);
+    const key = randomUUID();
+    const created = await createAchievement(ctx, owner.token, { title: 'Swim across the lake' }, key);
+    await createAchievement(ctx, other.token, { title: 'Not affected' });
+    await insertAchievements(ctx, owner.userId, 2, 'completed');
+    await ctx.admin.sql`
+      insert into xp_events (id, user_id, kind, amount, achievement_id, local_date, created_at)
+      values (${randomUUID()}, ${owner.userId}, 'quest_completed', 25, ${created.json<{ id: string }>().id},
+              '2026-10-29', ${ctx.clock.now()})`;
+
+    expect((await withdraw({ access_token: owner.token })).statusCode).toBe(204);
+
+    expect(await goalContent(owner.userId)).toEqual({ achievements: 0, xp_events: 0, idempotency_keys: 0 });
+    expect(await goalContent(other.userId)).toEqual({ achievements: 1, xp_events: 0, idempotency_keys: 1 });
+    expect((await grant({ access_token: owner.token })).statusCode).toBe(201);
+    const again = await createAchievement(ctx, owner.token, { title: 'Swim across the lake' }, key);
+    expect(again.statusCode).toBe(201);
+    expect(again.headers['idempotency-replayed']).toBeUndefined();
   });
 
   it.each([

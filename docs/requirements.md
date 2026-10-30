@@ -136,7 +136,7 @@ end-to-end encryption (v2 evaluation), reward currency/coupons (v2).
 
 | ID | Requirement |
 |----|-------------|
-| R-IN-01 | Validate everything; body ≤ 64 KiB; limits **[PM, Q-16]**: ≤ 200 achievements/user, ≤ 50 quests/achievement, ≤ 50 check-ins/quest/day, ≤ 20 sessions; page size default 20, max 100; cursor pagination. |
+| R-IN-01 | Validate everything; body ≤ 64 KiB; limits **[PM, Q-16]**: ≤ 200 achievements/user (active and paused; the completed archive does not count, **[PM 2026-10-29, Q-40]**), ≤ 50 quests/achievement, ≤ 50 check-ins/quest/day, ≤ 20 sessions; page size default 20, max 100; cursor pagination. |
 | R-IN-02 | No string-built SQL; no server-side requests to user-supplied URLs. |
 | R-OUT-01 | RFC 9457 problems, URN types until a domain exists **[PM, Q-19]**, no internals. |
 | R-OUT-02 | Random UUID v4 IDs only. |
@@ -301,6 +301,7 @@ the emails) stays open until launch.
 | Q-37 | **Editing a running habit (2026-10-29):** while a habit's run is open or completed, its `period`, `times_per_period`, `period_count` and `start_date` are fixed (`422`); they change at a restart (`needs_restart`) or before the run's `start_date`. Title, notes, size, required flag, position and prerequisite stay editable (R-QST-07). Not chosen: a change that restarts the habit as a reset; a change that restarts it without penalty (which would let a user dodge a reset and a gamble loss). |
 | Q-38 | **Habits with a prerequisite (2026-10-29):** a locked habit never resets; if its start date has passed when it unlocks, its run starts on the unlock day (with the week start of that day, Q-34). A habit's prerequisite changes only before its run begins (a future start date, or while locked) or at a restart, like the Q-37 fields — otherwise adding a prerequisite could freeze a running habit before a missed period. Not chosen: periods running while the habit is locked (resets the user could not prevent); periods closed while locked counting as met. |
 | Q-39 | **Idempotency keys and failures (2026-10-29):** only successful create responses are stored and replayed for 24 h (`Idempotency-Replayed: true`); a request that failed (e.g. `403 consent-required`, `409 gamble-pending`, `422` limit) changed nothing, so a retry with the same key runs again and the app can fix the cause first (ADR-0008, contract 0.2.6). Not chosen: replaying failures too, which would force a new key after every error. |
+| Q-40 | **Achievement limit and the archive (2026-10-29):** the limit of 200 achievements per user (R-IN-01) counts only `active` and `paused` ones; completed achievements, the read-only archive that cannot be deleted (R-ACH-07), do not count. The next open one → `422 urn:questline:problem:limit-reached` (contract 0.2.7). Not chosen: counting the archive, which would lock out long-time users for good. |
 
 ## 7. Open items (non-blocking)
 

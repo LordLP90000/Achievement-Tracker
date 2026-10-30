@@ -48,7 +48,7 @@ export const achievements = pgTable(
     isPrivate: boolean('is_private').notNull().default(false),
     attempt: integer('attempt').notNull().default(1),
     completedAt: timestamptz('completed_at'),
-    executionScore: numeric('execution_score', { precision: 5, scale: 2 }),
+    executionScore: numeric('execution_score', { precision: 5, scale: 2, mode: 'number' }),
     rank: text('rank'),
     dekVersion: integer('dek_version').notNull(),
     createdAt: timestamptz('created_at').notNull(),

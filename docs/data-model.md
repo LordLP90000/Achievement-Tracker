@@ -421,7 +421,7 @@ row is added here and in the test. Cascading deletes need no grant (they run as 
 | `check_ins` (M3) | SELECT, INSERT, DELETE | — | RLS; immutable, an undo deletes |
 | `xp_events` (M3) | SELECT, INSERT, DELETE — only after the goal-content consent is withdrawn (restrictive policy) | — | RLS; append-only ledger |
 | `badges` (M3) | SELECT, INSERT, DELETE | — | RLS |
-| `idempotency_keys` (M3) | SELECT, INSERT, UPDATE (replacing an expired record) | SELECT, DELETE (purge) | RLS |
+| `idempotency_keys` (M3) | SELECT, INSERT, UPDATE (replacing an expired record), DELETE (consent withdrawal, Q-10; migration 0006) | SELECT, DELETE (purge) | RLS |
 
 The worker gets no goal-content privileges in migration 0004; the daily habit and gamble jobs (M3) add exactly what
 they need.
@@ -454,8 +454,10 @@ ledger amounts that are 0 or have the wrong sign. Tested in `test/integration/go
    user relation is reached by this cascade and appears in the export.
 
 Consent withdrawal (Q-10) deletes only the goal-content subtree (`achievements` → `gambles`, `badges`, `quests` →
-`check_ins`, plus `xp_events`) in one transaction and leaves the account intact; the consent is marked withdrawn first,
-which lifts the restrictive delete policies on completed achievements and the ledger (§4).
+`check_ins`, plus `xp_events` and the stored responses in `idempotency_keys`, which hold goal content for up to 24 h)
+in one transaction and leaves the account intact; the consent is marked withdrawn first, which lifts the restrictive
+delete policies on completed achievements and the ledger (§4). Code: `deleteGoalContent`
+(`src/modules/achievements/repository.ts`), called by the consents service.
 
 ## 6. Export document (R-PRIV-05) — shape
 

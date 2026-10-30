@@ -2,13 +2,14 @@ import { inTransaction, setUserContext, type Database } from '../../platform/db/
 import { isUniqueViolation } from '../../platform/db/errors.ts';
 import type { Clock } from '../../platform/time/clock.ts';
 import type { RequestContext } from '../audit/context.ts';
+import { deleteGoalContent } from '../achievements/repository.ts';
 import { recordAuditEvent } from '../audit/repository.ts';
 import type { Principal } from '../sessions/guard.ts';
 import { insertConsent, listConsents, withdrawConsent, type ConsentRecord, type ConsentType } from './repository.ts';
 
 /**
- * Explicit, versioned consent for goal content (R-PRIV-04, A-14). Withdrawing `goal_content` must also hard-delete
- * all goal content (Q-10): those tables arrive in M3, which adds the deletion to this transaction.
+ * Explicit, versioned consent for goal content (R-PRIV-04, A-14). Withdrawing `goal_content` hard-deletes all goal
+ * content in the same transaction (Q-10); the account stays.
  */
 
 export interface ConsentsServiceDependencies {
@@ -69,6 +70,9 @@ export function createConsentsService(deps: ConsentsServiceDependencies): Consen
       return inTransaction(deps.db, async (tx) => {
         await setUserContext(tx, principal.userId);
         if (!(await withdrawConsent(tx, principal.userId, type, now))) return false;
+        // `goal_content` is the only consent type. Deleting after the withdrawal matters: until then restrictive
+        // policies keep completed achievements and the XP ledger.
+        await deleteGoalContent(tx, principal.userId);
         await recordAuditEvent(
           tx,
           {

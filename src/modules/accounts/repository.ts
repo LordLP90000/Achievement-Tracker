@@ -124,6 +124,25 @@ export async function requireWrappedKey(tx: Transaction, userId: string): Promis
   return key;
 }
 
+/** The wrapped data key with its version, which encrypted goal-content rows record as `dek_version` (ADR-0006). */
+export async function requireVersionedKey(
+  tx: Transaction,
+  userId: string,
+): Promise<{ readonly wrapped: WrappedKey; readonly version: number }> {
+  const [key] = await tx
+    .select({
+      blob: userKeys.wrappedDek,
+      kekId: userKeys.kekId,
+      kekVersion: userKeys.kekVersion,
+      dekVersion: userKeys.dekVersion,
+    })
+    .from(userKeys)
+    .where(eq(userKeys.userId, userId));
+  if (key === undefined) throw new MissingDataKeyError();
+  const { dekVersion, ...wrapped } = key;
+  return { wrapped, version: dekVersion };
+}
+
 export interface NewOneTimeToken {
   /** Generated here unless the caller needs it first (as associated data of `newEmailEnc`). */
   readonly id?: string;

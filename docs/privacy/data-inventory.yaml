@@ -235,7 +235,7 @@ tables:
 
   idempotency_keys:
     user_relation: user_id
-    retention: 24 hours (purge-job); cascade on deletion
+    retention: 24 hours (purge-job); deleted with goal content on consent withdrawal (Q-10); cascade on deletion
     columns:
       id:                 { category: C9, personal: false, export: excluded, export_reason: transient technical record }
       user_id:            { category: C9, personal: true,  export: excluded, export_reason: transient technical record }
