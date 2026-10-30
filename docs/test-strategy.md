@@ -114,7 +114,9 @@ one automated test, deterministic tests only.
 | R-XP-03 | `xp.test.ts` (level thresholds and boundaries; level never drops through a lost gamble — Q-31) |
 | R-QST-04 | `habit-reset.test.ts` (domain) + `integration/habit-reset.test.ts` (reset detected lazily on read and by the daily job; `needs_restart` blocks check-ins → 409; restart via `PATCH` with `start_date` ≥ today; history kept and not counted) |
 | R-QST-09 | `periods.test.ts` (monday/sunday/saturday boundaries; change applies to later periods only, A-23), `me.test.ts` (`PATCH /me` `week_start`) |
-| R-CHK-04 | `check-ins.test.ts` with injected clock: today counts; 1–7 days back stored with `counts_for_progress = false` and no effect on progress, XP, streak, reset or rank; 8 days back and future → 422; around local midnight and on both Zurich DST dates |
+| R-CHK-04 | `check-ins.test.ts` with injected clock: today counts; 1–7 days back stored with `counts_for_progress = false` and no effect on progress, XP, streak, reset or rank; 8 days back and future → 422; a check-in dated today on a habit whose run has not begun → 422 (A-36); around local midnight and on both Zurich DST dates |
+| R-CHK-03 | `check-ins.test.ts`: an undo on the day of the check-in reverses every effect; the next day (account timezone) → 409 `check-in-final` and nothing changes (Q-36) |
+| R-QST-07 | `quests.test.ts`: a running or completed habit's `period`, `times_per_period`, `period_count` and `start_date` → 422 and nothing changes; allowed at a restart and before the run's `start_date`; other fields stay editable (Q-37) |
 | R-RANK-01/02 | `rank.test.ts` (score formula, rank thresholds, Champion conditions; property tests) |
 | R-RANK-03 | `rank.test.ts` (multipliers and rounding; no bonus for an unlock less than 7 × 24 h after creation, A-34), `integration/unlock.test.ts` (exactly one `rank_bonus` event and one `achievement_rank` badge per unlock) |
 | R-RANK-04 | `integration/effects-undo.test.ts` (undo of the unlocking check-in removes rank, score, badge and bonus; a gamble won by it is pending again) |

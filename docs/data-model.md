@@ -231,7 +231,8 @@ History of won/lost gambles is kept (counts against Champion, R-RANK-02) until t
 | `version` | integer NOT NULL | |
 
 `CHECK` constraints enforce "type-specific columns are NOT NULL iff the type matches". Effective XP
-(`base × duration factor`, R-XP-02) is derived in code, not stored.
+(`base × duration factor`, R-XP-02) is derived in code, not stored. The habit columns change only at a restart or
+before the run's start date (Q-37).
 Index `(achievement_id, position)`, `(user_id)`.
 
 #### `check_ins` RLS
@@ -249,7 +250,8 @@ Index `(achievement_id, position)`, `(user_id)`.
 | `dek_version` | integer NOT NULL | |
 | `created_at` | timestamptz NOT NULL | |
 
-Immutable (no `version`). Index `(quest_id, attempt, local_date) WHERE counts_for_progress` and
+Immutable (no `version`); an undo deletes the row, possible only on the day it was created in the account's time zone
+(Q-36). Index `(quest_id, attempt, local_date) WHERE counts_for_progress` and
 `(quest_id, created_at DESC, id DESC)`.
 
 ### 3.4 Gamification

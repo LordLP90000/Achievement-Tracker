@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.3-draft
+  version: 0.2.4-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -11,6 +11,8 @@ info:
     and for the size of wins and losses (Q-31).
     0.2.3 (2026-10-29): habit quests show their `current_period` (Q-35); first weekly period and `week_start`
     changes (Q-33, Q-34).
+    0.2.4 (2026-10-29): undo only on the day of the check-in (`409`, Q-36); habit settings fixed while a run is
+    open (Q-37); no counting check-in before a habit's run begins (A-36).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -878,7 +880,9 @@ paths:
       description: |
         A habit quest in state `needs_restart` is restarted by sending `habit` with a new `start_date` (today or
         later), optionally with new `times_per_period`/`period_count`; earlier check-ins stay visible as history and
-        do not count (R-QST-04). Quests of a `completed` achievement are read-only →
+        do not count (R-QST-04). While a habit's run is open or completed, `period`, `times_per_period`,
+        `period_count` and `start_date` cannot change (`422`): only at a restart or before the run's `start_date`
+        (Q-37). Quests of a `completed` achievement are read-only →
         `409 urn:questline:problem:achievement-completed` (R-QST-07).
       parameters:
         - $ref: '#/components/parameters/IfMatch'
@@ -961,8 +965,9 @@ paths:
         never counts (R-CHK-04). Rejected with `409 urn:questline:problem:quest-locked` if the prerequisite is not
         completed, `409 urn:questline:problem:quest-needs-restart` if a habit quest was reset and must be restarted
         first, `409 urn:questline:problem:achievement-not-active` if the achievement is paused or completed
-        (R-CHK-05), and `422` for a future `local_date`, a `local_date` older than 7 days, a missing `value` on a
-        target quest or a `value` on a non-target quest. Returns the check-in, the updated quest and achievement, the
+        (R-CHK-05), and `422` for a future `local_date`, a `local_date` older than 7 days, a check-in dated today on a
+        habit whose run has not begun (`start_date` after today, A-36), a missing `value` on a target quest or a
+        `value` on a non-target quest. Returns the check-in, the updated quest and achievement, the
         XP delta and any unlock, rank and gamble outcome (R-CHK-06).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -1002,7 +1007,9 @@ paths:
       description: |
         Reverses progress, completion, XP, streak, rank and gamble effects (R-CHK-03). Undoing the check-in that
         unlocked an achievement re-locks it, removes rank, badge and rank bonus, and returns a gamble won by that
-        unlock to pending (R-ACH-05, R-RANK-04).
+        unlock to pending (R-ACH-05, R-RANK-04). A check-in can be undone only on the day it was made (account
+        timezone); afterwards → `409 urn:questline:problem:check-in-final`, so closed periods and completed
+        achievements never change (Q-36).
       responses:
         '200':
           description: Undone; returns the resulting quest/achievement state and XP delta.
@@ -1013,6 +1020,7 @@ paths:
               schema: { $ref: '#/components/schemas/Effects' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
 components:
@@ -1139,7 +1147,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: State conflict (e.g. quest locked or awaiting restart, achievement not active or completed, gamble pending, consent already granted).
+      description: State conflict (e.g. quest locked or awaiting restart, achievement not active or completed, gamble pending, consent already granted, check-in no longer undoable).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
