@@ -58,6 +58,23 @@ export interface AchievementsRepository {
   lockCreation(): Promise<void>;
   /** An unlock or re-lock decided by the effects engine (R-ACH-04/05); bumps the version (ADR-0008). */
   updateCompletion(achievement: AchievementRecord, change: CompletionChange, now: Date): Promise<AchievementRecord>;
+  /** A client edit: the whole content re-encrypted under the current data key, with the attempt's deadline. */
+  update(
+    achievement: AchievementRecord,
+    content: AchievementContent,
+    deadline: LocalDate | null,
+    now: Date,
+  ): Promise<AchievementRecord>;
+  /** A pause, or a resume that starts the next attempt with its deadline (R-ACH-06, A-35). */
+  updateStatus(achievement: AchievementRecord, change: StatusChange, now: Date): Promise<AchievementRecord>;
+  /** Deletes it with its quests, check-ins, gambles and badges (cascade); the ledger keeps its rows (R-ACH-09). */
+  remove(id: string): Promise<void>;
+}
+
+export interface StatusChange {
+  readonly status: 'active' | 'paused';
+  readonly attempt?: number;
+  readonly deadline?: LocalDate | null;
 }
 
 export interface CompletionChange {
@@ -100,22 +117,27 @@ export function achievementsRepository(tx: Transaction, userId: string, dataKey:
 
   const mine = eq(achievements.userId, userId);
 
+  /** The client's content and the deadline, each encrypted field bound to its record and column (R-ACH-02). */
+  const contentColumns = (id: string, content: AchievementContent, deadline: LocalDate | null) => ({
+    titleEnc: seal(id, 'title_enc', content.title),
+    descriptionEnc: sealOptional(id, 'description_enc', content.description),
+    motivationEnc: sealOptional(id, 'motivation_enc', content.motivation),
+    categoryEnc: sealOptional(id, 'category_enc', content.category),
+    targetDateEnc: sealOptional(id, 'target_date_enc', content.targetDate),
+    deadlineEnc: sealOptional(id, 'deadline_enc', deadline),
+    isPrivate: content.isPrivate,
+    dekVersion: dataKey.version,
+  });
+
   return {
     async insert(content, deadline, now) {
       const id = randomUUID();
       await tx.insert(achievements).values({
         id,
         userId,
-        titleEnc: seal(id, 'title_enc', content.title),
-        descriptionEnc: sealOptional(id, 'description_enc', content.description),
-        motivationEnc: sealOptional(id, 'motivation_enc', content.motivation),
-        categoryEnc: sealOptional(id, 'category_enc', content.category),
-        targetDateEnc: sealOptional(id, 'target_date_enc', content.targetDate),
-        deadlineEnc: sealOptional(id, 'deadline_enc', deadline),
+        ...contentColumns(id, content, deadline),
         status: 'active',
-        isPrivate: content.isPrivate,
         attempt: 1,
-        dekVersion: dataKey.version,
         createdAt: now,
         updatedAt: now,
         version: 1,
@@ -173,6 +195,45 @@ export function achievementsRepository(tx: Transaction, userId: string, dataKey:
         .set({ ...change, updatedAt: now, version: increment(achievements.version) })
         .where(and(mine, eq(achievements.id, achievement.id)));
       return { ...achievement, ...change, updatedAt: now, version: achievement.version + 1 };
+    },
+
+    async update(achievement, content, deadline, now) {
+      await tx
+        .update(achievements)
+        .set({
+          ...contentColumns(achievement.id, content, deadline),
+          updatedAt: now,
+          version: increment(achievements.version),
+        })
+        .where(and(mine, eq(achievements.id, achievement.id)));
+      return { ...achievement, ...content, deadline, updatedAt: now, version: achievement.version + 1 };
+    },
+
+    async updateStatus(achievement, change, now) {
+      const deadline = change.deadline === undefined ? achievement.deadline : change.deadline;
+      await tx
+        .update(achievements)
+        .set({
+          status: change.status,
+          attempt: change.attempt,
+          deadlineEnc:
+            change.deadline === undefined ? undefined : sealOptional(achievement.id, 'deadline_enc', deadline),
+          updatedAt: now,
+          version: increment(achievements.version),
+        })
+        .where(and(mine, eq(achievements.id, achievement.id)));
+      return {
+        ...achievement,
+        status: change.status,
+        attempt: change.attempt ?? achievement.attempt,
+        deadline,
+        updatedAt: now,
+        version: achievement.version + 1,
+      };
+    },
+
+    async remove(id) {
+      await tx.delete(achievements).where(and(mine, eq(achievements.id, id)));
     },
   };
 }

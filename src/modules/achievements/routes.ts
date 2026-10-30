@@ -1,9 +1,9 @@
 import type { FastifyPluginCallback } from 'fastify';
 import { z } from 'zod';
-import { etagOf } from '../../platform/http/concurrency.ts';
+import { etagOf, requireIfMatch } from '../../platform/http/concurrency.ts';
 import { idempotentRequest, sendIdempotent } from '../../platform/http/idempotency.ts';
 import { pageParams } from '../../platform/http/pagination.ts';
-import { limitReached, Problems } from '../../platform/http/problem.ts';
+import { limitReached, Problems, type ProblemDefinition } from '../../platform/http/problem.ts';
 import { boundedText, isUuidV4, parseRequest, ProblemError } from '../../platform/http/validation.ts';
 import {
   achievementDetailJson,
@@ -12,7 +12,12 @@ import {
   NEW_ACHIEVEMENT,
 } from '../goals/representations.ts';
 import { principalOf } from '../sessions/guard.ts';
-import { ACHIEVEMENT_LIMIT, type AchievementsService } from './service.ts';
+import {
+  ACHIEVEMENT_LIMIT,
+  type AchievementChangeRefusal,
+  type AchievementEdit,
+  type AchievementsService,
+} from './service.ts';
 
 /** Achievement endpoints of `openapi/openapi.yaml` (tag `achievements`), mounted under `/v1` behind the auth guard. */
 
@@ -33,6 +38,46 @@ const achievementCreate = z.strictObject({
 });
 
 const listQuery = z.object({ status: z.enum(STATUSES).optional(), ...pageParams });
+
+/** `AchievementUpdate`: `completed` is the system's (R-ACH-07); null clears an optional field. */
+const achievementUpdate = z
+  .strictObject({
+    title: boundedText(1, 120).optional(),
+    description: boundedText(0, 2000).nullable().optional(),
+    motivation: boundedText(0, 2000).nullable().optional(),
+    category: boundedText(0, 60).nullable().optional(),
+    target_date: z.iso.date().nullable().optional(),
+    is_private: z.boolean().optional(),
+    status: z.enum(['active', 'paused']).optional(),
+  })
+  .refine((update) => Object.keys(update).length > 0, {
+    message: 'needs at least one property',
+    when: (payload) => payload.issues.length === 0,
+  });
+
+/** The edit as the service takes it: only what the request names (`exactOptionalPropertyTypes`). */
+const editOf = (body: z.output<typeof achievementUpdate>): AchievementEdit => ({
+  ...(body.title === undefined ? {} : { title: body.title }),
+  ...(body.description === undefined ? {} : { description: body.description }),
+  ...(body.motivation === undefined ? {} : { motivation: body.motivation }),
+  ...(body.category === undefined ? {} : { category: body.category }),
+  ...(body.target_date === undefined ? {} : { targetDate: body.target_date }),
+  ...(body.is_private === undefined ? {} : { isPrivate: body.is_private }),
+  ...(body.status === undefined ? {} : { status: body.status }),
+});
+
+function problemOf(refusal: AchievementChangeRefusal): ProblemDefinition {
+  switch (refusal.outcome) {
+    case 'not_found':
+      return Problems.notFound;
+    case 'achievement_completed':
+      return Problems.achievementCompleted;
+    case 'gamble_pending':
+      return Problems.gamblePending;
+    case 'version_conflict':
+      return { ...Problems.versionConflict, extensions: { current_version: refusal.currentVersion } };
+  }
+}
 
 const LIMIT_REACHED = limitReached(`At most ${String(ACHIEVEMENT_LIMIT)} active or paused achievements`);
 
@@ -79,6 +124,25 @@ export const achievementsRoutes: FastifyPluginCallback<AchievementsRoutesOptions
     const view = isUuidV4(achievementId) ? await achievements.get(principalOf(request), achievementId) : undefined;
     if (view === undefined) throw new ProblemError(Problems.notFound);
     return reply.header('etag', etagOf(view.record.version)).send(achievementDetailJson(view));
+  });
+
+  app.patch<{ Params: { achievementId: string } }>('/achievements/:achievementId', async (request, reply) => {
+    const { achievementId } = request.params;
+    if (!isUuidV4(achievementId)) throw new ProblemError(Problems.notFound);
+    const expectedVersion = requireIfMatch(request.headers['if-match']);
+    const edit = editOf(parseRequest(achievementUpdate, request.body));
+    const result = await achievements.update(principalOf(request), achievementId, expectedVersion, edit);
+    if (result.outcome !== 'updated') throw new ProblemError(problemOf(result));
+    return reply.header('etag', etagOf(result.view.record.version)).send(achievementViewJson(result.view));
+  });
+
+  app.delete<{ Params: { achievementId: string } }>('/achievements/:achievementId', async (request, reply) => {
+    const { achievementId } = request.params;
+    if (!isUuidV4(achievementId)) throw new ProblemError(Problems.notFound);
+    const expectedVersion = requireIfMatch(request.headers['if-match']);
+    const result = await achievements.delete(principalOf(request), achievementId, expectedVersion);
+    if (result.outcome !== 'deleted') throw new ProblemError(problemOf(result));
+    return reply.code(204).send();
   });
 
   done();

@@ -1,7 +1,9 @@
 import type { LocalDate } from '../../domain/dates.ts';
 import { parseDecimal } from '../../domain/decimal.ts';
 import {
+  deleteAchievementEffects,
   deleteQuestEffects,
+  pauseEffects,
   reconcile,
   type AchievementFacts,
   type Outcome,
@@ -355,28 +357,8 @@ async function settle(
     return { view: viewOf(achievement, quests, ledger, []), outcome: null, totalXp: ledger.totalXp };
   }
 
-  const gambles = await gambleFacts(tx, userId, achievement.id, achievement.attempt);
-  const targetDate = achievement.targetDate;
-  const facts: AchievementFacts = {
-    status: achievement.status,
-    attempt: achievement.attempt,
-    createdAtMs: achievement.createdAt.getTime(),
-    deadline: achievement.deadline,
-    rankBonusCredited: ledger.rankBonusCredited,
-    lostGambles: gambles.lost,
-    // A gamble is placed only with a target date, which cannot change while it is pending (R-GMB-01, A-26).
-    pendingGamble: gambles.pending === null || targetDate === null ? null : { ...gambles.pending, targetDate },
-    wonGamble:
-      gambles.won === null ? null : { id: gambles.won.id, paid: await gambleWinPaid(tx, userId, gambles.won.id) },
-  };
-  const questFacts: QuestFacts[] = quests.map(({ record, evaluation }) => ({
-    id: record.id,
-    isRequired: record.isRequired,
-    xp: evaluation.xp,
-    resetCount: record.resetCount,
-    completed: evaluation.completed,
-    credited: ledger.questCredits.get(record.id) ?? 0,
-  }));
+  const facts = await achievementFactsOf(scope, achievement, ledger);
+  const questFacts = questFactsOf(quests, ledger);
   const habitReset = quests.some((quest) => quest.change.needsRestart === true);
   const context = { nowMs: scope.now.getTime(), today: day, totalXp: ledger.totalXp };
   const outcome =
@@ -390,15 +372,60 @@ async function settle(
           { habitReset },
         );
 
+  const stored = await storeOutcome(scope, achievements, achievement, outcome);
+  // Last, so the revocation above still names the quest; its check-ins go with it, its ledger events stay (R-XP-01).
+  if (deleting !== undefined) await questsRepository(tx, userId, dataKey).remove(deleting.id);
+  return { view: viewOf(stored, quests, ledger, outcome.events), outcome, totalXp: outcome.totalXp };
+}
+
+/** What the effects engine needs to know of an achievement: its attempt, deadline, gambles and rank bonus. */
+async function achievementFactsOf(
+  scope: GoalScope,
+  achievement: AchievementRecord,
+  ledger: LedgerFacts,
+): Promise<AchievementFacts> {
+  const { tx, userId } = scope;
+  const gambles = await gambleFacts(tx, userId, achievement.id, achievement.attempt);
+  const targetDate = achievement.targetDate;
+  return {
+    status: achievement.status,
+    attempt: achievement.attempt,
+    createdAtMs: achievement.createdAt.getTime(),
+    deadline: achievement.deadline,
+    rankBonusCredited: ledger.rankBonusCredited,
+    lostGambles: gambles.lost,
+    // A gamble is placed only with a target date, which cannot change while it is pending (R-GMB-01, A-26).
+    pendingGamble: gambles.pending === null || targetDate === null ? null : { ...gambles.pending, targetDate },
+    wonGamble:
+      gambles.won === null ? null : { id: gambles.won.id, paid: await gambleWinPaid(tx, userId, gambles.won.id) },
+  };
+}
+
+const questFactsOf = (quests: readonly QuestView[], ledger: LedgerFacts): QuestFacts[] =>
+  quests.map(({ record, evaluation }) => ({
+    id: record.id,
+    isRequired: record.isRequired,
+    xp: evaluation.xp,
+    resetCount: record.resetCount,
+    completed: evaluation.completed,
+    credited: ledger.questCredits.get(record.id) ?? 0,
+  }));
+
+/** Stores what the effects engine decided: ledger events dated today, unlock or re-lock, gamble settlement. */
+async function storeOutcome(
+  scope: GoalScope,
+  achievements: AchievementsRepository,
+  achievement: AchievementRecord,
+  outcome: Outcome,
+): Promise<AchievementRecord> {
+  const { tx, userId } = scope;
   if (outcome.gamble?.outcome === 'reverted' && (await hasPendingGamble(tx, userId))) {
     throw new PendingGambleConflict();
   }
   await appendXpEvents(tx, userId, achievement.id, outcome.events, scope.today, scope.now);
   const stored = await storeCompletion(scope, achievements, achievement, outcome);
   if (outcome.gamble !== null) await settleGamble(tx, userId, outcome.gamble, scope.now);
-  // Last, so the revocation above still names the quest; its check-ins go with it, its ledger events stay (R-XP-01).
-  if (deleting !== undefined) await questsRepository(tx, userId, dataKey).remove(deleting.id);
-  return { view: viewOf(stored, quests, ledger, outcome.events), outcome, totalXp: outcome.totalXp };
+  return stored;
 }
 
 /** A quest being deleted deserves nothing any more: what the ledger credits it is revoked (Q-12). */
@@ -432,4 +459,78 @@ export async function deleteQuest(scope: GoalScope, quest: QuestRecord, options:
   const synced = await settle(scope, quest.achievementId, { ...options, deleting: quest });
   if (synced === undefined) throw new Error('the achievement of the quest to delete is gone');
   return synced;
+}
+
+/** What an achievement's change starts from: its facts and what the ledger credits, as of a sync just before. */
+async function changeContext(scope: GoalScope, view: AchievementView) {
+  const ledger = await ledgerFacts(
+    scope.tx,
+    scope.userId,
+    view.record.id,
+    view.quests.map((quest) => quest.record.id),
+  );
+  return {
+    facts: await achievementFactsOf(scope, view.record, ledger),
+    quests: questFactsOf(view.quests, ledger),
+    context: { nowMs: scope.now.getTime(), today: scope.today, totalXp: ledger.totalXp },
+  };
+}
+
+/**
+ * Pauses an active achievement (R-ACH-06): a pending gamble is lost, the attempt's XP revoked, and its quests reset —
+ * nothing completed, no restart pending, no resets counted; a habit's run ends there, its streak kept as the best
+ * (R-STR-01). Pass the view of a sync just before, in the same transaction.
+ */
+export async function pauseAchievement(scope: GoalScope, view: AchievementView): Promise<Outcome> {
+  const { tx, userId, dataKey } = scope;
+  const achievements = achievementsRepository(tx, userId, dataKey);
+  const { facts, quests, context } = await changeContext(scope, view);
+  const outcome = pauseEffects(facts, quests, context);
+  await storeOutcome(scope, achievements, view.record, outcome);
+  const repository = questsRepository(tx, userId, dataKey);
+  for (const { record, evaluation } of view.quests) {
+    const habitBestStreak = evaluation.streak?.best ?? record.habitBestStreak;
+    await repository.updateState(
+      record,
+      { completedAt: null, needsRestart: false, resetCount: 0, habitBestStreak },
+      scope.now,
+    );
+  }
+  await achievements.updateStatus(view.record, { status: 'paused' }, scope.now);
+  return outcome;
+}
+
+/**
+ * Resumes a paused achievement as attempt n + 1 (R-ACH-06): earlier check-ins stay history, the deadline starts as
+ * the target date (A-35), and a habit whose start date has passed starts its run today, with today's week start
+ * (A-39, Q-34). Pass the view of a sync just before, in the same transaction.
+ */
+export async function resumeAchievement(scope: GoalScope, view: AchievementView): Promise<void> {
+  const { tx, userId, dataKey } = scope;
+  const achievement = view.record;
+  const change = { status: 'active', attempt: achievement.attempt + 1, deadline: achievement.targetDate } as const;
+  await achievementsRepository(tx, userId, dataKey).updateStatus(achievement, change, scope.now);
+  const repository = questsRepository(tx, userId, dataKey);
+  for (const { record } of view.quests) {
+    if (record.habit === null) continue;
+    const startDate = habitStartOnUnlock(record.habit.startDate, scope.today);
+    if (startDate === record.habit.startDate) continue;
+    const weekStart = record.habit.period === 'week' ? { habitWeekStart: scope.weekStart } : {};
+    await repository.updateState(record, { habitStartDate: startDate, ...weekStart }, scope.now);
+  }
+}
+
+/**
+ * Deletes an active or paused achievement (R-ACH-09, Q-12): a pending gamble is lost and all XP earned through it is
+ * revoked; its quests, check-ins, gambles and badges go with it, its ledger rows stay without it. Pass the view of a
+ * sync just before, in the same transaction.
+ */
+export async function deleteAchievement(scope: GoalScope, view: AchievementView): Promise<Outcome> {
+  const { tx, userId, dataKey } = scope;
+  const achievements = achievementsRepository(tx, userId, dataKey);
+  const { facts, quests, context } = await changeContext(scope, view);
+  const outcome = deleteAchievementEffects(facts, quests, context);
+  await storeOutcome(scope, achievements, view.record, outcome);
+  await achievements.remove(view.record.id);
+  return outcome;
 }

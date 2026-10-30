@@ -242,6 +242,9 @@ stored. The habit columns change only at a restart, before the run's start date,
 achievement paused (Q-37, Q-38, A-39); such an edit gives the run the account's current `week_start` (A-41). An edit
 re-encrypts every encrypted column under the current data key. Deleting a quest clears `prerequisite_quest_id` on the
 quests that named it itself, bumping their `version` (R-QST-08); the foreign-key action is only the safety net.
+Pausing the achievement ends the attempt for every quest: `completed_at` cleared, `needs_restart` false, `reset_count`
+0, a habit's run kept in `habit_best_streak`; resuming moves a habit's passed `habit_start_date` to the resume day with
+that day's week start (R-ACH-06, A-39).
 Index `(achievement_id, position)`, `(user_id)`; `UNIQUE (id, user_id)` and `(id, achievement_id)` are the targets of
 the composite foreign keys.
 

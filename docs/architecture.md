@@ -239,7 +239,11 @@ before, so a habit unlocked by the change (a prerequisite removed or deleted) st
 `deleteQuest` reconciles the remaining quests with the quest's credit revoked (`deleteQuestEffects`), detaches the
 quests that required it and deletes it last, so its revocation still names it. A sync that would return a won gamble
 to pending while the user has another one pending raises `PendingGambleConflict`, which rolls the whole transaction
-back; only an undo can cause it, and it answers `409 gamble-pending` (Q-43).
+back; only an undo can cause it, and it answers `409 gamble-pending` (Q-43). `pauseAchievement` loses a pending
+gamble, revokes the attempt's XP and resets the quests (nothing completed, no restart pending, no resets counted; a
+habit's run ends with its streak kept as the best); `resumeAchievement` starts attempt n + 1 with the target date as
+its deadline (A-35) and starts a habit whose start date has passed today (A-39); `deleteAchievement` loses a pending
+gamble, revokes all the achievement's XP and deletes it with everything below it.
 
 ## 6. Folder structure
 
