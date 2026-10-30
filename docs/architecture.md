@@ -80,7 +80,7 @@ Rules enforced by lint/tests:
 | 5 | `auth-guard` (`src/modules/sessions/guard.ts`) | Deny by default: an `onRequest` hook on the `/v1` scope (before body parsing) requires `Authorization: Bearer <access token>` (scheme case-insensitive) on every route whose config is not `public: true` — exactly the operations with `security: []` in the contract, checked by `contract/deny-by-default.test.ts`. Two queries: the token's SHA-256 in `session_tokens` (RLS-exempt, unexpired), then — bound to that user — the session in `sessions` (RLS; not revoked, before its absolute expiry). Attaches `request.principal = { userId, sessionId, lastReauthAt }`. Missing/invalid → `401` `unauthorized` with `WWW-Authenticate: Bearer`. |
 | 6 | `reauth-guard` (selected routes) | `requireRecentReauth(principal, now)` (`src/modules/sessions/guard.ts`): the password was entered (login or `POST /v1/auth/reauth`) less than 10 min ago — at exactly 10 min it is not — else `403 urn:questline:problem:reauthentication-required` (R-AUTH-06). |
 | 7 | Validation | Zod `strict()` schemas for headers (`Idempotency-Key`, `If-Match`), params, query, body. Failures → `400` problem with `errors[{pointer,message}]`; values are never echoed. |
-| 8 | `idempotency` (create routes) | Looks up (user, route, key); replays stored response or rejects body mismatch (ADR-0008). |
+| 8 | `idempotency` (create routes) | The route reads `Idempotency-Key` and digests path parameters and body; the service runs the request through `runIdempotent` inside its own transaction, which replays a stored success, refuses a body mismatch with `422`, or runs the work and stores its response with it (ADR-0008, Q-39). |
 | 9 | Handler → service | Runs in one transaction with `SET LOCAL app.user_id`; domain functions compute progress/XP/streaks; writes `xp_events`, `audit_events`, `email_outbox` in the same transaction. |
 | 10 | Response | Zod response schema parse → JSON; `ETag` from `version` for mutable resources. |
 | 11 | Error handler | Maps known errors to problem types; everything else → `500 urn:questline:problem:internal` (no detail); logs `error.name`, `request_id`, route — never the body. |
@@ -141,6 +141,13 @@ and encodes the last returned row as `next_cursor`. Keyset pages neither repeat 
 deleted between requests. A cursor that does not decode to a canonical instant and a UUID v4 → `400` (pointer
 `/cursor`, static message); `limit` accepts plain decimals 1–100 only, default 20 (R-IN-01).
 
+Idempotency (`idempotency.ts` with the store in `platform/idempotency`, M3): `idempotentRequest` checks the
+`Idempotency-Key` (one UUID v4, else `400`) and digests the canonical JSON of path parameters and body;
+`runIdempotent` takes a transaction-scoped advisory lock on (user, route, key) inside the service's transaction,
+replays a live record with the same digest, answers `key_reused` for another digest, or runs the work and stores
+its response (headers and body, encrypted with the user's data key) in the same transaction. `sendIdempotent` adds
+`Idempotency-Replayed: true` to replays and turns `key_reused` into `422 idempotency-key-reused` (ADR-0008, Q-39).
+
 ### 4.5 Logging (`platform/logging`)
 
 - Pino JSON logs. The default Fastify request/response serializers are replaced by an **allowlist** serializer:
@@ -187,10 +194,10 @@ deleted between requests. A cursor that does not decode to a canonical instant a
   most 100 per run): unverified accounts after 7 d (cascade), used or expired one-time tokens, session token
   generations whose refresh token expired (rotated ones are kept until then for reuse detection; revocation deletes
   a session's tokens at once), sessions 7 d after revocation, absolute expiry or the end of their refresh lifetime,
-  audit events after 90 d, rate-limit buckets untouched for 24 h, dead letters after 7 d, tombstones after 35 d and
-  job runs after 30 d. Later milestones add idempotency keys (24 h, M3), daily habit-period closing and gamble
-  settlement after local midnight per user timezone (A-20, A-21, M3) and the hard delete of deactivated accounts
-  after 30 days with tombstone (R-PRIV-06, M4).
+  audit events after 90 d, rate-limit buckets untouched for 24 h, idempotency records when their 24 h are over (M3),
+  dead letters after 7 d, tombstones after 35 d and job runs after 30 d. Later milestones add daily habit-period
+  closing and gamble settlement after local midnight per user timezone (A-20, A-21, M3) and the hard delete of
+  deactivated accounts after 30 days with tombstone (R-PRIV-06, M4).
 - Email sending is the worker's only outbound call: `SmtpEmailSender` (`nodemailer`, TLS required — STARTTLS on
   587 or implicit TLS on 465, ADR-0014). Tests use `FakeEmailSender`, which exposes delivered messages (so tests
   can extract verification links), and a local SMTP test server for the real sender.

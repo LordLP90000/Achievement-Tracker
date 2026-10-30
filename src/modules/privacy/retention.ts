@@ -5,6 +5,7 @@ import {
   deleteAuditEvents,
   deleteDeadLetters,
   deleteEndedSessions,
+  deleteExpiredIdempotencyKeys,
   deleteExpiredSessionTokens,
   deleteJobRuns,
   deleteRateLimitBuckets,
@@ -82,6 +83,7 @@ export function retentionJobs(options: RetentionOptions = {}): ScheduledJob[] {
     job('purge_rate_limit_buckets', (tx, now, limit) =>
       deleteRateLimitBuckets(tx, before(now, RETENTION.rateLimitBucketMs), limit),
     ),
+    job('purge_idempotency_keys', deleteExpiredIdempotencyKeys),
     job('purge_dead_letters', (tx, now, limit) => deleteDeadLetters(tx, before(now, RETENTION.deadLetterMs), limit)),
     job('purge_tombstones', (tx, now, limit) => deleteTombstones(tx, before(now, RETENTION.tombstoneMs), limit)),
     job('purge_job_runs', (tx, now, limit) => deleteJobRuns(tx, before(now, RETENTION.jobRunMs), limit)),

@@ -288,6 +288,37 @@ describe('account tables', () => {
     ).resolves.toBeDefined();
   });
 
+  it('keeps idempotency records to known routes, 32-byte digests, successful responses and 24 hours [ADR-0008, Q-39]', async () => {
+    const { userId } = await seedAccount();
+    const record = (overrides: Row = {}): Row => ({
+      id: randomUUID(),
+      user_id: userId,
+      route: 'createAchievement',
+      key: randomUUID(),
+      request_hash: randomBytes(32),
+      response_status: 201,
+      response_body_enc: randomBytes(64),
+      created_at: T0,
+      expires_at: at(DAY),
+      ...overrides,
+    });
+    const key = randomUUID();
+
+    await expect(appInsert(userId, 'idempotency_keys', record({ key }))).resolves.toBeDefined();
+    await expect(appInsert(userId, 'idempotency_keys', record({ key }))).rejects.toMatchObject(UNIQUE_VIOLATION);
+    await expect(appInsert(userId, 'idempotency_keys', record({ key, route: 'createQuest' }))).resolves.toBeDefined();
+    for (const invalid of [
+      record({ route: 'updateAchievement' }),
+      record({ request_hash: randomBytes(31) }),
+      record({ response_status: 422 }),
+      record({ response_status: 500 }),
+      record({ expires_at: at(DAY + 1) }),
+      record({ expires_at: T0 }),
+    ]) {
+      await expect(appInsert(userId, 'idempotency_keys', invalid)).rejects.toMatchObject(CHECK_VIOLATION);
+    }
+  });
+
   it('keeps rate-limit buckets keyed by 32-byte hashes only [Q-14]', async () => {
     const bucket = { tokens: 5, updated_at: T0 };
 

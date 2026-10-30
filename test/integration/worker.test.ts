@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startWorker } from '../../src/main/worker.ts';
+import { retentionJobs } from '../../src/modules/privacy/retention.ts';
 import type { EmailConfig, WorkerConfig } from '../../src/platform/config/config.ts';
 import type { ScheduledJob } from '../../src/platform/jobs/scheduler.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
@@ -174,7 +175,7 @@ describe('startWorker', () => {
     });
     await vi.waitFor(async () => {
       const runs = await ctx.worker.sql<{ count: number }[]>`select count(*)::int as count from job_runs`;
-      expect(runs[0]?.count).toBe(9);
+      expect(runs[0]?.count).toBe(retentionJobs().length);
     });
     await worker.stop();
 

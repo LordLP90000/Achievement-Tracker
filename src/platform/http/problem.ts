@@ -45,8 +45,14 @@ export const Problems = {
   payloadTooLarge: { status: 413, slug: 'payload-too-large', title: 'Payload Too Large' },
   unsupportedMediaType: { status: 415, slug: 'unsupported-media-type', title: 'Unsupported Media Type' },
   weakPassword: { status: 422, slug: 'weak-password', title: 'Password is too easy to guess' },
-  /** A rate limit (R-AUTH-08) or saturated password hashing (D-01); set 
-etryAfterSeconds to the real wait. */
+  /** ADR-0008: an `Idempotency-Key` already used for a different request of the same operation (T-13). */
+  idempotencyKeyReused: {
+    status: 422,
+    slug: 'idempotency-key-reused',
+    title: 'Idempotency key already used for another request',
+    errors: [{ pointer: '', message: 'Use a new Idempotency-Key for a different request.' }],
+  },
+  /** A rate limit (R-AUTH-08) or saturated password hashing (D-01); set `retryAfterSeconds` to the real wait. */
   rateLimited: { status: 429, slug: 'rate-limited', title: 'Too Many Requests', retryAfterSeconds: 1 },
   internal: { status: 500, slug: 'internal', title: 'Internal Server Error' },
 } as const satisfies Record<string, ProblemDefinition>;

@@ -20,6 +20,7 @@ const EXPECTED_GRANTS: Readonly<Record<string, { readonly app: string[]; readonl
   deleted_user_tombstones: { app: [], worker: ['SELECT', 'INSERT', 'DELETE'] },
   email_outbox: { app: ['INSERT'], worker: ['SELECT', 'UPDATE', 'DELETE'] },
   gambles: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: [] },
+  idempotency_keys: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
   job_runs: { app: [], worker: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'] },
   one_time_tokens: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
   quests: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: [] },

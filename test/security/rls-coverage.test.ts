@@ -11,6 +11,7 @@ const RLS_TABLES = [
   'consents',
   'email_outbox',
   'gambles',
+  'idempotency_keys',
   'quests',
   'sessions',
   'user_keys',

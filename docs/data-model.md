@@ -317,18 +317,22 @@ Removed on re-lock (R-ACH-05) and on achievement deletion. Index `(user_id)`.
 
 Retention 90 days (worker job). Included in export; deleted with the account.
 
-#### `idempotency_keys` RLS (ADR-0008)
+#### `idempotency_keys` RLS (ADR-0008, Q-39)
 
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | uuid PK | |
+| `id` | uuid PK | AD record id of `response_body_enc` |
 | `user_id` | uuid → `users` CASCADE | |
-| `route` | text NOT NULL | `operationId` |
+| `route` | text NOT NULL CHECK IN (`createAchievement`, `createQuest`, `placeGamble`, `createCheckIn`) | `operationId` |
 | `key` | uuid NOT NULL | UNIQUE (`user_id`, `route`, `key`) |
-| `request_hash` | bytea(32) NOT NULL | SHA-256 of canonical body |
-| `response_status` | integer NOT NULL | |
-| `response_body_enc` 🔒 | bytea NOT NULL | may contain goal content |
-| `created_at`, `expires_at` | timestamptz NOT NULL | 24 h |
+| `request_hash` | bytea(32) NOT NULL | SHA-256 of canonical JSON (sorted properties) of path parameters and body |
+| `response_status` | integer NOT NULL CHECK 200–299 | only successful responses are stored (Q-39) |
+| `response_body_enc` 🔒 | bytea NOT NULL | JSON `{headers: {etag, location}, body}`; may contain goal content |
+| `created_at`, `expires_at` | timestamptz NOT NULL | `expires_at` ≤ `created_at` + 24 h |
+
+Written in the request's own transaction behind an advisory lock on (user, route, key), so it commits with the
+effect or not at all; a request whose key's record expired replaces it (UPDATE). Index `(expires_at)` for the hourly
+purge job (worker). No `dek_version`: like `email_outbox.payload_enc`, it lives shorter than a key rotation.
 
 #### `email_outbox` (worker role; RLS for the app role)
 
@@ -417,9 +421,10 @@ row is added here and in the test. Cascading deletes need no grant (they run as 
 | `check_ins` (M3) | SELECT, INSERT, DELETE | — | RLS; immutable, an undo deletes |
 | `xp_events` (M3) | SELECT, INSERT, DELETE — only after the goal-content consent is withdrawn (restrictive policy) | — | RLS; append-only ledger |
 | `badges` (M3) | SELECT, INSERT, DELETE | — | RLS |
+| `idempotency_keys` (M3) | SELECT, INSERT, UPDATE (replacing an expired record) | SELECT, DELETE (purge) | RLS |
 
-`idempotency_keys` (M3) is added with its grants when it is migrated. The worker gets no goal-content privileges in
-migration 0004; the daily habit and gamble jobs (M3) add exactly what they need.
+The worker gets no goal-content privileges in migration 0004; the daily habit and gamble jobs (M3) add exactly what
+they need.
 `test/security/rls-coverage.test.ts` fails for any table that is neither RLS-protected nor listed as ⟂, and for any
 API policy that is not bound to `app_current_user_id()`.
 

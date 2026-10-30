@@ -5,6 +5,7 @@ import {
   auditEvents,
   deletedUserTombstones,
   emailOutbox,
+  idempotencyKeys,
   jobRuns,
   oneTimeTokens,
   rateLimitBuckets,
@@ -88,6 +89,11 @@ export function deleteRateLimitBuckets(tx: Transaction, updatedBefore: Date, lim
     lte(rateLimitBuckets.updatedAt, updatedBefore),
     limit,
   );
+}
+
+/** Stored responses whose 24 hours are over (ADR-0008): their keys may already be reused. */
+export function deleteExpiredIdempotencyKeys(tx: Transaction, now: Date, limit: number): Promise<number> {
+  return deleteBatch(tx, idempotencyKeys, idempotencyKeys.id, lte(idempotencyKeys.expiresAt, now), limit);
 }
 
 /** Dead letters only: an email that is still waiting is never deleted by retention. */

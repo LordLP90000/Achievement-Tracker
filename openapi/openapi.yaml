@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.5-draft
+  version: 0.2.6-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -14,6 +14,7 @@ info:
     0.2.4 (2026-10-29): undo only on the day of the check-in (`409`, Q-36); habit settings fixed while a run is
     open (Q-37); no counting check-in before a habit's run begins (A-36).
     0.2.5 (2026-10-29): locked habits and their prerequisite (Q-38); a completed quest keeps its target values (A-37).
+    0.2.6 (2026-10-29): `Idempotency-Key` replays successful responses only; a reused key → `422` (Q-39, ADR-0008).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -1037,7 +1038,13 @@ components:
       name: Idempotency-Key
       in: header
       required: true
-      description: Client-generated UUID v4; same key + same body replays the first response for 24 h.
+      description: >-
+        Client-generated UUID v4, scoped to the user and the operation. A repeat of a successful request with the
+        same key, path and body within 24 h is not run again: it receives the first response (status, `ETag`,
+        `Location`, body) with `Idempotency-Replayed: true`, also while the first request is still running. The same
+        key with a different path or body → `422 urn:questline:problem:idempotency-key-reused`. A request that failed
+        changed nothing and is not stored, so its retry with the same key runs again (Q-39). Missing or not a UUID v4
+        → `400`.
       schema: { $ref: '#/components/schemas/Uuid' }
     IfMatch:
       name: If-Match

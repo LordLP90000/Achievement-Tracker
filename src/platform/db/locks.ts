@@ -11,3 +11,11 @@ export async function tryTransactionLock(tx: Transaction, name: string): Promise
   );
   return rows[0]?.locked === true;
 }
+
+/**
+ * Waits for the transaction-scoped advisory lock called `name`, released at commit or rollback; the wait counts
+ * against the statement timeout (D-06).
+ */
+export async function transactionLock(tx: Transaction, name: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${name}, 0))`);
+}

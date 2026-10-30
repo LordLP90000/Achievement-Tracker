@@ -65,6 +65,7 @@ describe('retention jobs', () => {
       'purge_sessions',
       'purge_audit_events',
       'purge_rate_limit_buckets',
+      'purge_idempotency_keys',
       'purge_dead_letters',
       'purge_tombstones',
       'purge_job_runs',
@@ -190,6 +191,20 @@ describe('retention jobs', () => {
     expect(await total('rate_limit_buckets')).toBe(1);
   });
 
+  it('deletes idempotency records when their 24 hours are over [ADR-0008]', async () => {
+    const account = await ctx.account();
+    for (const offset of [0, 1]) {
+      await ctx.admin.sql`
+        insert into idempotency_keys
+          (id, user_id, route, key, request_hash, response_status, response_body_enc, created_at, expires_at)
+        values (${randomUUID()}, ${account.userId}, 'createAchievement', ${randomUUID()}, ${randomBytes(32)}, 201,
+                ${randomBytes(64)}, ${at(offset - MS.day)}, ${at(offset)})`;
+    }
+
+    expect(await run('purge_idempotency_keys')).toBe(1);
+    expect(await total('idempotency_keys')).toBe(1);
+  });
+
   it('deletes dead letters after 7 days and never touches emails still waiting', async () => {
     const account = await ctx.account({ verified: false });
     await ctx.account({ verified: false });
@@ -243,8 +258,8 @@ describe('retention jobs', () => {
 
     const outcomes = await scheduler.runDue();
 
-    expect(outcomes.map((outcome) => outcome.outcome)).toEqual(Array(9).fill('succeeded'));
+    expect(outcomes.map((outcome) => outcome.outcome)).toEqual(Array(10).fill('succeeded'));
     expect(outcomes[0]).toEqual({ job: 'purge_unverified_accounts', outcome: 'succeeded', processed: 1 });
-    expect((await ctx.admin.sql`select 1 from job_runs where status = 'succeeded'`).length).toBe(9);
+    expect((await ctx.admin.sql`select 1 from job_runs where status = 'succeeded'`).length).toBe(10);
   });
 });

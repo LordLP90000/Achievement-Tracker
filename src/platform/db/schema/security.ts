@@ -1,9 +1,9 @@
 import { sql } from 'drizzle-orm';
-import { check, cidr, doublePrecision, index, integer, jsonb, pgTable, text, uuid } from 'drizzle-orm/pg-core';
+import { check, cidr, doublePrecision, index, integer, jsonb, pgTable, text, unique, uuid } from 'drizzle-orm/pg-core';
 import { users } from './accounts.ts';
 import { bytea, timestamptz } from './types.ts';
 
-/** Audit, email outbox, rate limiting and deletion records (docs/data-model.md §3.5). */
+/** Audit, email outbox, rate limiting, deletion and idempotency records (docs/data-model.md §3.5). */
 
 export const auditEvents = pgTable(
   'audit_events',
@@ -98,3 +98,38 @@ export const deletedUserTombstones = pgTable('deleted_user_tombstones', {
   userId: uuid('user_id').primaryKey(),
   deletedAt: timestamptz('deleted_at').notNull(),
 });
+
+/**
+ * The successful response of a create request, replayed for 24 hours to a retry with the same `Idempotency-Key`
+ * (ADR-0008, Q-39). Headers and body are encrypted with the user's data key: they may hold goal content.
+ */
+export const idempotencyKeys = pgTable(
+  'idempotency_keys',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    route: text('route').notNull(),
+    key: uuid('key').notNull(),
+    requestHash: bytea('request_hash').notNull(),
+    responseStatus: integer('response_status').notNull(),
+    responseBodyEnc: bytea('response_body_enc').notNull(),
+    createdAt: timestamptz('created_at').notNull(),
+    expiresAt: timestamptz('expires_at').notNull(),
+  },
+  (table) => [
+    unique('idempotency_keys_user_route_key_unique').on(table.userId, table.route, table.key),
+    index('idempotency_keys_expires_idx').on(table.expiresAt),
+    check(
+      'idempotency_keys_route_check',
+      sql`${table.route} in ('createAchievement', 'createQuest', 'placeGamble', 'createCheckIn')`,
+    ),
+    check('idempotency_keys_request_hash_check', sql`octet_length(${table.requestHash}) = 32`),
+    check('idempotency_keys_response_status_check', sql`${table.responseStatus} between 200 and 299`),
+    check(
+      'idempotency_keys_lifetime_check',
+      sql`${table.expiresAt} > ${table.createdAt} and ${table.expiresAt} <= ${table.createdAt} + interval '24 hours'`,
+    ),
+  ],
+);

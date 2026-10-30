@@ -163,6 +163,14 @@ Format: Context → Decision → Consequences → Tests that enforce it.
     problem body. (HTTP would also allow 412; the brief specifies 409 and we follow it.)
 - **Tests:** `integration/idempotency.test.ts` (replay, body mismatch, cross-user key isolation, expiry),
   `integration/concurrency.test.ts` (stale version → 409, missing header → 428).
+- **Amendment (2026-10-29, M3, Q-39):** only successful responses are stored and replayed; a request that failed
+  changed nothing and runs again on retry. The request digest is SHA-256 over canonical JSON (properties sorted) of
+  the path parameters and the body, so the same key under another parent is a different request. The record is
+  written in the request's own transaction behind a transaction-scoped advisory lock on (user, route, key): it
+  commits with the effect or not at all, and a concurrent duplicate waits for the first request, then replays its
+  response (no `409` for requests in flight). `response_body_enc` holds the replayed headers (`ETag`, `Location`)
+  with the body. A request with a key whose record expired replaces it; an hourly worker job deletes expired
+  records. Code: `src/platform/idempotency/`, `src/platform/http/idempotency.ts`.
 
 ## ADR-0009 · PostgreSQL for rate limiting, outbox and scheduled jobs (no Redis/queue in v1)
 
