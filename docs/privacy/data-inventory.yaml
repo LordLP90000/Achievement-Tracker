@@ -168,6 +168,7 @@ tables:
       habit_start_date:        { category: C6, personal: true }
       habit_week_start:        { category: C6, personal: true }
       reset_count:             { category: C7, personal: true }
+      habit_best_streak:       { category: C7, personal: true }
       needs_restart:           { category: C7, personal: true }
       completed_at:            { category: C7, personal: true }
       dek_version:             { category: C2, personal: false, export: excluded, export_reason: key-management metadata }

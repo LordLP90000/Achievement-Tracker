@@ -202,7 +202,7 @@ Pure, exhaustively tested functions:
 | `habit-reset.ts` | `evaluateHabit(habit, countingDates, today)` → `running` (met periods and the open period, Q-35), `completed` (as soon as the K-th period is met, without waiting for it to close) or `reset` (the first closed period with < N counting check-ins → `needs_restart`); a pure function, so lazy (read/write) and daily-job evaluation give the same result (A-21) |
 | `periods.ts` | `periodKeyFor(localDate, period, weekStart)`, `enumeratePeriods(start, until, period, weekStart)`; weeks start on `monday`, `sunday` or `saturday` (R-QST-09); a habit's first weekly period runs to the end of the first full week (Q-33) and a run keeps the week start it began with (Q-34) |
 | `duration.ts` | `durationFactor(quest)` from the habit span in days, `effectiveXp(size, factor)` (R-XP-02) |
-| `streak.ts` | `currentStreak(...)` of the current attempt, `bestStreak(...)` across attempts |
+| `streak.ts` | `habitStreak(evaluation, bestOfEndedRuns)` → current (met periods of the open or completed run, 0 after a reset) and best; `bestAfterRunEnds` (stored per quest as `habit_best_streak` when a run ends by a reset or pause); `topStreaks` for the stats (best, then current, then quest ID) |
 | `xp.ts` | `xpThreshold(level)` (`100 × 3^(L−2)`), `levelForXp`, `xpToNextLevel`, safe-integer assertions (R-XP-03/04) |
 | `rank.ts` | `executionScore(...)`, `isFlawless(...)`, `rankForScore(score, flawless)`, `rankBonus(requiredXp, rank)` (R-RANK-01…03) |
 | `gamble.ts` | `canPlace(...)` guards, `stakeFor(totalXp)`, `settle(gamble, event)` → won / lost / reverted with XP delta (R-GMB-*) |
