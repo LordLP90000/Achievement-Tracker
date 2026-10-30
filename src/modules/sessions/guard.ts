@@ -27,6 +27,11 @@ declare module 'fastify' {
 /** RFC 9110: the scheme is case-insensitive; exactly one space before the token. */
 const BEARER = /^bearer (\S+)$/i;
 
+/** The token of an `Authorization: Bearer <token>` header; undefined for any other header or none. */
+export function bearerTokenOf(header: string | undefined): string | undefined {
+  return BEARER.exec(header ?? '')?.[1];
+}
+
 /**
  * Deny by default (R-AUTHZ-01): every route registered in `app` after this call needs a valid access token unless
  * its config says `public: true`. Runs before the body is parsed, so unauthenticated requests cost no parsing.
@@ -35,7 +40,7 @@ export function registerAuthGuard(app: FastifyInstance, authenticator: Authentic
   app.decorateRequest('principal', null);
   app.addHook('onRequest', async (request) => {
     if (request.routeOptions.config.public === true) return;
-    const token = BEARER.exec(request.headers.authorization ?? '')?.[1];
+    const token = bearerTokenOf(request.headers.authorization);
     const principal = token === undefined ? undefined : await authenticator.authenticate(token);
     request.principal = principal ?? deny();
   });

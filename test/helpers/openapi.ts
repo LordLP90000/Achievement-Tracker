@@ -15,6 +15,8 @@ export interface SpecOperation {
   readonly pattern: RegExp;
   /** True when the operation declares a `requestBody`. */
   readonly hasRequestBody: boolean;
+  /** The JSON schema of its request body, resolved one level; undefined without a body. */
+  readonly requestBodySchema: Node | undefined;
   /** Its parameters and those of its path: `$ref`s, or `in:name` for inline ones. */
   readonly parameters: readonly string[];
   /** True unless the operation (or the spec) declares `security: []`. */
@@ -49,6 +51,12 @@ const parameterNames = (parameters: unknown): string[] =>
       : `${String(parameter['in'])}:${String(parameter['name'])}`,
   );
 
+function requestBodySchemaOf(requestBody: unknown): Node | undefined {
+  if (requestBody === undefined) return undefined;
+  const content = resolveRef(requestBody)['content'] as Record<string, Node>;
+  return resolveRef(content['application/json']?.['schema']);
+}
+
 export const specOperations: readonly SpecOperation[] = Object.entries(spec['paths'] as Node).flatMap(
   ([template, rawItem]) => {
     const item = rawItem as Node;
@@ -62,6 +70,7 @@ export const specOperations: readonly SpecOperation[] = Object.entries(spec['pat
         fastifyPath: path.replace(/\{([^}]+)\}/g, ':$1'),
         pattern: new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`),
         hasRequestBody: operation['requestBody'] !== undefined,
+        requestBodySchema: requestBodySchemaOf(operation['requestBody']),
         parameters: [...parameterNames(item['parameters']), ...parameterNames(operation['parameters'])],
         requiresAuth: ((operation['security'] ?? spec['security'] ?? []) as unknown[]).length > 0,
         responses: operation['responses'] as Node,
