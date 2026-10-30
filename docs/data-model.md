@@ -263,7 +263,7 @@ Immutable (no `version`); an undo deletes the row, possible only on the day it w
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | |
-| `kind` | text CHECK IN (`quest_completed`, `quest_uncompleted`, `rank_bonus`, `rank_bonus_revoked`, `gamble_won`, `gamble_lost`, `pause_revoked`, `quest_deleted`, `achievement_deleted`) | |
+| `kind` | text CHECK IN (`quest_completed`, `quest_uncompleted`, `rank_bonus`, `rank_bonus_revoked`, `gamble_won`, `gamble_lost`, `gamble_reverted`, `pause_revoked`, `quest_deleted`, `achievement_deleted`, `xp_floor`) | `gamble_reverted`: an undo re-locked the unlock that won the gamble; `xp_floor`: see below (A-38) |
 | `amount` | bigint NOT NULL | signed; reversals are negative |
 | `quest_id` | uuid NULL → `quests` ON DELETE SET NULL | |
 | `achievement_id` | uuid NULL → `achievements` ON DELETE SET NULL | |
@@ -271,8 +271,10 @@ Immutable (no `version`); an undo deletes the row, possible only on the day it w
 | `local_date` | date NOT NULL | for "XP over time" (A-13) |
 | `created_at` | timestamptz NOT NULL | |
 
-Total XP = `SUM(amount)` (never below 0 by construction, R-XP-04); level derived in code. Exactly-once is
-guaranteed by the effects engine running under `SELECT … FOR UPDATE` on the quest/achievement rows.
+Total XP = `SUM(amount)`, never below 0: revocations are exact, so if a lost gamble took XP that is later revoked, an
+`xp_floor` event brings the sum back to 0 (R-XP-04, A-38); level derived in code. Exactly-once is guaranteed by the
+effects engine (`src/domain/effects.ts`), which appends only the difference between the XP the ledger credits and
+the XP the state deserves, running under `SELECT … FOR UPDATE` on the quest/achievement rows.
 
 #### `badges` RLS
 

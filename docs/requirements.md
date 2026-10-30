@@ -7,7 +7,7 @@ Later on 2026-10-22: R-TLS/R-LOG/R-SUP rows restored from v1 (R-SUP-04 adapted t
 open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.1); O-02/O-03 moved to "before M6".
 2026-10-29: A-26…A-28 accepted with the PM's "go" for M2. 2026-10-29 (M2 review, the PM's "go" for M3): A-02 as
 refined and A-29…A-33 accepted; decisions Q-30…Q-32 (§6.3) close O-05, O-06 and O-07; A-34 and A-35 proposed.
-Later on 2026-10-29: Q-33…Q-38 on habit periods, undo, habit edits and locked habits (§6.4); A-36 and A-37 proposed.
+Later on 2026-10-29: Q-33…Q-38 on habit periods, undo, habit edits and locked habits (§6.4); A-36…A-38 proposed.
 
 ## 1. Product summary
 
@@ -233,6 +233,7 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | A-35 | **[proposed 2026-10-29]** The **deadline** of an attempt (Q-31, R-RANK-01 b) is the earliest `target_date` in effect at any time during the attempt: it starts as the `target_date` when the attempt starts (creation, or the resume that starts attempt n + 1); an earlier new date moves it, a later date or removing the date does not. It is stored encrypted like `target_date` (Q-24) in `achievements.deadline_enc` and is not an API field (it shows through score and rank; the export, M4, includes it — exposing it would be an additive contract change). Gamble settlement keeps using `target_date`, which cannot change while a gamble is pending (A-26). |
 | A-36 | **[proposed 2026-10-29]** A counting check-in (dated today) on a habit whose run has not begun yet (`start_date` after today) is refused with `422`: it would belong to no period and silently count for nothing. Back-dated check-ins stay possible as history (R-CHK-04). |
 | A-37 | **[proposed 2026-10-29]** A completed quest keeps its target values (`start_value`, `target_value`; `422`): changing them could make it incomplete again and re-lock a running habit that requires it, which would stop that habit's periods (Q-38) — a way around a reset. Title, notes, unit and the other fields stay editable. |
+| A-38 | **[proposed 2026-10-29]** XP revocations are exact (R-XP-01), so when a lost gamble took XP that is later revoked (by a pause or a deletion) the total would fall below 0; an `xp_floor` ledger event then brings it back to 0 (R-XP-04) and later XP counts in full. The ledger also records an undone winning unlock as `gamble_reverted`. |
 
 ## 6. Decisions taken by the PM (2026-10-22)
 
