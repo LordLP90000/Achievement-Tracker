@@ -1,6 +1,7 @@
 import type { LocalDate } from '../../domain/dates.ts';
 import { parseDecimal } from '../../domain/decimal.ts';
 import {
+  deleteQuestEffects,
   reconcile,
   type AchievementFacts,
   type Outcome,
@@ -89,6 +90,34 @@ export interface GoalSync {
   readonly totalXp: number;
 }
 
+export interface SyncOptions {
+  /**
+   * Quests that were locked before the change being synced (a new or removed prerequisite, a deleted one): a habit
+   * among them that is unlocked now starts its run today if its start date has passed (Q-38).
+   */
+  readonly lockedBefore?: ReadonlySet<string>;
+}
+
+/** What a change did (contract `Effects`): the achievement afterwards and the outcomes of the syncs around it. */
+export interface GoalEffects {
+  readonly view: AchievementView;
+  /** In order; a change reports what the sync before it found as well (a reset, a lost gamble, A-21). */
+  readonly outcomes: readonly Outcome[];
+  readonly totalXp: number;
+}
+
+export function effectsOf(before: GoalSync, after: GoalSync): GoalEffects {
+  return {
+    view: after.view,
+    outcomes: [before.outcome, after.outcome].filter((outcome) => outcome !== null),
+    totalXp: after.totalXp,
+  };
+}
+
+/** The quests a view shows as locked, for the sync after a change (Q-38). */
+export const lockedQuestsOf = (view: AchievementView): ReadonlySet<string> =>
+  new Set(view.quests.filter((quest) => quest.evaluation.state === 'locked').map((quest) => quest.record.id));
+
 /** A transaction bound to the user (RLS) under their goal lock, with their data key and their today. */
 export function withGoals<T>(
   deps: GoalDependencies,
@@ -156,6 +185,7 @@ function evaluateQuests(
   day: LocalDate,
   mode: Mode,
   scope: GoalScope,
+  lockedBefore: ReadonlySet<string>,
 ): Evaluated[] {
   const byId = new Map(quests.map((quest) => [quest.id, quest]));
   const evaluated = new Map<string, Evaluated>();
@@ -169,12 +199,12 @@ function evaluateQuests(
     // A stored cycle (refused on every write, A-16) unlocks nothing.
     const prerequisiteDone =
       prerequisite === undefined || (!visiting.has(prerequisite.id) && evaluate(prerequisite).evaluation.completed);
-    // Q-38: a habit whose prerequisite completes now starts its run today, or on its later start date.
-    const unlocking = mode === 'live' && prerequisite !== undefined && prerequisiteDone;
+    // Q-38: a habit unlocked now — its prerequisite completes now, or the change being synced unlocked it — starts its
+    // run today, or on its later start date.
+    const unlocking =
+      mode === 'live' && prerequisiteDone && (lockedBefore.has(quest.id) || prerequisite?.completedAt === null);
     const unlockStart =
-      unlocking && prerequisite.completedAt === null && quest.habit !== null && !quest.needsRestart
-        ? habitStartOnUnlock(quest.habit.startDate, day)
-        : null;
+      unlocking && quest.habit !== null && !quest.needsRestart ? habitStartOnUnlock(quest.habit.startDate, day) : null;
     const moved = unlockStart !== null && unlockStart !== quest.habit?.startDate;
     const habit =
       quest.habit === null
@@ -194,12 +224,21 @@ function evaluateQuests(
       day,
     );
     const completionChanged = mode !== 'paused' && evaluation.completed !== (quest.completedAt !== null);
+    // Only a quest being deleted is missing from its achievement: its dependents no longer require it (R-QST-08).
+    const detached = quest.prerequisiteQuestId !== null && prerequisite === undefined;
     const change: QuestStateChange = {
       ...(mode === 'live' && evaluation.reset !== null
         ? { needsRestart: true, resetCount: quest.resetCount + 1, habitBestStreak: evaluation.reset.bestOfEndedRuns }
         : {}),
-      ...(moved && habit !== null ? { habitStartDate: habit.startDate, habitWeekStart: habit.weekStart } : {}),
+      ...(moved && habit !== null
+        ? {
+            habitStartDate: habit.startDate,
+            // Daily runs have no week start (data-model §3.3).
+            ...(habit.period === 'week' ? { habitWeekStart: habit.weekStart } : {}),
+          }
+        : {}),
       ...(completionChanged ? { completedAt: evaluation.completed ? scope.now : null } : {}),
+      ...(detached ? { prerequisiteQuestId: null } : {}),
     };
     const result = { record: quest, evaluation, change };
     visiting.delete(quest.id);
@@ -255,7 +294,10 @@ function viewOf(
       progress: evaluation.progress,
     })),
   );
-  const credited = [...ledger.questCredits.values()].reduce((sum, xp) => sum + xp, ledger.rankBonusCredited);
+  const credited = quests.reduce(
+    (sum, { record }) => sum + (ledger.questCredits.get(record.id) ?? 0),
+    ledger.rankBonusCredited,
+  );
   const added = events.filter((event) => EARNED_KINDS.has(event.kind)).reduce((sum, event) => sum + event.amount, 0);
   return {
     record: achievement,
@@ -266,27 +308,38 @@ function viewOf(
   };
 }
 
-/**
- * Evaluates the achievement now and stores what follows from it; undefined unless it is the user's. Idempotent:
- * a second call without a change in between finds nothing left to do.
- */
-export async function syncAchievement(scope: GoalScope, achievementId: string): Promise<GoalSync | undefined> {
+/** Evaluates the achievement now and stores what follows from it; with `deleting`, as if that quest were gone. */
+async function settle(
+  scope: GoalScope,
+  achievementId: string,
+  options: SyncOptions & { readonly deleting?: QuestRecord },
+): Promise<GoalSync | undefined> {
   const { tx, userId, dataKey } = scope;
+  const { deleting } = options;
   const achievements = achievementsRepository(tx, userId, dataKey);
   const achievement = await achievements.find(achievementId);
   if (achievement === undefined) return undefined;
   const records = await questsRepository(tx, userId, dataKey).listByAchievement(achievement.id);
-  const questIds = records.map((quest) => quest.id);
-  const ledger = await ledgerFacts(tx, userId, achievement.id, questIds);
+  // The ledger is read with the deleted quest, whose credit the deletion revokes (Q-12).
+  const ledger = await ledgerFacts(
+    tx,
+    userId,
+    achievement.id,
+    records.map((quest) => quest.id),
+  );
+  const kept = records.filter((quest) => quest.id !== deleting?.id);
+  const keptIds = kept.map((quest) => quest.id);
   const mode: Mode =
     achievement.status === 'active' ? 'live' : achievement.status === 'completed' ? 'archive' : 'paused';
+  if (deleting !== undefined && mode === 'archive') throw new Error('a completed achievement is read-only');
   const day = mode === 'archive' ? localDateOf(achievement.completedAt ?? scope.now, scope.timeZone) : scope.today;
   const counting =
     mode === 'paused'
       ? new Map<string, CountingCheckInRecord[]>()
-      : await checkInsRepository(tx, userId, dataKey).countingByQuest(questIds, achievement.attempt);
-  const quests = await storeQuestChanges(scope, evaluateQuests(records, counting, day, mode, scope));
-  if (mode === 'paused') {
+      : await checkInsRepository(tx, userId, dataKey).countingByQuest(keptIds, achievement.attempt);
+  const evaluated = evaluateQuests(kept, counting, day, mode, scope, options.lockedBefore ?? new Set());
+  const quests = await storeQuestChanges(scope, evaluated);
+  if (mode === 'paused' && deleting === undefined) {
     return { view: viewOf(achievement, quests, ledger, []), outcome: null, totalXp: ledger.totalXp };
   }
 
@@ -314,10 +367,54 @@ export async function syncAchievement(scope: GoalScope, achievementId: string): 
   }));
   const habitReset = quests.some((quest) => quest.change.needsRestart === true);
   const context = { nowMs: scope.now.getTime(), today: day, totalXp: ledger.totalXp };
-  const outcome = reconcile(facts, questFacts, context, { habitReset });
+  const outcome =
+    deleting === undefined
+      ? reconcile(facts, questFacts, context, { habitReset })
+      : deleteQuestEffects(
+          facts,
+          [...questFacts, deletedQuestFacts(deleting, ledger.questCredits.get(deleting.id) ?? 0)],
+          deleting.id,
+          context,
+          { habitReset },
+        );
 
   await appendXpEvents(tx, userId, achievement.id, outcome.events, scope.today, scope.now);
   const stored = await storeCompletion(scope, achievements, achievement, outcome);
   if (outcome.gamble !== null) await settleGamble(tx, userId, outcome.gamble, scope.now);
+  // Last, so the revocation above still names the quest; its check-ins go with it, its ledger events stay (R-XP-01).
+  if (deleting !== undefined) await questsRepository(tx, userId, dataKey).remove(deleting.id);
   return { view: viewOf(stored, quests, ledger, outcome.events), outcome, totalXp: outcome.totalXp };
+}
+
+/** A quest being deleted deserves nothing any more: what the ledger credits it is revoked (Q-12). */
+const deletedQuestFacts = (quest: QuestRecord, credited: number): QuestFacts => ({
+  id: quest.id,
+  isRequired: quest.isRequired,
+  xp: 0,
+  resetCount: quest.resetCount,
+  completed: false,
+  credited,
+});
+
+/**
+ * Evaluates the achievement now and stores what follows from it; undefined unless it is the user's. Idempotent:
+ * a second call without a change in between finds nothing left to do.
+ */
+export function syncAchievement(
+  scope: GoalScope,
+  achievementId: string,
+  options: SyncOptions = {},
+): Promise<GoalSync | undefined> {
+  return settle(scope, achievementId, options);
+}
+
+/**
+ * Deletes a quest of an active or paused achievement (R-QST-08, Q-12): revokes what it credits, reconciles the rest —
+ * deleting the last open required quest unlocks the achievement — detaches the quests that required it, and deletes
+ * it with its check-ins. Sync the achievement first, in the same transaction, to check the request against it.
+ */
+export async function deleteQuest(scope: GoalScope, quest: QuestRecord, options: SyncOptions = {}): Promise<GoalSync> {
+  const synced = await settle(scope, quest.achievementId, { ...options, deleting: quest });
+  if (synced === undefined) throw new Error('the achievement of the quest to delete is gone');
+  return synced;
 }

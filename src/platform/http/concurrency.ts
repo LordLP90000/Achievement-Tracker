@@ -1,3 +1,6 @@
+import { Problems } from './problem.ts';
+import { ProblemError } from './validation.ts';
+
 /** Entity tags for versioned resources (ADR-0008): the ETag mirrors `version`, `If-Match` must name it. */
 
 export type IfMatch =
@@ -15,4 +18,17 @@ export function parseIfMatch(header: string | undefined): IfMatch {
   if (header === undefined) return { kind: 'missing' };
   const match = ENTITY_TAG.exec(header);
   return match?.[1] === undefined ? { kind: 'invalid' } : { kind: 'version', version: Number(match[1]) };
+}
+
+const INVALID_IF_MATCH = {
+  ...Problems.validation,
+  errors: [{ pointer: '', message: 'If-Match must name one version, e.g. "3"' }],
+};
+
+/** The version a mutation's `If-Match` names: without one `428`, anything but one strong tag `400`. */
+export function requireIfMatch(header: string | undefined): number {
+  const ifMatch = parseIfMatch(header);
+  if (ifMatch.kind === 'missing') throw new ProblemError(Problems.preconditionRequired);
+  if (ifMatch.kind === 'invalid') throw new ProblemError(INVALID_IF_MATCH);
+  return ifMatch.version;
 }

@@ -226,7 +226,7 @@ Index `(achievement_id)`.
 | `habit_times_per_period` | integer NULL CHECK 1..50 | habit only |
 | `habit_period_count` | integer NULL CHECK 1..520 | habit only |
 | `habit_start_date` | date NULL | habit only; start of the current attempt's period sequence (re-set on restart; moved to the unlock day when a locked habit unlocks after it, Q-38) |
-| `habit_week_start` | text NULL CHECK IN (`monday`, `sunday`, `saturday`) | weekly habits only (NOT NULL iff `habit_period = 'week'`): the account's `week_start` when this run started, kept until the next restart (Q-34) |
+| `habit_week_start` | text NULL CHECK IN (`monday`, `sunday`, `saturday`) | weekly habits only (NOT NULL iff `habit_period = 'week'`): the account's `week_start` when this run started, kept until the next restart (Q-34) or an edit before the run begins (A-41) |
 | `reset_count` | integer NOT NULL DEFAULT 0 | habit resets within the current achievement attempt (R-QST-04, R-RANK-01) |
 | `habit_best_streak` | integer NOT NULL DEFAULT 0 CHECK ≥ 0 | the longest met-period count of this quest's ended runs (a reset or a pause); kept because a restart replaces `habit_start_date`. The API's best streak is the larger of this and the current run (R-STR-01) |
 | `needs_restart` | boolean NOT NULL DEFAULT false | set by a habit reset; cleared when the user edits `habit.start_date` |
@@ -238,7 +238,10 @@ Index `(achievement_id)`.
 `CHECK` constraints enforce "type-specific columns are NOT NULL iff the type matches" (`unit_enc` optional for
 targets), and that `reset_count`, `habit_best_streak` and `needs_restart` stay at their defaults for non-habits and a
 quest that needs a restart is not completed. Effective XP (`base × duration factor`, R-XP-02) is derived in code, not
-stored. The habit columns change only at a restart or before the run's start date (Q-37).
+stored. The habit columns change only at a restart, before the run's start date, or while the habit is locked or its
+achievement paused (Q-37, Q-38, A-39); such an edit gives the run the account's current `week_start` (A-41). An edit
+re-encrypts every encrypted column under the current data key. Deleting a quest clears `prerequisite_quest_id` on the
+quests that named it itself, bumping their `version` (R-QST-08); the foreign-key action is only the safety net.
 Index `(achievement_id, position)`, `(user_id)`; `UNIQUE (id, user_id)` and `(id, achievement_id)` are the targets of
 the composite foreign keys.
 

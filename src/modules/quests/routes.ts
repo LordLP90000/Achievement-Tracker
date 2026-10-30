@@ -1,12 +1,13 @@
 import type { FastifyPluginCallback } from 'fastify';
 import { z } from 'zod';
-import { etagOf } from '../../platform/http/concurrency.ts';
+import { etagOf, requireIfMatch } from '../../platform/http/concurrency.ts';
 import { idempotentRequest, sendIdempotent } from '../../platform/http/idempotency.ts';
-import { limitReached, Problems, unprocessable } from '../../platform/http/problem.ts';
+import { limitReached, Problems, unprocessable, type ProblemDefinition } from '../../platform/http/problem.ts';
 import { boundedText, isUuidV4, parseRequest, ProblemError } from '../../platform/http/validation.ts';
-import { questJson } from '../goals/representations.ts';
+import { effectsJson, questJson } from '../goals/representations.ts';
 import { principalOf } from '../sessions/guard.ts';
-import { QUEST_LIMIT, type CreateQuestRefusal, type QuestsService } from './service.ts';
+import type { HabitInput, QuestEdit } from './rules.ts';
+import { QUEST_LIMIT, type CreateQuestRefusal, type QuestChangeRefusal, type QuestsService } from './service.ts';
 
 /** Quest endpoints of `openapi/openapi.yaml` (tag `quests`), mounted under `/v1` behind the auth guard. */
 
@@ -44,9 +45,58 @@ const questCreate = z.strictObject({
   target: targetConfig.optional(),
 });
 
+/** `QuestUpdate`: the type never changes (R-QST-07); null clears notes, the prerequisite and the unit (Q-41). */
+const questUpdate = z
+  .strictObject({
+    title: boundedText(1, 120).optional(),
+    notes: boundedText(0, 2000).nullable().optional(),
+    size: z.enum(['S', 'M', 'L']).optional(),
+    is_required: z.boolean().optional(),
+    position: z.number().int().min(0).max(1000).optional(),
+    prerequisite_quest_id: uuid.nullable().optional(),
+    habit: habitConfig.optional(),
+    target: targetConfig.extend({ unit: boundedText(0, 20).nullable().optional() }).optional(),
+  })
+  .refine((update) => Object.keys(update).length > 0, {
+    message: 'needs at least one property',
+    when: (payload) => payload.issues.length === 0,
+  });
+
 const LIMIT_REACHED = limitReached(`At most ${String(QUEST_LIMIT)} quests per achievement`);
 
-function problemOf(refusal: CreateQuestRefusal) {
+type HabitConfig = z.output<typeof habitConfig>;
+
+const habitInputOf = (habit: HabitConfig): HabitInput => ({
+  period: habit.period,
+  timesPerPeriod: habit.times_per_period,
+  periodCount: habit.period_count,
+  startDate: habit.start_date ?? null,
+});
+
+/** The edit as the service takes it: only what the request names (`exactOptionalPropertyTypes`). */
+function editOf(body: z.output<typeof questUpdate>): QuestEdit {
+  const { target } = body;
+  return {
+    ...(body.title === undefined ? {} : { title: body.title }),
+    ...(body.notes === undefined ? {} : { notes: body.notes }),
+    ...(body.size === undefined ? {} : { size: body.size }),
+    ...(body.is_required === undefined ? {} : { isRequired: body.is_required }),
+    ...(body.position === undefined ? {} : { position: body.position }),
+    ...(body.prerequisite_quest_id === undefined ? {} : { prerequisiteQuestId: body.prerequisite_quest_id }),
+    ...(body.habit === undefined ? {} : { habit: habitInputOf(body.habit) }),
+    ...(target === undefined
+      ? {}
+      : {
+          target: {
+            start: target.start_value,
+            target: target.target_value,
+            ...(target.unit === undefined ? {} : { unit: target.unit }),
+          },
+        }),
+  };
+}
+
+function problemOf(refusal: CreateQuestRefusal | QuestChangeRefusal): ProblemDefinition {
   switch (refusal.outcome) {
     case 'consent_required':
       return Problems.consentRequired;
@@ -54,6 +104,8 @@ function problemOf(refusal: CreateQuestRefusal) {
       return Problems.notFound;
     case 'achievement_completed':
       return Problems.achievementCompleted;
+    case 'version_conflict':
+      return { ...Problems.versionConflict, extensions: { current_version: refusal.currentVersion } };
     case 'limit_reached':
       return LIMIT_REACHED;
     case 'invalid':
@@ -90,15 +142,7 @@ export const questsRoutes: FastifyPluginCallback<QuestsRoutesOptions> = (app, { 
       isRequired: body.is_required ?? true,
       position: body.position ?? null,
       prerequisiteQuestId: body.prerequisite_quest_id ?? null,
-      habit:
-        body.habit === undefined
-          ? null
-          : {
-              period: body.habit.period,
-              timesPerPeriod: body.habit.times_per_period,
-              periodCount: body.habit.period_count,
-              startDate: body.habit.start_date ?? null,
-            },
+      habit: body.habit === undefined ? null : habitInputOf(body.habit),
       target:
         body.target === undefined
           ? null
@@ -118,6 +162,25 @@ export const questsRoutes: FastifyPluginCallback<QuestsRoutesOptions> = (app, { 
     const view = isUuidV4(questId) ? await quests.get(principalOf(request), questId) : undefined;
     if (view === undefined) throw notFound();
     return reply.header('etag', etagOf(view.record.version)).send(questJson(view));
+  });
+
+  app.patch<{ Params: { questId: string } }>('/quests/:questId', async (request, reply) => {
+    const { questId } = request.params;
+    if (!isUuidV4(questId)) throw notFound();
+    const expectedVersion = requireIfMatch(request.headers['if-match']);
+    const edit = editOf(parseRequest(questUpdate, request.body));
+    const result = await quests.update(principalOf(request), questId, expectedVersion, edit);
+    if (result.outcome !== 'updated') throw new ProblemError(problemOf(result));
+    return reply.header('etag', etagOf(result.quest.record.version)).send(effectsJson(result.quest, result.effects));
+  });
+
+  app.delete<{ Params: { questId: string } }>('/quests/:questId', async (request) => {
+    const { questId } = request.params;
+    if (!isUuidV4(questId)) throw notFound();
+    const expectedVersion = requireIfMatch(request.headers['if-match']);
+    const result = await quests.delete(principalOf(request), questId, expectedVersion);
+    if (result.outcome !== 'deleted') throw new ProblemError(problemOf(result));
+    return effectsJson(null, result.effects);
   });
 
   done();

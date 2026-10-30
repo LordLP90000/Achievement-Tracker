@@ -232,7 +232,12 @@ one transaction under a per-user transaction lock (`goals:<user>`), which the wo
 what makes XP and gamble settlement exactly-once under concurrency (T-06), also across achievements, since the total
 XP limits gamble losses. Active achievements are evaluated live; completed ones as of their unlock day (A-40);
 paused ones as reset, changing nothing (A-39). Reads go through it as well, so a missed period is stored the first
-time anyone looks (A-21).
+time anyone looks (A-21). A change syncs the achievement first — the request is checked against that state, its
+`If-Match` against the version after it — then applies itself and syncs again; the response's `Effects` report both
+syncs, so a gamble lost since the last request shows up too. The second sync is told which quests were locked
+before, so a habit unlocked by the change (a prerequisite removed or deleted) starts its run today (Q-38).
+`deleteQuest` reconciles the remaining quests with the quest's credit revoked (`deleteQuestEffects`), detaches the
+quests that required it and deletes it last, so its revocation still names it.
 
 ## 6. Folder structure
 

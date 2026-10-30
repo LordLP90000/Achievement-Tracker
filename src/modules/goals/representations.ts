@@ -1,8 +1,9 @@
 import { formatDecimal } from '../../domain/decimal.ts';
+import { levelForXp } from '../../domain/xp.ts';
 import type { AchievementRecord } from '../achievements/repository.ts';
-import type { AchievementView, QuestView } from './engine.ts';
+import type { AchievementView, GoalEffects, QuestView } from './engine.ts';
 
-/** Goal views as the contract represents them (`Achievement`, `AchievementDetail`, `Quest`). */
+/** Goal views as the contract represents them (`Achievement`, `AchievementDetail`, `Quest`, `Effects`). */
 
 export interface AchievementFigures {
   readonly progress: number;
@@ -95,5 +96,30 @@ export function questJson({ record, evaluation }: QuestView) {
     created_at: record.createdAt.toISOString(),
     updated_at: record.updatedAt.toISOString(),
     version: record.version,
+  };
+}
+
+/**
+ * `Effects`: what a change did (R-CHK-06) — the quest (null once deleted), its achievement afterwards, the XP it moved
+ * and the total, and an unlock, re-lock or gamble settlement among its outcomes.
+ */
+export function effectsJson(quest: QuestView | null, effects: GoalEffects) {
+  const { outcomes, totalXp } = effects;
+  const unlock = outcomes.findLast((outcome) => outcome.unlock !== null)?.unlock ?? null;
+  const gamble = outcomes.findLast((outcome) => outcome.gamble !== null)?.gamble ?? null;
+  return {
+    quest: quest === null ? null : questJson(quest),
+    achievement: achievementViewJson(effects.view),
+    xp_delta: outcomes.flatMap((outcome) => outcome.events).reduce((sum, event) => sum + event.amount, 0),
+    xp_total: totalXp,
+    level: levelForXp(totalXp),
+    achievement_unlocked: unlock !== null,
+    achievement_relocked: outcomes.some((outcome) => outcome.relocked),
+    rank: unlock?.rank ?? null,
+    execution_score: unlock?.score ?? null,
+    gamble:
+      gamble === null
+        ? null
+        : { gamble_id: gamble.id, outcome: gamble.outcome, xp_delta: gamble.xpDelta, loss_reason: gamble.lossReason },
   };
 }

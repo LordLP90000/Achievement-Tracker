@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.7-draft
+  version: 0.2.8-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -16,6 +16,8 @@ info:
     0.2.5 (2026-10-29): locked habits and their prerequisite (Q-38); a completed quest keeps its target values (A-37).
     0.2.6 (2026-10-29): `Idempotency-Key` replays successful responses only; a reused key → `422` (Q-39, ADR-0008).
     0.2.7 (2026-10-29): the limit of 200 achievements counts active and paused ones only (`422 limit-reached`, Q-40).
+    0.2.8 (2026-10-29): editing a quest keeps an omitted `start_date` or `unit`; `unit: null` removes it (Q-41); a
+    malformed `If-Match` → `400` on the deletions too.
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -725,6 +727,7 @@ paths:
         - $ref: '#/components/parameters/IfMatch'
       responses:
         '204': { description: Deleted. }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/VersionOrStateConflict' }
@@ -891,6 +894,8 @@ paths:
         run begins (Q-37, Q-38). A locked habit never resets; if its `start_date` has passed when it unlocks, its run
         starts on the unlock day (Q-38). A completed quest keeps its `target` values (`422`, A-37). Quests of a
         `completed` achievement are read-only → `409 urn:questline:problem:achievement-completed` (R-QST-07).
+        `habit` and `target` are sent whole; an omitted `start_date` or `unit` keeps the stored one — at a restart an
+        omitted `start_date` means today — and `unit: null` removes the unit (Q-41).
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -934,6 +939,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Effects' }
+        '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/VersionOrStateConflict' }
@@ -1647,7 +1653,16 @@ components:
         position: { type: integer, minimum: 0, maximum: 1000 }
         prerequisite_quest_id: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
         habit: { $ref: '#/components/schemas/HabitConfig' }
-        target: { $ref: '#/components/schemas/TargetConfig' }
+        target: { $ref: '#/components/schemas/TargetConfigUpdate' }
+    TargetConfigUpdate:
+      type: object
+      additionalProperties: false
+      required: [start_value, target_value]
+      description: '`TargetConfig` in an update: an omitted `unit` keeps the stored one, `null` removes it (Q-41).'
+      properties:
+        start_value: { $ref: '#/components/schemas/Decimal' }
+        target_value: { $ref: '#/components/schemas/Decimal' }
+        unit: { oneOf: [{ type: string, maxLength: 20 }, { type: 'null' }] }
     QuestState:
       type: string
       enum: [locked, available, needs_restart, completed]

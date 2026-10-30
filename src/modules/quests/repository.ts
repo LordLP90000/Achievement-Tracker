@@ -68,6 +68,22 @@ export interface QuestStateChange {
   readonly habitStartDate?: LocalDate;
   readonly habitWeekStart?: WeekStart;
   readonly completedAt?: Date | null;
+  /** Its prerequisite is being deleted (R-QST-08). */
+  readonly prerequisiteQuestId?: null;
+}
+
+/** A quest as a client edit leaves it (R-QST-07): everything but its type, achievement and engine state. */
+export interface EditedQuest {
+  readonly position: number;
+  readonly size: QuestSize;
+  readonly isRequired: boolean;
+  readonly prerequisiteQuestId: string | null;
+  readonly title: string;
+  readonly notes: string | null;
+  readonly habit: HabitSettings | null;
+  readonly target: TargetSettings | null;
+  /** False once a restart begins a new run (R-QST-04). */
+  readonly needsRestart: boolean;
 }
 
 export interface QuestsRepository {
@@ -77,6 +93,10 @@ export interface QuestsRepository {
   listByAchievement(achievementId: string): Promise<QuestRecord[]>;
   /** Applies the change and bumps the version, as every change of a quest does (ADR-0008). */
   updateState(quest: QuestRecord, change: QuestStateChange, now: Date): Promise<QuestRecord>;
+  /** Stores the edited definition, every encrypted field under the current data key, and bumps the version. */
+  update(quest: QuestRecord, edited: EditedQuest, now: Date): Promise<QuestRecord>;
+  /** Deletes the quest and, by cascade, its check-ins; its ledger events stay without it (data-model §3.4). */
+  remove(id: string): Promise<void>;
 }
 
 type Row = typeof quests.$inferSelect;
@@ -137,6 +157,25 @@ export function questsRepository(tx: Transaction, userId: string, dataKey: UserD
 
   const mine = eq(quests.userId, userId);
 
+  /** The columns of a definition; every encrypted field bound to its record and column (R-QST-06). */
+  const definitionColumns = (id: string, quest: Omit<NewQuest, 'achievementId' | 'type'>) => ({
+    position: quest.position,
+    size: quest.size,
+    isRequired: quest.isRequired,
+    prerequisiteQuestId: quest.prerequisiteQuestId,
+    titleEnc: seal(id, 'title_enc', quest.title),
+    notesEnc: sealOptional(id, 'notes_enc', quest.notes),
+    unitEnc: sealOptional(id, 'unit_enc', quest.target?.unit),
+    startValueEnc: sealOptional(id, 'start_value_enc', quest.target?.start),
+    targetValueEnc: sealOptional(id, 'target_value_enc', quest.target?.target),
+    habitPeriod: quest.habit?.period ?? null,
+    habitTimesPerPeriod: quest.habit?.timesPerPeriod ?? null,
+    habitPeriodCount: quest.habit?.periodCount ?? null,
+    habitStartDate: quest.habit?.startDate ?? null,
+    habitWeekStart: quest.habit?.period === 'week' ? quest.habit.weekStart : null,
+    dekVersion: dataKey.version,
+  });
+
   return {
     async insert(quest, now) {
       const id = randomUUID();
@@ -146,22 +185,8 @@ export function questsRepository(tx: Transaction, userId: string, dataKey: UserD
           id,
           userId,
           achievementId: quest.achievementId,
-          position: quest.position,
           type: quest.type,
-          size: quest.size,
-          isRequired: quest.isRequired,
-          prerequisiteQuestId: quest.prerequisiteQuestId,
-          titleEnc: seal(id, 'title_enc', quest.title),
-          notesEnc: sealOptional(id, 'notes_enc', quest.notes),
-          unitEnc: sealOptional(id, 'unit_enc', quest.target?.unit),
-          startValueEnc: sealOptional(id, 'start_value_enc', quest.target?.start),
-          targetValueEnc: sealOptional(id, 'target_value_enc', quest.target?.target),
-          habitPeriod: quest.habit?.period ?? null,
-          habitTimesPerPeriod: quest.habit?.timesPerPeriod ?? null,
-          habitPeriodCount: quest.habit?.periodCount ?? null,
-          habitStartDate: quest.habit?.startDate ?? null,
-          habitWeekStart: quest.habit?.period === 'week' ? quest.habit.weekStart : null,
-          dekVersion: dataKey.version,
+          ...definitionColumns(id, quest),
           createdAt: now,
           updatedAt: now,
         })
@@ -197,6 +222,7 @@ export function questsRepository(tx: Transaction, userId: string, dataKey: UserD
           habitStartDate: change.habitStartDate,
           habitWeekStart: change.habitWeekStart,
           completedAt: change.completedAt,
+          prerequisiteQuestId: change.prerequisiteQuestId,
           updatedAt: now,
           version: increment(quests.version),
         })
@@ -204,6 +230,25 @@ export function questsRepository(tx: Transaction, userId: string, dataKey: UserD
         .returning();
       if (row === undefined) throw new Error('the quest to update is gone');
       return toRecord(row);
+    },
+
+    async update(quest, edited, now) {
+      const [row] = await tx
+        .update(quests)
+        .set({
+          ...definitionColumns(quest.id, edited),
+          needsRestart: edited.needsRestart,
+          updatedAt: now,
+          version: increment(quests.version),
+        })
+        .where(and(mine, eq(quests.id, quest.id)))
+        .returning();
+      if (row === undefined) throw new Error('the quest to update is gone');
+      return toRecord(row);
+    },
+
+    async remove(id) {
+      await tx.delete(quests).where(and(mine, eq(quests.id, id)));
     },
   };
 }

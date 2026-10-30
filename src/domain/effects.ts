@@ -220,10 +220,11 @@ export function deleteQuestEffects(
   quests: readonly QuestFacts[],
   deletedQuestId: string,
   context: EffectContext,
+  options: { readonly habitReset?: boolean } = {},
 ): Outcome {
   const ledger: Ledger = { events: [], total: context.totalXp };
   const remaining = quests.filter((quest) => quest.id !== deletedQuestId);
-  const change = reconcileInto(ledger, achievement, remaining, context, false);
+  const change = reconcileInto(ledger, achievement, remaining, context, options.habitReset === true);
   for (const deleted of quests.filter((quest) => quest.id === deletedQuestId)) {
     add(ledger, 'quest_deleted', -deleted.credited, { questId: deleted.id });
   }

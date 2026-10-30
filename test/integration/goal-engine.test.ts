@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { checkInsRepository } from '../../src/modules/check-ins/repository.ts';
-import { syncAchievement, withGoals, type GoalDependencies } from '../../src/modules/goals/engine.ts';
+import { deleteQuest, syncAchievement, withGoals, type GoalDependencies } from '../../src/modules/goals/engine.ts';
 import { questsRepository, type NewQuest } from '../../src/modules/quests/repository.ts';
 import { createDatabaseClient, type DatabaseClient } from '../../src/platform/db/client.ts';
 import { createDatabase } from '../../src/platform/db/database.ts';
@@ -287,6 +287,26 @@ describe('goal engine [R-XP-01, R-ACH-04/05, R-QST-04, R-GMB-02/03, Q-38, A-21, 
     });
   });
 
+  it('moves a locked daily habit’s run the same way, without a week start [Q-38]', async () => {
+    const habit = {
+      period: 'day',
+      timesPerPeriod: 1,
+      periodCount: 3,
+      startDate: '2026-10-20',
+      weekStart: 'monday',
+    } as const;
+    const goal = await setUp([{ size: 'S' }, { type: 'habit', habit, prerequisite: 0 }]);
+
+    await checkIn(goal.userId, goal.quest(0));
+    const unlocked = await sync(goal.userId, goal.achievementId);
+
+    expect(unlocked?.view.quests[1]?.evaluation).toMatchObject({
+      state: 'available',
+      currentPeriod: { start: TODAY, end: TODAY },
+    });
+    expect(await questRow(goal.quest(1))).toMatchObject({ start_date: TODAY, week_start: null, reset_count: 0 });
+  });
+
   it('measures a target quest by its latest value and credits it once the target is reached [R-QST-05]', async () => {
     const goal = await setUp([{ type: 'target', size: 'L', target: { start: '80', target: '70', unit: 'kg' } }]);
     await checkIn(goal.userId, goal.quest(0), '75.5', '2026-10-27');
@@ -323,6 +343,23 @@ describe('goal engine [R-XP-01, R-ACH-04/05, R-QST-04, R-GMB-02/03, Q-38, A-21, 
     const result = await sync(goal.userId, goal.achievementId);
 
     expect(result?.outcome?.gamble).toMatchObject({ id: gambleId, outcome: 'lost', xpDelta: -30 });
+    expect(await gambleRow(gambleId)).toMatchObject({ status: 'lost', loss_reason: 'habit_reset' });
+  });
+
+  it('stores a reset it finds while deleting a quest, which loses the pending gamble too [R-QST-08, R-GMB-03]', async () => {
+    const goal = await setUp([{ size: 'S' }, weekly('2026-10-12')], { title: 'Goal', target_date: '2026-12-31' });
+    await giveXp(goal.userId, 150);
+    const gambleId = await pendingGamble(goal.userId, goal.achievementId, 30);
+
+    const deleted = await withGoals(deps, goal.userId, async (scope) => {
+      const quest = await questsRepository(scope.tx, goal.userId, scope.dataKey).find(goal.quest(0));
+      if (quest === undefined) throw new Error('the quest to delete is missing');
+      return deleteQuest(scope, quest);
+    });
+
+    expect(deleted.outcome?.gamble).toMatchObject({ id: gambleId, outcome: 'lost', lossReason: 'habit_reset' });
+    expect(deleted.view.quests.map((quest) => quest.record.id)).toEqual([goal.quest(1)]);
+    expect(await questRow(goal.quest(1))).toMatchObject({ needs_restart: true, reset_count: 1 });
     expect(await gambleRow(gambleId)).toMatchObject({ status: 'lost', loss_reason: 'habit_reset' });
   });
 

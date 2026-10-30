@@ -241,6 +241,14 @@ describe('pausing, deleting and the XP floor [R-ACH-06, R-ACH-09, R-QST-08, Q-12
     expect(outcome).toMatchObject({ gamble: null, events: [], relocked: false, status: 'active' });
   });
 
+  it('deleting a quest loses a pending gamble when a habit reset is found in the same change', () => {
+    const facts = achievement({ pendingGamble: { id: 'g', stake: 150, targetDate: '2026-11-30' } });
+    const outcome = deleteQuestEffects(facts, [quest('a'), quest('b')], 'b', context, { habitReset: true });
+
+    expect(outcome.gamble).toMatchObject({ id: 'g', outcome: 'lost', lossReason: 'habit_reset' });
+    expect(outcome.events).toEqual([{ kind: 'gamble_lost', amount: -100, questId: null, gambleId: 'g' }]);
+  });
+
   it('deleting an achievement loses its pending gamble and revokes all its XP', () => {
     const facts = achievement({ pendingGamble: { id: 'g', stake: 50, targetDate: '2026-11-30' } });
     const outcome = deleteAchievementEffects(

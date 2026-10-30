@@ -1,7 +1,4 @@
-import { daysBetween, type LocalDate } from '../../domain/dates.ts';
 import { formatDecimal, parseDecimal } from '../../domain/decimal.ts';
-import type { HabitPeriod, QuestSize } from '../../domain/duration.ts';
-import { checkPrerequisite } from '../../domain/transitions.ts';
 import {
   runIdempotent,
   type IdempotentOutcome,
@@ -10,51 +7,42 @@ import {
 } from '../../platform/idempotency/idempotent.ts';
 import { achievementsRepository } from '../achievements/repository.ts';
 import { hasActiveConsent } from '../consents/repository.ts';
-import { syncAchievement, withGoals, type GoalDependencies, type GoalScope, type QuestView } from '../goals/engine.ts';
-import type { Principal } from '../sessions/guard.ts';
 import {
-  questsRepository,
-  type HabitSettings,
-  type QuestRecord,
-  type QuestType,
-  type TargetSettings,
-} from './repository.ts';
+  deleteQuest,
+  effectsOf,
+  lockedQuestsOf,
+  syncAchievement,
+  withGoals,
+  type GoalDependencies,
+  type GoalEffects,
+  type GoalScope,
+  type GoalSync,
+  type QuestView,
+} from '../goals/engine.ts';
+import type { Principal } from '../sessions/guard.ts';
+import { questsRepository, type HabitSettings, type TargetSettings } from './repository.ts';
+import { applyEdit, createViolation, type QuestEdit, type QuestInput, type RuleViolation } from './rules.ts';
 
 /** R-IN-01 (Q-16): quests per achievement. */
 export const QUEST_LIMIT = 50;
-
-/** A new quest as the client describes it (contract `QuestCreate`), before the rules of the service. */
-export interface QuestInput {
-  readonly title: string;
-  readonly notes: string | null;
-  readonly type: QuestType;
-  readonly size: QuestSize;
-  readonly isRequired: boolean;
-  /** Last when omitted. */
-  readonly position: number | null;
-  readonly prerequisiteQuestId: string | null;
-  readonly habit: {
-    readonly period: HabitPeriod;
-    readonly timesPerPeriod: number;
-    readonly periodCount: number;
-    /** Today when omitted. */
-    readonly startDate: LocalDate | null;
-  } | null;
-  readonly target: { readonly start: string; readonly target: string; readonly unit: string | null } | null;
-}
-
-/** A rule the request breaks (`422`), with a JSON pointer into the request and a static message. */
-export interface RuleViolation {
-  readonly outcome: 'invalid';
-  readonly pointer: string;
-  readonly message: string;
-}
 
 export type CreateQuestRefusal =
   { readonly outcome: 'consent_required' | 'not_found' | 'achievement_completed' | 'limit_reached' } | RuleViolation;
 
 export type CreateQuestResult =
   IdempotentOutcome | { readonly outcome: 'refused'; readonly refusal: CreateQuestRefusal };
+
+/** Why an edit or a deletion cannot touch the quest at all. */
+export type QuestChangeRefusal =
+  | { readonly outcome: 'not_found' | 'achievement_completed' }
+  | { readonly outcome: 'version_conflict'; readonly currentVersion: number };
+
+export type UpdateQuestResult =
+  | { readonly outcome: 'updated'; readonly quest: QuestView; readonly effects: GoalEffects }
+  | QuestChangeRefusal
+  | RuleViolation;
+
+export type DeleteQuestResult = { readonly outcome: 'deleted'; readonly effects: GoalEffects } | QuestChangeRefusal;
 
 export interface QuestsService {
   /** `render` turns the new quest into the response that a retry with the same key replays (ADR-0008). */
@@ -68,6 +56,10 @@ export interface QuestsService {
   /** The quests of the user's achievement in order; undefined unless it is the user's. */
   list(principal: Principal, achievementId: string): Promise<readonly QuestView[] | undefined>;
   get(principal: Principal, questId: string): Promise<QuestView | undefined>;
+  /** Applies the edit if `expectedVersion` is current (R-QST-07, ADR-0008); progress and XP follow. */
+  update(principal: Principal, questId: string, expectedVersion: number, edit: QuestEdit): Promise<UpdateQuestResult>;
+  /** Deletes the quest if `expectedVersion` is current (R-QST-08, Q-12). */
+  delete(principal: Principal, questId: string, expectedVersion: number): Promise<DeleteQuestResult>;
 }
 
 /** Rolls back a refused create: nothing of it may remain, not even its idempotency record (Q-39). */
@@ -81,55 +73,34 @@ class CreateRefused extends Error {
   }
 }
 
-const violation = (pointer: string, message: string): RuleViolation => ({ outcome: 'invalid', pointer, message });
+/** The quest's view in a sync of its achievement. */
+const questIn = (synced: GoalSync | undefined, questId: string): QuestView | undefined =>
+  synced?.view.quests.find((quest) => quest.record.id === questId);
 
-/** Stands for the quest being created in prerequisite checks; never a UUID, so never an existing quest. */
-const NEW_QUEST = 'new-quest';
-
-/** Thousandths of a decimal within ±10^9 (A-05), or null beyond it. */
-function decimalOf(text: string): number | null {
-  try {
-    return parseDecimal(text);
-  } catch {
-    return null;
+/**
+ * The quest and its achievement as of now (A-21), if the request may change it. A completed achievement answers 409
+ * whatever the version: a precondition only matters for a request that could succeed (RFC 9110 §13.2.1).
+ */
+async function changeable(
+  scope: GoalScope,
+  questId: string,
+  expectedVersion: number,
+): Promise<{ readonly before: GoalSync; readonly quest: QuestView } | QuestChangeRefusal> {
+  const record = await questsRepository(scope.tx, scope.userId, scope.dataKey).find(questId);
+  const before = record === undefined ? undefined : await syncAchievement(scope, record.achievementId);
+  const quest = questIn(before, questId);
+  if (before === undefined || quest === undefined) return { outcome: 'not_found' };
+  if (before.view.record.status === 'completed') return { outcome: 'achievement_completed' };
+  if (quest.record.version !== expectedVersion) {
+    return { outcome: 'version_conflict', currentVersion: quest.record.version };
   }
-}
-
-/** The first rule a new quest breaks (A-05, A-16, A-28, R-QST-02…05), or null. */
-function violationOf(input: QuestInput, today: LocalDate, existing: readonly QuestRecord[]): RuleViolation | null {
-  if ((input.type === 'habit') !== (input.habit !== null)) {
-    return violation('/habit', input.type === 'habit' ? 'is required for a habit quest' : 'is only for habit quests');
-  }
-  if ((input.type === 'target') !== (input.target !== null)) {
-    return violation(
-      '/target',
-      input.type === 'target' ? 'is required for a target quest' : 'is only for target quests',
-    );
-  }
-  const startDate = input.habit?.startDate ?? null;
-  if (startDate !== null && daysBetween(today, startDate) < 0) {
-    return violation('/habit/start_date', 'must be today or later: back-dated check-ins never count');
-  }
-  if (input.target !== null) {
-    const start = decimalOf(input.target.start);
-    if (start === null) return violation('/target/start_value', 'must lie within ±1000000000');
-    const target = decimalOf(input.target.target);
-    if (target === null) return violation('/target/target_value', 'must lie within ±1000000000');
-    if (start === target) return violation('/target/target_value', 'must differ from start_value');
-  }
-  if (input.prerequisiteQuestId !== null) {
-    const links = new Map(existing.map((quest) => [quest.id, quest.prerequisiteQuestId]));
-    const refusal = checkPrerequisite(NEW_QUEST, input.prerequisiteQuestId, links);
-    if (refusal === 'unknown') return violation('/prerequisite_quest_id', 'is not a quest of this achievement');
-    if (refusal !== null) return violation('/prerequisite_quest_id', 'would make a chain of more than 20 quests');
-  }
-  return null;
+  return { before, quest };
 }
 
 export function createQuestsService(deps: GoalDependencies): QuestsService {
   /** The quest's view after the engine looked at its achievement now (A-21). */
   const viewOf = async (scope: GoalScope, achievementId: string, questId: string): Promise<QuestView | undefined> =>
-    (await syncAchievement(scope, achievementId))?.view.quests.find((quest) => quest.record.id === questId);
+    questIn(await syncAchievement(scope, achievementId), questId);
 
   return {
     async create(principal, achievementId, input, request, render) {
@@ -146,7 +117,7 @@ export function createQuestsService(deps: GoalDependencies): QuestsService {
             const quests = questsRepository(scope.tx, userId, scope.dataKey);
             const existing = await quests.listByAchievement(achievementId);
             if (existing.length >= QUEST_LIMIT) throw new CreateRefused({ outcome: 'limit_reached' });
-            const broken = violationOf(input, scope.today, existing);
+            const broken = createViolation(input, scope.today, existing);
             if (broken !== null) throw new CreateRefused(broken);
             const habit: HabitSettings | null =
               input.habit === null
@@ -206,6 +177,39 @@ export function createQuestsService(deps: GoalDependencies): QuestsService {
       return withGoals(deps, principal.userId, async (scope) => {
         const quest = await questsRepository(scope.tx, scope.userId, scope.dataKey).find(questId);
         return quest === undefined ? undefined : viewOf(scope, quest.achievementId, quest.id);
+      });
+    },
+
+    update(principal, questId, expectedVersion, edit) {
+      return withGoals(deps, principal.userId, async (scope): Promise<UpdateQuestResult> => {
+        const found = await changeable(scope, questId, expectedVersion);
+        if ('outcome' in found) return found;
+        const { before, quest } = found;
+        const edited = applyEdit(edit, {
+          quest: quest.record,
+          evaluation: quest.evaluation,
+          paused: before.view.record.status === 'paused',
+          quests: before.view.quests.map((sibling) => sibling.record),
+          today: scope.today,
+          weekStart: scope.weekStart,
+        });
+        if (edited.outcome === 'invalid') return edited;
+        await questsRepository(scope.tx, scope.userId, scope.dataKey).update(quest.record, edited.quest, scope.now);
+        const after = await syncAchievement(scope, quest.record.achievementId, {
+          lockedBefore: lockedQuestsOf(before.view),
+        });
+        const updated = questIn(after, questId);
+        if (after === undefined || updated === undefined) throw new Error('the edited quest is gone');
+        return { outcome: 'updated', quest: updated, effects: effectsOf(before, after) };
+      });
+    },
+
+    delete(principal, questId, expectedVersion) {
+      return withGoals(deps, principal.userId, async (scope): Promise<DeleteQuestResult> => {
+        const found = await changeable(scope, questId, expectedVersion);
+        if ('outcome' in found) return found;
+        const after = await deleteQuest(scope, found.quest.record, { lockedBefore: lockedQuestsOf(found.before.view) });
+        return { outcome: 'deleted', effects: effectsOf(found.before, after) };
       });
     },
   };

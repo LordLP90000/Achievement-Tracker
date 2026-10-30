@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { LightMyRequestResponse } from 'fastify';
-import type { AccountsApp } from './accounts-app.ts';
+import { TEST_PASSWORD, type AccountsApp } from './accounts-app.ts';
 
 /** Shared steps of the goal-content suites (achievements, quests, check-ins, gambles). */
 
@@ -9,19 +9,29 @@ export const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 export interface GoalUser {
   readonly userId: string;
   readonly token: string;
+  readonly email: string;
+}
+
+async function login(ctx: AccountsApp, email: string, password: string): Promise<string> {
+  const response = await ctx.post('/v1/auth/login', { email, password, client: 'ios' });
+  if (response.statusCode !== 200) throw new Error(`login failed: ${String(response.statusCode)}`);
+  return response.json<{ access_token: string }>().access_token;
 }
 
 /** A verified, logged-in account; with the goal-content consent (R-PRIV-04) unless `consent: false`. */
 export async function goalUser(ctx: AccountsApp, options: { readonly consent?: boolean } = {}): Promise<GoalUser> {
   const account = await ctx.account();
-  const login = await ctx.post('/v1/auth/login', { email: account.email, password: account.password, client: 'ios' });
-  if (login.statusCode !== 200) throw new Error(`login failed: ${String(login.statusCode)}`);
-  const token = login.json<{ access_token: string }>().access_token;
+  const token = await login(ctx, account.email, account.password);
   if (options.consent !== false) {
     const granted = await ctx.post('/v1/me/consents', { type: 'goal_content', version: '2026-10-01' }, bearer(token));
     if (granted.statusCode !== 201) throw new Error(`consent failed: ${String(granted.statusCode)}`);
   }
-  return { userId: account.userId, token };
+  return { userId: account.userId, token, email: account.email };
+}
+
+/** The user with a new access token, after the fake clock moved past the old one's lifetime. */
+export async function loggedInAgain(ctx: AccountsApp, user: GoalUser): Promise<GoalUser> {
+  return { ...user, token: await login(ctx, user.email, TEST_PASSWORD) };
 }
 
 /** `POST /v1/achievements` with a fresh `Idempotency-Key` unless one is given. */

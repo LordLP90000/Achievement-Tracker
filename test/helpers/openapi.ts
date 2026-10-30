@@ -15,6 +15,8 @@ export interface SpecOperation {
   readonly pattern: RegExp;
   /** True when the operation declares a `requestBody`. */
   readonly hasRequestBody: boolean;
+  /** Its parameters and those of its path: `$ref`s, or `in:name` for inline ones. */
+  readonly parameters: readonly string[];
   /** True unless the operation (or the spec) declares `security: []`. */
   readonly requiresAuth: boolean;
   readonly responses: Node;
@@ -40,6 +42,13 @@ function basePathOf(servers: unknown): string {
   return url === undefined ? '' : new URL(url).pathname.replace(/\/$/, '');
 }
 
+const parameterNames = (parameters: unknown): string[] =>
+  ((parameters ?? []) as Node[]).map((parameter) =>
+    typeof parameter['$ref'] === 'string'
+      ? parameter['$ref']
+      : `${String(parameter['in'])}:${String(parameter['name'])}`,
+  );
+
 export const specOperations: readonly SpecOperation[] = Object.entries(spec['paths'] as Node).flatMap(
   ([template, rawItem]) => {
     const item = rawItem as Node;
@@ -53,6 +62,7 @@ export const specOperations: readonly SpecOperation[] = Object.entries(spec['pat
         fastifyPath: path.replace(/\{([^}]+)\}/g, ':$1'),
         pattern: new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`),
         hasRequestBody: operation['requestBody'] !== undefined,
+        parameters: [...parameterNames(item['parameters']), ...parameterNames(operation['parameters'])],
         requiresAuth: ((operation['security'] ?? spec['security'] ?? []) as unknown[]).length > 0,
         responses: operation['responses'] as Node,
       };

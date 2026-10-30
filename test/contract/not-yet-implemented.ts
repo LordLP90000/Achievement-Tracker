@@ -11,8 +11,6 @@ export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   'deleteAchievement',
   'listGambles',
   'placeGamble',
-  'updateQuest',
-  'deleteQuest',
   'listCheckIns',
   'createCheckIn',
   'undoCheckIn',

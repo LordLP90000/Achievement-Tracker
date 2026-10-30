@@ -1,5 +1,5 @@
 import type { FastifyPluginCallback } from 'fastify';
-import { etagOf, parseIfMatch } from '../../platform/http/concurrency.ts';
+import { etagOf, requireIfMatch } from '../../platform/http/concurrency.ts';
 import { Problems } from '../../platform/http/problem.ts';
 import { parseRequest, ProblemError } from '../../platform/http/validation.ts';
 import { principalOf } from '../sessions/guard.ts';
@@ -31,11 +31,6 @@ function accountJson(account: AccountView) {
   };
 }
 
-const INVALID_IF_MATCH = {
-  ...Problems.validation,
-  errors: [{ pointer: '', message: 'If-Match must name one version, e.g. "3"' }],
-};
-
 export const profileRoutes: FastifyPluginCallback<ProfileRoutesOptions> = (app, { profiles }, done) => {
   app.get('/me', async (request, reply) => {
     const account = await profiles.get(principalOf(request));
@@ -43,11 +38,9 @@ export const profileRoutes: FastifyPluginCallback<ProfileRoutesOptions> = (app, 
   });
 
   app.patch('/me', async (request, reply) => {
-    const ifMatch = parseIfMatch(request.headers['if-match']);
-    if (ifMatch.kind === 'missing') throw new ProblemError(Problems.preconditionRequired);
-    if (ifMatch.kind === 'invalid') throw new ProblemError(INVALID_IF_MATCH);
+    const expectedVersion = requireIfMatch(request.headers['if-match']);
     const update = parseRequest(accountUpdate, request.body);
-    const result = await profiles.update(principalOf(request), ifMatch.version, update);
+    const result = await profiles.update(principalOf(request), expectedVersion, update);
     if (result.outcome === 'version_conflict') {
       throw new ProblemError({ ...Problems.versionConflict, extensions: { current_version: result.currentVersion } });
     }
