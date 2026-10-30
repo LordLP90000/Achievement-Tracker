@@ -1,5 +1,6 @@
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
+import type { WeekStart } from '../../domain/periods.ts';
 import type { WrappedKey } from '../../platform/crypto/key-wrapper.ts';
 import type { Transaction } from '../../platform/db/database.ts';
 import { isUniqueViolation } from '../../platform/db/errors.ts';
@@ -141,6 +142,19 @@ export async function requireVersionedKey(
   if (key === undefined) throw new MissingDataKeyError();
   const { dekVersion, ...wrapped } = key;
   return { wrapped, version: dekVersion };
+}
+
+/** What decides the user's days and weeks: the time zone (ADR-0011) and the week start of new runs (R-QST-09). */
+export async function requireAccountClock(
+  tx: Transaction,
+  userId: string,
+): Promise<{ readonly timeZone: string; readonly weekStart: WeekStart }> {
+  const [account] = await tx
+    .select({ timeZone: users.timezone, weekStart: users.weekStart })
+    .from(users)
+    .where(eq(users.id, userId));
+  if (account === undefined) throw new Error('the account is gone');
+  return { timeZone: account.timeZone, weekStart: account.weekStart as WeekStart };
 }
 
 export interface NewOneTimeToken {

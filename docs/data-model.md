@@ -280,7 +280,7 @@ account's time zone (Q-36). Index `(quest_id, attempt, local_date) WHERE counts_
 Total XP = `SUM(amount)`, never below 0: revocations are exact, so if a lost gamble took XP that is later revoked, an
 `xp_floor` event brings the sum back to 0 (R-XP-04, A-38); level derived in code. Exactly-once is guaranteed by the
 effects engine (`src/domain/effects.ts`), which appends only the difference between the XP the ledger credits and
-the XP the state deserves, running under `SELECT … FOR UPDATE` on the quest/achievement rows.
+the XP the state deserves, run by the goal engine (`src/modules/goals/engine.ts`) under a per-user transaction lock.
 Deleting a quest, achievement or gamble keeps its ledger rows and clears only the reference (the column list keeps
 `user_id`; PostgreSQL ≥ 15). The API has no UPDATE grant, and a restrictive policy lets it delete ledger rows only
 after the goal-content consent is withdrawn (Q-10). Indexes `(user_id, local_date)` and partial `(quest_id)`,

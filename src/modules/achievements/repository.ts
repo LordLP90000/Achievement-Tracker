@@ -4,7 +4,7 @@ import type { Rank } from '../../domain/constants.ts';
 import type { LocalDate } from '../../domain/dates.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
 import type { Transaction } from '../../platform/db/database.ts';
-import { afterPosition } from '../../platform/db/expressions.ts';
+import { afterPosition, increment } from '../../platform/db/expressions.ts';
 import { transactionLock } from '../../platform/db/locks.ts';
 import { achievements, idempotencyKeys, xpEvents } from '../../platform/db/schema/index.ts';
 import type { UserDataKey } from '../accounts/data-key.ts';
@@ -56,6 +56,15 @@ export interface AchievementsRepository {
   countOpen(): Promise<number>;
   /** Holds back the user's other creations until the transaction ends, so a limit check cannot race. */
   lockCreation(): Promise<void>;
+  /** An unlock or re-lock decided by the effects engine (R-ACH-04/05); bumps the version (ADR-0008). */
+  updateCompletion(achievement: AchievementRecord, change: CompletionChange, now: Date): Promise<AchievementRecord>;
+}
+
+export interface CompletionChange {
+  readonly status: AchievementStatus;
+  readonly completedAt: Date | null;
+  readonly executionScore: number | null;
+  readonly rank: Rank | null;
 }
 
 type Row = typeof achievements.$inferSelect;
@@ -156,6 +165,14 @@ export function achievementsRepository(tx: Transaction, userId: string, dataKey:
 
     lockCreation() {
       return transactionLock(tx, `achievements:create:${userId}`);
+    },
+
+    async updateCompletion(achievement, change, now) {
+      await tx
+        .update(achievements)
+        .set({ ...change, updatedAt: now, version: increment(achievements.version) })
+        .where(and(mine, eq(achievements.id, achievement.id)));
+      return { ...achievement, ...change, updatedAt: now, version: achievement.version + 1 };
     },
   };
 }

@@ -225,9 +225,14 @@ Pure, exhaustively tested functions:
 | `quest-evaluation.ts` | `evaluateQuest(quest, today)`: one quest from its definition and the counting check-ins of the current attempt → effective XP and duration factor, progress, completion, state, the current target value (latest by date, then creation), streak, the open period (Q-35) and a `reset` signal with the new best streak when a closed period was missed (the service stores it); a locked habit is evaluated from the unlock day, so it never resets (Q-38). `summarizeAchievement` → progress and `xp_required_total` (R-ACH-03) |
 | `effects.ts` | **Reconciliation**: every path compares the XP the ledger credits (per quest, rank bonus) with what the state deserves and appends only the difference — `reconcile` (check-in, undo, quest edit, daily job: a pending gamble lost once its target date passed or a habit reset, quest XP, unlock with score/rank/bonus and a won gamble, re-lock with revocation and a reverted win), `pauseEffects`, `deleteQuestEffects` (may unlock), `deleteAchievementEffects`, and the `xp_floor` adjustment (A-38). Idempotent and exactly inverse by construction |
 
-The service layer loads the (decrypted) state, calls `effects`, and persists the result in one transaction
-with `SELECT … FOR UPDATE` on the quest, achievement and pending-gamble rows, which is what makes XP and gamble
-settlement exactly-once under concurrency.
+The goal engine (`src/modules/goals/engine.ts`) loads the (decrypted) state of one achievement, evaluates its quests
+with `quest-evaluation`, stores what that found (habit resets, a run moved to the unlock day — Q-38, completion),
+calls `effects`, and stores the outcome (ledger events, unlock or re-lock with the badge, gamble settlement) — all in
+one transaction under a per-user transaction lock (`goals:<user>`), which the worker's jobs take too. That lock is
+what makes XP and gamble settlement exactly-once under concurrency (T-06), also across achievements, since the total
+XP limits gamble losses. Active achievements are evaluated live; completed ones as of their unlock day (A-40);
+paused ones as reset, changing nothing (A-39). Reads go through it as well, so a missed period is stored the first
+time anyone looks (A-21).
 
 ## 6. Folder structure
 
@@ -264,6 +269,7 @@ settlement exactly-once under concurrency.
 │       ├── quests/
 │       ├── check-ins/
 │       ├── gambles/
+│       ├── goals/                     # the goal engine: evaluate, reconcile, store — under the user's lock; XP ledger
 │       ├── stats/
 │       ├── audit/
 │       └── privacy/                   # export, deactivation and deletion, retention jobs
