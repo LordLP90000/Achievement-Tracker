@@ -13,6 +13,8 @@ import type { AchievementsService } from './modules/achievements/service.ts';
 import { checkInsRoutes } from './modules/check-ins/routes.ts';
 import type { CheckInsService } from './modules/check-ins/service.ts';
 import { consentsRoutes } from './modules/consents/routes.ts';
+import { gamblesRoutes } from './modules/gambles/routes.ts';
+import type { GamblesService } from './modules/gambles/service.ts';
 import type { ConsentsService } from './modules/consents/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
 import { questsRoutes } from './modules/quests/routes.ts';
@@ -37,6 +39,7 @@ export interface AppServices {
   readonly checkIns: CheckInsService;
   readonly consents: ConsentsService;
   readonly emailChanges: EmailChangeService;
+  readonly gambles: GamblesService;
   readonly passwords: PasswordsService;
   readonly profiles: ProfileService;
   readonly quests: QuestsService;
@@ -91,6 +94,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(achievementsRoutes, { achievements: deps.services.achievements });
       void v1.register(questsRoutes, { quests: deps.services.quests });
       void v1.register(checkInsRoutes, { checkIns: deps.services.checkIns });
+      void v1.register(gamblesRoutes, { gambles: deps.services.gambles });
       done();
     },
     { prefix: API_PREFIX },

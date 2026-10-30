@@ -2,9 +2,10 @@ import { formatDecimal } from '../../domain/decimal.ts';
 import { levelForXp } from '../../domain/xp.ts';
 import type { AchievementRecord } from '../achievements/repository.ts';
 import type { CheckInRecord } from '../check-ins/repository.ts';
+import type { GambleRecord } from '../gambles/repository.ts';
 import type { AchievementView, GoalEffects, QuestView } from './engine.ts';
 
-/** Goal views as the contract represents them (`Achievement`, `AchievementDetail`, `Quest`, `Effects`, `CheckIn`). */
+/** Goal views as the contract represents them (`Achievement`, `Quest`, `Effects`, `CheckIn`, `Gamble`). */
 
 export interface AchievementFigures {
   readonly progress: number;
@@ -144,3 +145,16 @@ export const checkInResultJson = (checkIn: CheckInRecord, quest: QuestView, effe
   ...effectsJson(quest, effects),
   check_in: checkInJson(checkIn),
 });
+
+/** `Gamble` (R-GMB-01…04): the stake as recorded at placement. */
+export function gambleJson(gamble: GambleRecord) {
+  return {
+    id: gamble.id,
+    attempt: gamble.attempt,
+    stake: gamble.stake,
+    status: gamble.status,
+    loss_reason: gamble.lossReason,
+    placed_at: gamble.placedAt.toISOString(),
+    settled_at: gamble.settledAt?.toISOString() ?? null,
+  };
+}

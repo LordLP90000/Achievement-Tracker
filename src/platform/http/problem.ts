@@ -55,6 +55,20 @@ export const Problems = {
   checkInFinal: { status: 409, slug: 'check-in-final', title: 'The check-in can no longer be undone' },
   /** One pending gamble per user (R-GMB-01, Q-31, Q-43); its target date is fixed (T-17). */
   gamblePending: { status: 409, slug: 'gamble-pending', title: 'A gamble is pending' },
+  /** R-GMB-01: a gamble needs a target date after today to be won or lost by. */
+  gambleTargetDateRequired: {
+    status: 409,
+    slug: 'gamble-target-date-required',
+    title: 'A gamble needs a target date after today',
+  },
+  /** A-27, T-16: no second gamble on an achievement in the attempt that lost one. */
+  gambleLostThisAttempt: {
+    status: 409,
+    slug: 'gamble-lost-this-attempt',
+    title: 'A gamble was already lost in this attempt',
+  },
+  /** R-GMB-01: the XP above the current level's threshold is the stake; at 0 there is nothing to stake. */
+  nothingToStake: { status: 422, slug: 'nothing-to-stake', title: 'Nothing to stake' },
   /** Use with `extensions: { current_version }` (contract `VersionConflictProblem`). */
   versionConflict: { status: 409, slug: 'version-conflict', title: 'The resource was changed meanwhile' },
   preconditionRequired: { status: 428, slug: 'precondition-required', title: 'If-Match header required' },

@@ -10,6 +10,7 @@ import { createAccountsService } from '../../src/modules/accounts/service.ts';
 import { createAchievementsService } from '../../src/modules/achievements/service.ts';
 import { createCheckInsService } from '../../src/modules/check-ins/service.ts';
 import { createConsentsService } from '../../src/modules/consents/service.ts';
+import { createGamblesService } from '../../src/modules/gambles/service.ts';
 import { createQuestsService } from '../../src/modules/quests/service.ts';
 import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
 import { createSessionsService, type SessionsService } from '../../src/modules/sessions/service.ts';
@@ -139,6 +140,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
         checkIns: createCheckInsService(shared),
         consents: createConsentsService(shared),
         emailChanges: createEmailChangeService(shared),
+        gambles: createGamblesService(shared),
         passwords: createPasswordsService({ ...shared, breachedPasswords }),
         profiles: createProfileService(shared),
         quests: createQuestsService(shared),
