@@ -38,3 +38,22 @@ export function localDateOf(instant: Date, timeZone: string): string {
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((candidate) => candidate.type === type)?.value ?? '';
   return `${part('year').padStart(4, '0')}-${part('month')}-${part('day')}`;
 }
+
+/** Longer than any local day (25 hours at most, when daylight saving time ends), so it always reaches the next. */
+const BEYOND_A_DAY_MS = 27 * 60 * 60 * 1000;
+
+/**
+ * The first instant of the local day after the one `instant` falls on in `timeZone` (ADR-0011: with `Intl` only, no
+ * time-zone arithmetic): a binary search for the millisecond at which the local date changes.
+ */
+export function nextLocalMidnight(instant: Date, timeZone: string): Date {
+  const today = localDateOf(instant, timeZone);
+  let onToday = instant.getTime();
+  let later = onToday + BEYOND_A_DAY_MS;
+  while (later - onToday > 1) {
+    const middle = Math.floor((onToday + later) / 2);
+    if (localDateOf(new Date(middle), timeZone) === today) onToday = middle;
+    else later = middle;
+  }
+  return new Date(later);
+}

@@ -109,8 +109,9 @@ describe('container smoke test', () => {
     expect(stdout.split(/\r?\n/).filter(Boolean).sort()).toEqual(['api', 'db', 'worker']);
   });
 
-  it('runs every retention job in the worker container with the worker role [R-PRIV-07, ADR-0009]', async () => {
-    const expected = String(retentionJobs().length);
+  it('runs every scheduled job in the worker container with the worker role [R-PRIV-07, A-20, ADR-0009]', async () => {
+    // The retention jobs and the daily goal evaluation.
+    const expected = String(retentionJobs().length + 1);
     const succeededJobs = async () =>
       (
         await compose(

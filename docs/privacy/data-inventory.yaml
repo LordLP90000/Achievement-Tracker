@@ -219,6 +219,14 @@ tables:
       rank:            { category: C7, personal: true }
       awarded_at:      { category: C7, personal: true }
 
+  goal_evaluations:
+    user_relation: user_id
+    retention: until account deletion (cascade); only dates of the worker's schedule, no goal content, so it stays when the goal-content consent is withdrawn (the user is then never due again)
+    columns:
+      user_id:       { category: C7, personal: true,  export: excluded, export_reason: scheduling bookkeeping of the worker; the results are exported from their own tables }
+      evaluated_on:  { category: C7, personal: true,  export: excluded, export_reason: scheduling bookkeeping of the worker; derived from the exported time zone }
+      due_at:        { category: C7, personal: true,  export: excluded, export_reason: scheduling bookkeeping of the worker; derived from the exported time zone }
+
   audit_events:
     user_relation: user_id
     retention: 90 days (purge-job); cascade on deletion

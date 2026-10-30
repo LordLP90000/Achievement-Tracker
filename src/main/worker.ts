@@ -1,4 +1,5 @@
 import type { Logger } from 'pino';
+import { goalJobs } from '../modules/goals/daily-evaluation.ts';
 import { retentionJobs } from '../modules/privacy/retention.ts';
 import type { WorkerConfig } from '../platform/config/config.ts';
 import { createDataKeys } from '../platform/crypto/data-keys.ts';
@@ -19,12 +20,12 @@ export const OUTBOX_POLL_MS = 5_000;
 /** How often the worker checks which scheduled jobs are due; each job has its own interval (hourly retention). */
 export const SCHEDULER_TICK_MS = 60_000;
 
-/** The worker decrypts queued email payloads with user data keys, so it needs the KEK (R-ENC-05). */
+/** The worker decrypts queued email payloads and goal content with user data keys, so it needs the KEK (R-ENC-05). */
 export interface WorkerKeyMaterial {
   readonly kek: Kek;
 }
 
-/** Replaceable parts for tests; production sends through the SMTP relay and runs the retention jobs. */
+/** Replaceable parts for tests; production sends through the SMTP relay and runs the retention and goal jobs. */
 export interface WorkerOverrides {
   readonly emailSender?: EmailSender;
   readonly clock?: Clock;
@@ -35,7 +36,7 @@ export interface WorkerOverrides {
 
 /**
  * Starts the background worker with the `questline_worker` database role: it runs the scheduled jobs (retention,
- * ADR-0009) and drains the email outbox (ADR-0014). Settlement and hard-deletion jobs follow in M3–M4.
+ * ADR-0009; the daily goal evaluation, A-20, A-21) and drains the email outbox (ADR-0014). Hard deletion follows in M4.
  */
 export async function startWorker(
   config: WorkerConfig,
@@ -46,7 +47,8 @@ export async function startWorker(
   const database = createDatabaseClient({
     url: config.databaseUrl,
     applicationName: 'questline-worker',
-    maxConnections: 2,
+    // The scheduler's job transaction, a user's goal transaction inside a goal job, and email delivery.
+    maxConnections: 3,
   });
   try {
     await databaseReadiness(database)();
@@ -63,7 +65,9 @@ export async function startWorker(
   if (outbox === undefined) logger.warn('email delivery off: no SMTP settings, emails stay queued');
   logger.info({ email_delivery: outbox === undefined ? 'off' : 'on' }, 'worker ready');
 
-  const scheduler = createScheduler({ db, clock, logger, jobs: overrides.jobs ?? retentionJobs() });
+  const dataKeys = createDataKeys(localKeyWrapper(keys.kek));
+  const jobs = overrides.jobs ?? [...retentionJobs(), ...goalJobs({ db, dataKeys, clock, logger })];
+  const scheduler = createScheduler({ db, clock, logger, jobs });
   const pollers: Poller[] = [
     startPoller(
       () => scheduler.runDue(),
@@ -76,7 +80,7 @@ export async function startWorker(
   if (outbox !== undefined) {
     const delivery = createOutboxDelivery({
       db,
-      dataKeys: createDataKeys(localKeyWrapper(keys.kek)),
+      dataKeys,
       sender: outbox.sender,
       clock,
       linkBaseUrl: outbox.email.linkBaseUrl,

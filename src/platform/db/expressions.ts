@@ -21,3 +21,8 @@ export function afterPosition(
 ): SQL {
   return sql`(${createdAt}, ${id}) < (${sql.param(position.createdAt, createdAt)}, ${sql.param(position.id, id)})`;
 }
+
+/** Ascending, with NULLs first (PostgreSQL puts them last by default): rows never handled come before all others. */
+export function ascNullsFirst(column: AnyColumn): SQL {
+  return sql`${column} asc nulls first`;
+}

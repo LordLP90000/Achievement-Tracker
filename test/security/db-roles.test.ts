@@ -12,24 +12,25 @@ const PRIVILEGES = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFEREN
  * reviewed and listed here; nobody gets TRUNCATE, REFERENCES or TRIGGER.
  */
 const EXPECTED_GRANTS: Readonly<Record<string, { readonly app: string[]; readonly worker: string[] }>> = {
-  achievements: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: [] },
+  achievements: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'UPDATE'] },
   audit_events: { app: ['INSERT'], worker: ['SELECT', 'DELETE'] },
-  badges: { app: ['SELECT', 'INSERT', 'DELETE'], worker: [] },
-  check_ins: { app: ['SELECT', 'INSERT', 'DELETE'], worker: [] },
+  badges: { app: ['SELECT', 'INSERT', 'DELETE'], worker: ['SELECT', 'INSERT', 'DELETE'] },
+  check_ins: { app: ['SELECT', 'INSERT', 'DELETE'], worker: ['SELECT'] },
   consents: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: [] },
   deleted_user_tombstones: { app: [], worker: ['SELECT', 'INSERT', 'DELETE'] },
   email_outbox: { app: ['INSERT'], worker: ['SELECT', 'UPDATE', 'DELETE'] },
-  gambles: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: [] },
+  gambles: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'UPDATE'] },
+  goal_evaluations: { app: [], worker: ['SELECT', 'INSERT', 'UPDATE'] },
   idempotency_keys: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
   job_runs: { app: [], worker: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'] },
   one_time_tokens: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
-  quests: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: [] },
+  quests: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'UPDATE'] },
   rate_limit_buckets: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
   session_tokens: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
   sessions: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
   user_keys: { app: ['SELECT', 'INSERT'], worker: ['SELECT'] },
   users: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
-  xp_events: { app: ['SELECT', 'INSERT', 'DELETE'], worker: [] },
+  xp_events: { app: ['SELECT', 'INSERT', 'DELETE'], worker: ['SELECT', 'INSERT'] },
 };
 
 describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {

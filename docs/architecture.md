@@ -196,9 +196,15 @@ its response (headers and body, encrypted with the user's data key) in the same 
   generations whose refresh token expired (rotated ones are kept until then for reuse detection; revocation deletes
   a session's tokens at once), sessions 7 d after revocation, absolute expiry or the end of their refresh lifetime,
   audit events after 90 d, rate-limit buckets untouched for 24 h, idempotency records when their 24 h are over (M3),
-  dead letters after 7 d, tombstones after 35 d and job runs after 30 d. Later milestones add daily habit-period
-  closing and gamble settlement after local midnight per user timezone (A-20, A-21, M3) and the hard delete of
-  deactivated accounts after 30 days with tombstone (R-PRIV-06, M4).
+  dead letters after 7 d, tombstones after 35 d and job runs after 30 d. The **daily goal evaluation**
+  (`modules/goals/daily-evaluation.ts`, M3, A-20, A-21) runs every minute and takes the users whose next local
+  midnight has come (`goal_evaluations.due_at`, computed with `Intl`, ADR-0011) and who have an active achievement
+  that time alone can change — a habit, or a pending gamble — never-evaluated and longest-waiting first, at most 50 per
+  run and none after 5 s, so the scheduler's waiting transaction never reaches its idle timeout. Each user runs in
+  their own transaction under their goal lock with their context set: the goal engine syncs those achievements (a
+  missed period resets the habit, a passed target date loses the gamble), then records the day and the next due
+  instant. A failing user is logged with an error class only and stays due. The hard delete of deactivated accounts
+  after 30 days with tombstone follows in M4 (R-PRIV-06).
 - Email sending is the worker's only outbound call: `SmtpEmailSender` (`nodemailer`, TLS required — STARTTLS on
   587 or implicit TLS on 465, ADR-0014). Tests use `FakeEmailSender`, which exposes delivered messages (so tests
   can extract verification links), and a local SMTP test server for the real sender.

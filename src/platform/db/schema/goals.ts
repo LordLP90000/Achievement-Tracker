@@ -294,3 +294,19 @@ export const badges = pgTable(
     check('badges_rank_check', sql`${table.rank} in (${RANKS})`),
   ],
 );
+
+/**
+ * Bookkeeping of the daily goal evaluation in the worker (A-20, A-21): the local day it last evaluated a user's goals
+ * and the next local midnight, when the user is due again. Worker only; no goal content.
+ */
+export const goalEvaluations = pgTable(
+  'goal_evaluations',
+  {
+    userId: uuid('user_id')
+      .primaryKey()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    evaluatedOn: date('evaluated_on', { mode: 'string' }).notNull(),
+    dueAt: timestamptz('due_at').notNull(),
+  },
+  (table) => [index('goal_evaluations_due_idx').on(table.dueAt)],
+);

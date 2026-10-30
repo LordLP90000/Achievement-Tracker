@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalTimeZone, DEFAULT_TIME_ZONE, localDateOf } from './time-zones.ts';
+import { canonicalTimeZone, DEFAULT_TIME_ZONE, localDateOf, nextLocalMidnight } from './time-zones.ts';
 
 describe('canonicalTimeZone (A-02)', () => {
   it('defaults to Europe/Zurich', () => {
@@ -95,5 +95,37 @@ describe('localDateOf: the calendar date of an instant in the user’s time zone
 
   it('refuses an unknown time zone instead of guessing', () => {
     expect(() => localDateOf(new Date('2026-10-29T12:00:00Z'), 'Mars/Olympus')).toThrow(RangeError);
+  });
+});
+
+describe('nextLocalMidnight: the first instant of the next local day [ADR-0011, A-20]', () => {
+  const next = (instant: string, timeZone = 'Europe/Zurich') =>
+    nextLocalMidnight(new Date(instant), timeZone).toISOString();
+
+  it.each([
+    ['2026-10-29T12:00:00Z', 'Europe/Zurich', '2026-10-29T23:00:00.000Z', 'a winter day: midnight CET'],
+    ['2026-10-29T22:59:59.999Z', 'Europe/Zurich', '2026-10-29T23:00:00.000Z', 'a millisecond before it'],
+    ['2026-10-29T23:00:00Z', 'Europe/Zurich', '2026-10-30T23:00:00.000Z', 'at midnight: the next one'],
+    ['2026-03-29T00:30:00Z', 'Europe/Zurich', '2026-03-29T22:00:00.000Z', 'spring forward: a 23-hour day'],
+    ['2026-10-25T00:30:00Z', 'Europe/Zurich', '2026-10-25T23:00:00.000Z', 'fall back: a 25-hour day'],
+    ['2026-10-24T22:00:00Z', 'Europe/Zurich', '2026-10-25T23:00:00.000Z', 'from the first instant of the 25-hour day'],
+    ['2026-10-24T21:00:00Z', 'Europe/Zurich', '2026-10-24T22:00:00.000Z', 'the summer-time midnight before it'],
+    ['2026-10-29T11:30:00Z', 'Pacific/Auckland', '2026-10-30T11:00:00.000Z', 'Auckland, a day ahead'],
+    ['2026-10-29T12:00:00Z', 'America/Sao_Paulo', '2026-10-30T03:00:00.000Z', 'Sao Paulo, behind UTC'],
+    ['2026-10-29T12:00:00Z', 'UTC', '2026-10-30T00:00:00.000Z', 'UTC'],
+  ])('%s in %s → %s (%s)', (instant, timeZone, midnight) => {
+    expect(next(instant, timeZone)).toBe(midnight);
+  });
+
+  it('is always later, on the next local date, and a millisecond earlier is still today', () => {
+    const start = Date.parse('2026-01-01T00:00:00Z');
+    for (let hour = 0; hour < 366 * 24; hour += 7) {
+      const instant = new Date(start + hour * 3_600_000);
+      const midnight = nextLocalMidnight(instant, 'Europe/Zurich');
+      const today = localDateOf(instant, 'Europe/Zurich');
+      expect(midnight.getTime()).toBeGreaterThan(instant.getTime());
+      expect(localDateOf(new Date(midnight.getTime() - 1), 'Europe/Zurich')).toBe(today);
+      expect(localDateOf(midnight, 'Europe/Zurich')).not.toBe(today);
+    }
   });
 });

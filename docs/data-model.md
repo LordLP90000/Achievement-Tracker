@@ -383,6 +383,17 @@ replaced by a newer one or expired) is deleted unsent (D-05); notices are always
 
 One row per finished run (`succeeded`, or `failed` with an error class such as `pg_57014`); the latest run of a job decides when it is due again (architecture §4.7). Retention 30 days.
 
+#### `goal_evaluations` (worker bookkeeping, M3)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `user_id` | uuid PK → `users` CASCADE | |
+| `evaluated_on` | date NOT NULL | the user's local day the daily goal evaluation last ran for (A-20, A-21) |
+| `due_at` | timestamptz NOT NULL | the next local midnight, computed with `Intl` (ADR-0011): when the user is due again |
+
+Written only by the worker; no goal content, so it stays when the goal-content consent is withdrawn (the user then
+has nothing left to evaluate). Index `(due_at)`.
+
 ## 4. Roles, grants and RLS (ADR-0003)
 
 ```sql
@@ -422,16 +433,19 @@ row is added here and in the test. Cascading deletes need no grant (they run as 
 | `rate_limit_buckets` | SELECT, INSERT, UPDATE | SELECT, DELETE | ⟂ no user relation; UNLOGGED |
 | `deleted_user_tombstones` | — | SELECT, INSERT, DELETE | ⟂ no user relation |
 | `job_runs` | — | SELECT, INSERT, UPDATE, DELETE | ⟂ no personal data |
-| `achievements` (M3) | SELECT, INSERT, UPDATE, DELETE — a `completed` one only after the goal-content consent is withdrawn (restrictive policy) | — | RLS |
-| `gambles` (M3) | SELECT, INSERT, UPDATE | — | RLS; history, deleted with the achievement |
-| `quests` (M3) | SELECT, INSERT, UPDATE, DELETE | — | RLS |
-| `check_ins` (M3) | SELECT, INSERT, DELETE | — | RLS; immutable, an undo deletes |
-| `xp_events` (M3) | SELECT, INSERT, DELETE — only after the goal-content consent is withdrawn (restrictive policy) | — | RLS; append-only ledger |
-| `badges` (M3) | SELECT, INSERT, DELETE | — | RLS |
+| `achievements` (M3) | SELECT, INSERT, UPDATE, DELETE — a `completed` one only after the goal-content consent is withdrawn (restrictive policy) | SELECT (all users), UPDATE (the user in context) | RLS |
+| `gambles` (M3) | SELECT, INSERT, UPDATE | SELECT (all users), UPDATE (the user in context) | RLS; history, deleted with the achievement |
+| `quests` (M3) | SELECT, INSERT, UPDATE, DELETE | SELECT (all users), UPDATE (the user in context) | RLS |
+| `check_ins` (M3) | SELECT, INSERT, DELETE | SELECT (the user in context) | RLS; immutable, an undo deletes |
+| `xp_events` (M3) | SELECT, INSERT, DELETE — only after the goal-content consent is withdrawn (restrictive policy) | SELECT, INSERT (the user in context) | RLS; append-only ledger |
+| `badges` (M3) | SELECT, INSERT, DELETE | SELECT, INSERT, DELETE (the user in context) | RLS |
 | `idempotency_keys` (M3) | SELECT, INSERT, UPDATE (replacing an expired record), DELETE (consent withdrawal, Q-10; migration 0006) | SELECT, DELETE (purge) | RLS |
+| `goal_evaluations` (M3) | — | SELECT, INSERT, UPDATE | ⟂ worker-only bookkeeping, no goal content |
 
-The worker gets no goal-content privileges in migration 0004; the daily habit and gamble jobs (M3) add exactly what
-they need.
+The worker's goal privileges (migration 0007) serve the daily goal evaluation (A-20, A-21): it reads achievements,
+quests and gambles of every user to find who is due, then runs the goal engine with one user's context set, and its
+policies let it change only that user's rows (`<table>_worker_update`, `check_ins_worker`, `xp_events_worker`,
+`badges_worker`), like the API.
 `test/security/rls-coverage.test.ts` fails for any table that is neither RLS-protected nor listed as ⟂, and for any
 API policy that is not bound to `app_current_user_id()`.
 

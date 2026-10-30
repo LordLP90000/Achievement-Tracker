@@ -26,6 +26,7 @@ const RLS_EXEMPT: Readonly<Record<string, string>> = {
   rate_limit_buckets: 'no user relation (daily-keyed hashes)',
   deleted_user_tombstones: 'no user relation; worker only',
   job_runs: 'no personal data; worker only',
+  goal_evaluations: 'worker only; the date of the last daily evaluation, no goal content',
 };
 
 interface TableSecurity {

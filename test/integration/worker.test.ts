@@ -162,7 +162,7 @@ describe('startWorker', () => {
     expect(logs.text).not.toContain('clock unavailable');
   });
 
-  it('runs the retention jobs on their schedule with the worker role, also without SMTP settings', async () => {
+  it('runs the retention jobs and the goal evaluation on their schedule with the worker role, also without SMTP settings', async () => {
     const email = await register();
     const [user] = await ctx.worker.sql<{ id: string }[]>`
       select id from users where email_blind_index = ${ctx.blindIndex(email)}`;
@@ -175,7 +175,8 @@ describe('startWorker', () => {
     });
     await vi.waitFor(async () => {
       const runs = await ctx.worker.sql<{ count: number }[]>`select count(*)::int as count from job_runs`;
-      expect(runs[0]?.count).toBe(retentionJobs().length);
+      // The retention jobs and the daily goal evaluation.
+      expect(runs[0]?.count).toBe(retentionJobs().length + 1);
     });
     await worker.stop();
 
