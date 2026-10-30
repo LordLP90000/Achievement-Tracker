@@ -3,7 +3,19 @@ import { createDatabaseClient, type DatabaseClient } from '../../src/platform/db
 import { createTestDatabase, type TestDatabase } from '../helpers/database.ts';
 
 /** Tables whose rows the API may only see for the user in `app.user_id` (docs/data-model.md §4). */
-const RLS_TABLES = ['audit_events', 'consents', 'email_outbox', 'sessions', 'user_keys'];
+const RLS_TABLES = [
+  'achievements',
+  'audit_events',
+  'badges',
+  'check_ins',
+  'consents',
+  'email_outbox',
+  'gambles',
+  'quests',
+  'sessions',
+  'user_keys',
+  'xp_events',
+];
 
 /** Tables without row-level security, each with the reason documented in docs/data-model.md §3. */
 const RLS_EXEMPT: Readonly<Record<string, string>> = {
@@ -25,6 +37,7 @@ interface Policy {
   table: string;
   name: string;
   roles: string[];
+  permissive: string;
   command: string;
   using: string | null;
   check: string | null;
@@ -45,7 +58,7 @@ describe('row-level security coverage', () => {
       from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = 'public' and c.relkind = 'r' order by c.relname`;
     policies = await migrator.sql<Policy[]>`
-      select tablename as table, policyname as name, roles::text[] as roles, cmd as command, qual as using,
+      select tablename as table, policyname as name, roles::text[] as roles, permissive, cmd as command, qual as using,
              with_check as check
       from pg_policies where schemaname = 'public' order by tablename, policyname`;
   });
@@ -90,8 +103,17 @@ describe('row-level security coverage', () => {
         ),
     );
 
-    expect(apiPolicies.map((policy) => policy.table).sort()).toEqual(RLS_TABLES);
+    expect([...new Set(apiPolicies.map((policy) => policy.table))].sort()).toEqual(RLS_TABLES);
     expect(unbound.map((policy) => policy.name)).toEqual([]);
+  });
+
+  it('narrows deletion of the XP ledger and of completed achievements with restrictive API policies [R-XP-01, R-ACH-07]', () => {
+    const restrictive = policies.filter((policy) => policy.permissive === 'RESTRICTIVE');
+
+    expect(restrictive.map(({ table, name, command }) => ({ table, name, command }))).toEqual([
+      { table: 'achievements', name: 'achievements_app_delete_guard', command: 'DELETE' },
+      { table: 'xp_events', name: 'xp_events_app_delete_guard', command: 'DELETE' },
+    ]);
   });
 
   it('has no policy for PUBLIC, which would apply to every role', () => {

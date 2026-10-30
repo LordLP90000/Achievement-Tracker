@@ -47,7 +47,12 @@ describe('schema drift', () => {
       order by a.attname`;
 
     const expected = getTableConfig(table)
-      .columns.map((column) => ({ name: column.name, nullable: !column.notNull, type: column.getSQLType() }))
+      .columns.map((column) => ({
+        name: column.name,
+        nullable: !column.notNull,
+        // Drizzle writes `numeric(5, 2)`, PostgreSQL reports `numeric(5,2)`.
+        type: column.getSQLType().replaceAll(', ', ','),
+      }))
       .sort((left, right) => left.name.localeCompare(right.name));
     expect(columns.map((column) => ({ ...column }))).toEqual(expected);
   });

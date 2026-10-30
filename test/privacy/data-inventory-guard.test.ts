@@ -9,7 +9,7 @@ import { createTestDatabase, type TestDatabase } from '../helpers/database.ts';
  * Inventory tables whose migration comes in a later milestone. Shrink-only: once a table exists, this test fails
  * until it is removed here, so the inventory is checked against the real schema from then on.
  */
-const NOT_YET_MIGRATED = ['achievements', 'badges', 'check_ins', 'gambles', 'idempotency_keys', 'quests', 'xp_events'];
+const NOT_YET_MIGRATED = ['idempotency_keys'];
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const deletionSchema = z.enum(['cascade', 'purge-job', 'consent-withdrawal', 'not-applicable']);

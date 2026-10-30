@@ -184,35 +184,39 @@ History is kept for the lifetime of the account as proof of the lawful processin
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
 | `version` | integer NOT NULL | |
 
-Index `(user_id, status, created_at DESC, id DESC)` for cursor pagination.
+Index `(user_id, status, created_at, id)` for cursor pagination, scanned backwards for newest-first pages.
+`UNIQUE (id, user_id)` is the target of the children's composite foreign keys. CHECK: `completed` exactly when
+`completed_at`, `execution_score` (0–100) and `rank` are set. A restrictive policy keeps a `completed` achievement
+undeletable for the API until the goal-content consent is withdrawn (R-ACH-07, Q-10).
 
 #### `gambles` RLS (R-GMB-*)
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | |
-| `user_id` | uuid → `users` CASCADE | partial UNIQUE (`user_id`) WHERE `status = 'pending'`: one pending gamble per user (Q-31) |
-| `achievement_id` | uuid → `achievements` CASCADE | |
+| `user_id` | uuid NOT NULL | the achievement's user (composite FK below); partial UNIQUE (`user_id`) WHERE `status = 'pending'`: one pending gamble per user (Q-31) |
+| `achievement_id` | uuid NOT NULL | `(achievement_id, user_id)` → `achievements (id, user_id)` CASCADE |
 | `attempt` | integer NOT NULL | attempt during which it was placed |
 | `stake` | bigint NOT NULL CHECK > 0 | XP above the level threshold at placement |
 | `status` | text CHECK IN (`pending`, `won`, `lost`) NOT NULL | |
-| `loss_reason` | text NULL CHECK IN (`target_date_passed`, `habit_reset`, `paused`, `deleted`) | |
-| `placed_at`, `settled_at` | timestamptz | |
+| `loss_reason` | text NULL CHECK IN (`target_date_passed`, `habit_reset`, `paused`, `deleted`) | set exactly when `lost` |
+| `placed_at`, `settled_at` | timestamptz | `settled_at` set exactly when not `pending`, never before `placed_at` |
 
 History of won/lost gambles is kept (counts against Champion, R-RANK-02) until the achievement or account is deleted.
+Index `(achievement_id)`.
 
 #### `quests` RLS
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | |
-| `user_id` | uuid → `users` CASCADE | |
-| `achievement_id` | uuid → `achievements` CASCADE | |
+| `user_id` | uuid NOT NULL | the achievement's user (composite FK below) |
+| `achievement_id` | uuid NOT NULL | `(achievement_id, user_id)` → `achievements (id, user_id)` CASCADE; never changes |
 | `position` | integer NOT NULL | client-managed order |
 | `type` | text CHECK IN (`one_time`, `habit`, `target`) NOT NULL | immutable |
 | `size` | text CHECK IN (`S`, `M`, `L`) NOT NULL | XP 10/25/50 derived in code |
 | `is_required` | boolean NOT NULL DEFAULT true | |
-| `prerequisite_quest_id` | uuid NULL → `quests` ON DELETE SET NULL | same achievement, acyclic, chains ≤ 20 links (checked in service, A-16); for a habit fixed once its run has begun (Q-38) |
+| `prerequisite_quest_id` | uuid NULL | `(prerequisite_quest_id, achievement_id)` → `quests (id, achievement_id)` ON DELETE SET NULL (`prerequisite_quest_id`): the key itself keeps it in the same achievement; not the quest itself; acyclic, chains ≤ 20 links (checked in service, A-16); for a habit fixed once its run has begun (Q-38) |
 | `title_enc` 🔒 | bytea NOT NULL | |
 | `notes_enc` 🔒 | bytea NULL | |
 | `unit_enc` 🔒 | bytea NULL | target only |
@@ -231,18 +235,20 @@ History of won/lost gambles is kept (counts against Champion, R-RANK-02) until t
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
 | `version` | integer NOT NULL | |
 
-`CHECK` constraints enforce "type-specific columns are NOT NULL iff the type matches". Effective XP
-(`base × duration factor`, R-XP-02) is derived in code, not stored. The habit columns change only at a restart or
-before the run's start date (Q-37).
-Index `(achievement_id, position)`, `(user_id)`.
+`CHECK` constraints enforce "type-specific columns are NOT NULL iff the type matches" (`unit_enc` optional for
+targets), and that `reset_count`, `habit_best_streak` and `needs_restart` stay at their defaults for non-habits and a
+quest that needs a restart is not completed. Effective XP (`base × duration factor`, R-XP-02) is derived in code, not
+stored. The habit columns change only at a restart or before the run's start date (Q-37).
+Index `(achievement_id, position)`, `(user_id)`; `UNIQUE (id, user_id)` and `(id, achievement_id)` are the targets of
+the composite foreign keys.
 
 #### `check_ins` RLS
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | |
-| `user_id` | uuid → `users` CASCADE | |
-| `quest_id` | uuid → `quests` CASCADE | |
+| `user_id` | uuid NOT NULL | the quest's user (composite FK below) |
+| `quest_id` | uuid NOT NULL | `(quest_id, user_id)` → `quests (id, user_id)` CASCADE |
 | `local_date` | date NOT NULL | user's day (R-CHK-04) |
 | `attempt` | integer NOT NULL | achievement attempt at creation; older attempts are history |
 | `counts_for_progress` | boolean NOT NULL | true only if `local_date` = today at creation (R-CHK-04) |
@@ -251,9 +257,9 @@ Index `(achievement_id, position)`, `(user_id)`.
 | `dek_version` | integer NOT NULL | |
 | `created_at` | timestamptz NOT NULL | |
 
-Immutable (no `version`); an undo deletes the row, possible only on the day it was created in the account's time zone
-(Q-36). Index `(quest_id, attempt, local_date) WHERE counts_for_progress` and
-`(quest_id, created_at DESC, id DESC)`.
+Immutable (no `version`, no UPDATE grant); an undo deletes the row, possible only on the day it was created in the
+account's time zone (Q-36). Index `(quest_id, attempt, local_date) WHERE counts_for_progress` and
+`(quest_id, created_at, id)` (scanned backwards for newest-first pages).
 
 ### 3.4 Gamification
 
@@ -264,10 +270,10 @@ Immutable (no `version`); an undo deletes the row, possible only on the day it w
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | |
 | `kind` | text CHECK IN (`quest_completed`, `quest_uncompleted`, `rank_bonus`, `rank_bonus_revoked`, `gamble_won`, `gamble_lost`, `gamble_reverted`, `pause_revoked`, `quest_deleted`, `achievement_deleted`, `xp_floor`) | `gamble_reverted`: an undo re-locked the unlock that won the gamble; `xp_floor`: see below (A-38) |
-| `amount` | bigint NOT NULL | signed; reversals are negative |
-| `quest_id` | uuid NULL → `quests` ON DELETE SET NULL | |
-| `achievement_id` | uuid NULL → `achievements` ON DELETE SET NULL | |
-| `gamble_id` | uuid NULL → `gambles` ON DELETE SET NULL | |
+| `amount` | bigint NOT NULL | signed: CHECK > 0 for the credits `quest_completed`, `rank_bonus`, `gamble_won`, `xp_floor`, < 0 for every other kind (never 0) |
+| `quest_id` | uuid NULL | `(quest_id, user_id)` → `quests (id, user_id)` ON DELETE SET NULL (`quest_id`) |
+| `achievement_id` | uuid NULL | `(achievement_id, user_id)` → `achievements (id, user_id)` ON DELETE SET NULL (`achievement_id`) |
+| `gamble_id` | uuid NULL | `(gamble_id, user_id)` → `gambles (id, user_id)` ON DELETE SET NULL (`gamble_id`) |
 | `local_date` | date NOT NULL | for "XP over time" (A-13) |
 | `created_at` | timestamptz NOT NULL | |
 
@@ -275,19 +281,23 @@ Total XP = `SUM(amount)`, never below 0: revocations are exact, so if a lost gam
 `xp_floor` event brings the sum back to 0 (R-XP-04, A-38); level derived in code. Exactly-once is guaranteed by the
 effects engine (`src/domain/effects.ts`), which appends only the difference between the XP the ledger credits and
 the XP the state deserves, running under `SELECT … FOR UPDATE` on the quest/achievement rows.
+Deleting a quest, achievement or gamble keeps its ledger rows and clears only the reference (the column list keeps
+`user_id`; PostgreSQL ≥ 15). The API has no UPDATE grant, and a restrictive policy lets it delete ledger rows only
+after the goal-content consent is withdrawn (Q-10). Indexes `(user_id, local_date)` and partial `(quest_id)`,
+`(achievement_id)`, `(gamble_id)` (sums per quest/achievement for the effects engine; unlinking on deletion).
 
 #### `badges` RLS
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | uuid PK | |
-| `user_id` | uuid → `users` CASCADE | |
-| `achievement_id` | uuid → `achievements` CASCADE | UNIQUE with `kind` |
+| `user_id` | uuid NOT NULL | the achievement's user (composite FK below) |
+| `achievement_id` | uuid NOT NULL | `(achievement_id, user_id)` → `achievements (id, user_id)` CASCADE; UNIQUE with `kind` |
 | `kind` | text CHECK IN (`achievement_rank`) | A-06 |
 | `rank` | text NOT NULL | same enum as `achievements.rank` |
 | `awarded_at` | timestamptz NOT NULL | |
 
-Removed on re-lock (R-ACH-05) and on achievement deletion.
+Removed on re-lock (R-ACH-05) and on achievement deletion. Index `(user_id)`.
 
 ### 3.5 Security & operations
 
@@ -401,8 +411,15 @@ row is added here and in the test. Cascading deletes need no grant (they run as 
 | `rate_limit_buckets` | SELECT, INSERT, UPDATE | SELECT, DELETE | ⟂ no user relation; UNLOGGED |
 | `deleted_user_tombstones` | — | SELECT, INSERT, DELETE | ⟂ no user relation |
 | `job_runs` | — | SELECT, INSERT, UPDATE, DELETE | ⟂ no personal data |
+| `achievements` (M3) | SELECT, INSERT, UPDATE, DELETE — a `completed` one only after the goal-content consent is withdrawn (restrictive policy) | — | RLS |
+| `gambles` (M3) | SELECT, INSERT, UPDATE | — | RLS; history, deleted with the achievement |
+| `quests` (M3) | SELECT, INSERT, UPDATE, DELETE | — | RLS |
+| `check_ins` (M3) | SELECT, INSERT, DELETE | — | RLS; immutable, an undo deletes |
+| `xp_events` (M3) | SELECT, INSERT, DELETE — only after the goal-content consent is withdrawn (restrictive policy) | — | RLS; append-only ledger |
+| `badges` (M3) | SELECT, INSERT, DELETE | — | RLS |
 
-Goal-content tables (M3) and `idempotency_keys` (M3) are added with their grants when they are migrated.
+`idempotency_keys` (M3) is added with its grants when it is migrated. The worker gets no goal-content privileges in
+migration 0004; the daily habit and gamble jobs (M3) add exactly what they need.
 `test/security/rls-coverage.test.ts` fails for any table that is neither RLS-protected nor listed as ⟂, and for any
 API policy that is not bound to `app_current_user_id()`.
 
@@ -412,6 +429,13 @@ refresh tokens over 30 days, sessions over 180 days; revocation without reason; 
 active consent of one type; hashes, blind indexes and bucket keys that are not 32 bytes; outbox error codes that are
 not short identifiers (no free text that could contain an address). Tested in `test/integration/account-schema.test.ts`.
 
+**Goal content (M3, migration 0004).** Every child row references its parent together with `user_id` (composite
+foreign keys, like `session_tokens`), so no row can hang below another user's achievement, quest or gamble even if a
+service forgot a check (T-01), and a prerequisite must lie in the same achievement. CHECK constraints refuse unknown
+enum values, type-specific quest columns of the wrong type, habit state on non-habits, inconsistent completion of
+achievements and settlement of gambles, a second pending gamble per user, a second rank badge per achievement, and
+ledger amounts that are 0 or have the wrong sign. Tested in `test/integration/goal-schema.test.ts`.
+
 ## 5. Deactivation and deletion (R-PRIV-06)
 
 1. **Request** (`DELETE /v1/me`, re-auth): sets `users.deactivated_at`, revokes every session and token, writes
@@ -419,13 +443,14 @@ not short identifiers (no free text that could contain an address). Tested in `t
 2. **Reactivation**: a successful `POST /v1/auth/login` within 30 days clears `deactivated_at` (audited).
 3. **Hard delete** (worker job, daily): for every user with `deactivated_at < now − 30 days`,
    `DELETE FROM users WHERE id = $1` inside one transaction removes, via `ON DELETE CASCADE`: `user_keys`
-   (crypto-shredding), `one_time_tokens`, `sessions` → `session_tokens`, `consents`, `achievements` → `gambles`,
-   `quests` → `check_ins`, `xp_events`, `badges`, `audit_events`, `idempotency_keys`, `email_outbox`. The same
+   (crypto-shredding), `one_time_tokens`, `sessions` → `session_tokens`, `consents`, `achievements` → (`gambles`,
+   `badges`, `quests` → `check_ins`), `xp_events`, `audit_events`, `idempotency_keys`, `email_outbox`. The same
    transaction inserts the tombstone (Q-13). The data-inventory guard test asserts that **every** table with a
    user relation is reached by this cascade and appears in the export.
 
-Consent withdrawal (Q-10) deletes only the goal-content subtree (`achievements` → `gambles`, `quests` →
-`check_ins`, plus `xp_events` and `badges`) in one transaction and leaves the account intact.
+Consent withdrawal (Q-10) deletes only the goal-content subtree (`achievements` → `gambles`, `badges`, `quests` →
+`check_ins`, plus `xp_events`) in one transaction and leaves the account intact; the consent is marked withdrawn first,
+which lifts the restrictive delete policies on completed achievements and the ledger (§4).
 
 ## 6. Export document (R-PRIV-05) — shape
 
