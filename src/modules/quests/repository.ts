@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import type { LocalDate } from '../../domain/dates.ts';
 import type { HabitPeriod, QuestSize } from '../../domain/duration.ts';
 import type { WeekStart } from '../../domain/periods.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
+import { inBatches } from '../../platform/db/batches.ts';
 import type { Transaction } from '../../platform/db/database.ts';
 import { increment } from '../../platform/db/expressions.ts';
 import { quests } from '../../platform/db/schema/index.ts';
@@ -91,6 +92,8 @@ export interface QuestsRepository {
   find(id: string): Promise<QuestRecord | undefined>;
   /** The quests of an achievement in their order: position, then creation. */
   listByAchievement(achievementId: string): Promise<QuestRecord[]>;
+  /** The quests of any number of achievements, each achievement's in its order. */
+  listByAchievements(achievementIds: readonly string[]): Promise<QuestRecord[]>;
   /** Applies the change and bumps the version, as every change of a quest does (ADR-0008). */
   updateState(quest: QuestRecord, change: QuestStateChange, now: Date): Promise<QuestRecord>;
   /** Stores the edited definition, every encrypted field under the current data key, and bumps the version. */
@@ -210,6 +213,20 @@ export function questsRepository(tx: Transaction, userId: string, dataKey: UserD
         .where(and(mine, eq(quests.achievementId, achievementId)))
         .orderBy(asc(quests.position), asc(quests.createdAt), asc(quests.id));
       return rows.map(toRecord);
+    },
+
+    async listByAchievements(achievementIds) {
+      const records: QuestRecord[] = [];
+      // An achievement's quests all come in one batch, so each keeps its order.
+      for (const batch of inBatches(achievementIds)) {
+        const rows = await tx
+          .select()
+          .from(quests)
+          .where(and(mine, inArray(quests.achievementId, batch)))
+          .orderBy(asc(quests.position), asc(quests.createdAt), asc(quests.id));
+        records.push(...rows.map(toRecord));
+      }
+      return records;
     },
 
     async updateState(quest, change, now) {

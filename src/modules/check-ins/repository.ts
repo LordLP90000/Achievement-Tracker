@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import type { LocalDate } from '../../domain/dates.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
 import type { Transaction } from '../../platform/db/database.ts';
+import { inBatches } from '../../platform/db/batches.ts';
 import { afterPosition } from '../../platform/db/expressions.ts';
 import { checkIns } from '../../platform/db/schema/index.ts';
 import type { UserDataKey } from '../accounts/data-key.ts';
@@ -48,7 +49,7 @@ export interface CheckInsRepository {
   countOnDate(questId: string, localDate: LocalDate): Promise<number>;
   /** An undo (R-CHK-03). */
   remove(id: string): Promise<void>;
-  /** The counting check-ins of one attempt per quest, oldest first. */
+  /** The counting check-ins of one attempt per quest, oldest first; any number of quests. */
   countingByQuest(questIds: readonly string[], attempt: number): Promise<Map<string, CountingCheckInRecord[]>>;
 }
 
@@ -125,34 +126,36 @@ export function checkInsRepository(tx: Transaction, userId: string, dataKey: Use
 
     async countingByQuest(questIds, attempt) {
       const counting = new Map<string, CountingCheckInRecord[]>();
-      if (questIds.length === 0) return counting;
-      const rows = await tx
-        .select({
-          id: checkIns.id,
-          questId: checkIns.questId,
-          localDate: checkIns.localDate,
-          createdAt: checkIns.createdAt,
-          valueEnc: checkIns.valueEnc,
-        })
-        .from(checkIns)
-        .where(
-          and(
-            mine,
-            inArray(checkIns.questId, [...questIds]),
-            eq(checkIns.attempt, attempt),
-            eq(checkIns.countsForProgress, true),
-          ),
-        )
-        .orderBy(asc(checkIns.localDate), asc(checkIns.createdAt), asc(checkIns.id));
-      for (const row of rows) {
-        const record = {
-          localDate: row.localDate,
-          createdAt: row.createdAt,
-          value: open(row.id, 'value_enc', row.valueEnc),
-        };
-        const list = counting.get(row.questId);
-        if (list === undefined) counting.set(row.questId, [record]);
-        else list.push(record);
+      // A quest's check-ins all come in one batch, so each list keeps its order.
+      for (const batch of inBatches(questIds)) {
+        const rows = await tx
+          .select({
+            id: checkIns.id,
+            questId: checkIns.questId,
+            localDate: checkIns.localDate,
+            createdAt: checkIns.createdAt,
+            valueEnc: checkIns.valueEnc,
+          })
+          .from(checkIns)
+          .where(
+            and(
+              mine,
+              inArray(checkIns.questId, batch),
+              eq(checkIns.attempt, attempt),
+              eq(checkIns.countsForProgress, true),
+            ),
+          )
+          .orderBy(asc(checkIns.localDate), asc(checkIns.createdAt), asc(checkIns.id));
+        for (const row of rows) {
+          const record = {
+            localDate: row.localDate,
+            createdAt: row.createdAt,
+            value: open(row.id, 'value_enc', row.valueEnc),
+          };
+          const list = counting.get(row.questId);
+          if (list === undefined) counting.set(row.questId, [record]);
+          else list.push(record);
+        }
       }
       return counting;
     },

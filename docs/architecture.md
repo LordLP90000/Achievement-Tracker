@@ -115,6 +115,8 @@ Rules enforced by lint/tests:
 - Hand-written SQL only for RLS policies, roles/grants and the token-bucket upsert, each in a migration file
   and always parameterized when executed at runtime.
 - Connection pools: small (≤ 10 per instance), statement timeout 5 s, idle-in-transaction timeout 10 s.
+- Lists of IDs that grow with a user's data go in batches of 1 000 (`batches.ts`), far below PostgreSQL's 65 535
+  parameters per statement (the archive has no limit, Q-40).
 - Two drivers' worth of config: `questline_app` for the API, `questline_worker` for the worker.
 
 ### 4.3 Cryptography (`platform/crypto`)
@@ -251,6 +253,13 @@ habit's run ends with its streak kept as the best); `resumeAchievement` starts a
 its deadline (A-35) and starts a habit whose start date has passed today (A-39); `deleteAchievement` loses a pending
 gamble, revokes all the achievement's XP and deletes it with everything below it.
 
+The stats (`modules/stats`, R-STA-01, A-43) take the same lock: they sync the active achievements that time alone
+can change — the daily job's selection — so totals include what a missed period or a passed target date changed, then
+read the ledger per local day, the counts, the newest badges and the gamble record. Best streaks come from the synced
+achievements and from `restingHabitQuests`, which evaluates the habits of paused and completed achievements with the
+same code as a sync — which stores nothing for them — but in a fixed number of queries per thousand achievements, as
+the archive has no limit (Q-40).
+
 ## 6. Folder structure
 
 ```
@@ -272,7 +281,7 @@ gamble, revokes all the achievement's XP and deletes it with everything below it
 │   ├── platform/
 │   │   ├── config/
 │   │   ├── crypto/
-│   │   ├── db/{bootstrap.ts, client.ts, migrate.ts, schema/, migrations/}   # roles, grants, RLS helpers
+│   │   ├── db/{bootstrap.ts, client.ts, migrate.ts, batches.ts, schema/, migrations/}   # roles, grants, RLS helpers
 │   │   ├── email/                     # EmailSender, SmtpEmailSender (nodemailer), templates, outbox repository + delivery
 │   │   ├── http/
 │   │   ├── jobs/                      # poller (outbox, scheduler tick), scheduler with advisory locks and job_runs
@@ -287,7 +296,7 @@ gamble, revokes all the achievement's XP and deletes it with everything below it
 │       ├── check-ins/
 │       ├── gambles/
 │       ├── goals/                     # the goal engine: evaluate, reconcile, store — under the user's lock; XP ledger
-│       ├── stats/
+│       ├── stats/                     # XP per day, counts, badges, best streaks, gamble record (R-STA-01)
 │       ├── audit/
 │       └── privacy/                   # export, deactivation and deletion, retention jobs
 ├── test/

@@ -13,6 +13,7 @@ import { createGamblesService } from '../modules/gambles/service.ts';
 import { createQuestsService } from '../modules/quests/service.ts';
 import { createRateLimiter } from '../modules/rate-limit/limiter.ts';
 import { createSessionsService } from '../modules/sessions/service.ts';
+import { createStatsService } from '../modules/stats/service.ts';
 import type { ApiConfig } from '../platform/config/config.ts';
 import { createDataKeys } from '../platform/crypto/data-keys.ts';
 import type { Kek } from '../platform/crypto/kek-source.ts';
@@ -65,6 +66,7 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
     gambles: createGamblesService(shared),
     rateLimiter: createRateLimiter({ ...shared, rateLimitKey: keys.rateLimitKey }),
     sessions: createSessionsService(shared),
+    stats: createStatsService(shared),
   };
   const app = buildApp({ http: config.http, logger, readiness: databaseReadiness(database), services });
   try {

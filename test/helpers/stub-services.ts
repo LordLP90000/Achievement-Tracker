@@ -42,4 +42,5 @@ export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
     revokeSession: unavailable,
     reauthenticate: unavailable,
   },
+  stats: { get: unavailable },
 });

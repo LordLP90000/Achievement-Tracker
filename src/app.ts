@@ -24,6 +24,8 @@ import type { RateLimiter } from './modules/rate-limit/limiter.ts';
 import { registerAuthGuard } from './modules/sessions/guard.ts';
 import { sessionsRoutes } from './modules/sessions/routes.ts';
 import type { SessionsService } from './modules/sessions/service.ts';
+import { statsRoutes } from './modules/stats/routes.ts';
+import type { StatsService } from './modules/stats/service.ts';
 import { registerErrorHandling } from './platform/http/errors.ts';
 import { registerRequestLogging } from './platform/http/request-logging.ts';
 import { registerSecurityHeaders } from './platform/http/security-headers.ts';
@@ -45,6 +47,7 @@ export interface AppServices {
   readonly quests: QuestsService;
   readonly rateLimiter: RateLimiter;
   readonly sessions: SessionsService;
+  readonly stats: StatsService;
 }
 
 export interface AppDependencies {
@@ -95,6 +98,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(questsRoutes, { quests: deps.services.quests });
       void v1.register(checkInsRoutes, { checkIns: deps.services.checkIns });
       void v1.register(gamblesRoutes, { gambles: deps.services.gambles });
+      void v1.register(statsRoutes, { stats: deps.services.stats });
       done();
     },
     { prefix: API_PREFIX },

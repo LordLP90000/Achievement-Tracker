@@ -15,6 +15,7 @@ import { createQuestsService } from '../../src/modules/quests/service.ts';
 import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
 import { createSessionsService, type SessionsService } from '../../src/modules/sessions/service.ts';
 import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
+import { createStatsService } from '../../src/modules/stats/service.ts';
 import { emailBlindIndex } from '../../src/platform/crypto/blind-index.ts';
 import { createDataKeys, type DataKeys } from '../../src/platform/crypto/data-keys.ts';
 import { decryptText } from '../../src/platform/crypto/field-cipher.ts';
@@ -146,6 +147,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
         quests: createQuestsService(shared),
         rateLimiter: options.rateLimits === 'enforced' ? createRateLimiter({ ...shared, rateLimitKey }) : ALLOW_ALL,
         sessions,
+        stats: createStatsService(shared),
       },
     });
     return { app: instance, sessions };

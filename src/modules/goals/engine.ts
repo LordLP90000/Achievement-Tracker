@@ -30,11 +30,13 @@ import { requireAccountClock } from '../accounts/repository.ts';
 import {
   achievementsRepository,
   type AchievementRecord,
+  type AchievementStatus,
   type AchievementsRepository,
 } from '../achievements/repository.ts';
 import { checkInsRepository, type CountingCheckInRecord } from '../check-ins/repository.ts';
 import { gambleFacts, hasPendingGamble, settleGamble } from '../gambles/repository.ts';
 import { questsRepository, type HabitSettings, type QuestRecord, type QuestStateChange } from '../quests/repository.ts';
+import { restingHabitAchievements } from './evaluation-repository.ts';
 import {
   appendXpEvents,
   awardRankBadge,
@@ -162,6 +164,21 @@ export function withGoals<T>(
  * reset (R-ACH-06): no check-in counts and no habit run has started.
  */
 type Mode = 'live' | 'archive' | 'paused';
+
+/** How the achievement is evaluated, and as of which day: today, or the archive's unlock day (A-40). */
+function evaluationOf(
+  scope: GoalScope,
+  achievement: { readonly status: AchievementStatus; readonly completedAt: Date | null },
+): { readonly mode: Mode; readonly day: LocalDate } {
+  switch (achievement.status) {
+    case 'active':
+      return { mode: 'live', day: scope.today };
+    case 'paused':
+      return { mode: 'paused', day: scope.today };
+    case 'completed':
+      return { mode: 'archive', day: localDateOf(achievement.completedAt ?? scope.now, scope.timeZone) };
+  }
+}
 
 interface Evaluated extends QuestView {
   /** What to store: a reset, a run moved to the unlock day, a change of completion. */
@@ -343,10 +360,8 @@ async function settle(
   );
   const kept = records.filter((quest) => quest.id !== deleting?.id);
   const keptIds = kept.map((quest) => quest.id);
-  const mode: Mode =
-    achievement.status === 'active' ? 'live' : achievement.status === 'completed' ? 'archive' : 'paused';
+  const { mode, day } = evaluationOf(scope, achievement);
   if (deleting !== undefined && mode === 'archive') throw new Error('a completed achievement is read-only');
-  const day = mode === 'archive' ? localDateOf(achievement.completedAt ?? scope.now, scope.timeZone) : scope.today;
   const counting =
     mode === 'paused'
       ? new Map<string, CountingCheckInRecord[]>()
@@ -448,6 +463,33 @@ export function syncAchievement(
   options: SyncOptions = {},
 ): Promise<GoalSync | undefined> {
   return settle(scope, achievementId, options);
+}
+
+/**
+ * The habit quests of the user's paused and completed achievements, evaluated as `syncAchievement` evaluates them — a
+ * paused achievement's as reset (R-ACH-06), the archive's as on its unlock day (A-40) — in a few queries per thousand
+ * achievements, however large the archive grows (Q-40). Nothing about these changes by itself, so nothing is stored.
+ */
+export async function restingHabitQuests(scope: GoalScope): Promise<QuestView[]> {
+  const { tx, userId, dataKey } = scope;
+  const resting = await restingHabitAchievements(tx, userId);
+  const quests = await questsRepository(tx, userId, dataKey).listByAchievements(resting.map(({ id }) => id));
+  // Only the archive's check-ins count, those of each achievement's last attempt.
+  const counting = new Map<string, readonly CountingCheckInRecord[]>();
+  const archive = resting.filter((achievement) => achievement.status === 'completed');
+  for (const [attempt, achievements] of Map.groupBy(archive, (achievement) => achievement.attempt)) {
+    const ids = new Set(achievements.map(({ id }) => id));
+    const questIds = quests.filter((quest) => ids.has(quest.achievementId)).map((quest) => quest.id);
+    const byQuest = await checkInsRepository(tx, userId, dataKey).countingByQuest(questIds, attempt);
+    for (const [questId, checkIns] of byQuest) counting.set(questId, checkIns);
+  }
+  const questsOf = Map.groupBy(quests, (quest) => quest.achievementId);
+  return resting.flatMap((achievement) => {
+    const { mode, day } = evaluationOf(scope, achievement);
+    return evaluateQuests(questsOf.get(achievement.id) ?? [], counting, day, mode, scope, new Set())
+      .filter(({ record }) => record.habit !== null)
+      .map(({ record, evaluation }) => ({ record, evaluation }));
+  });
 }
 
 /**
