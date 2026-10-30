@@ -11,6 +11,7 @@ import {
 import type { Clock } from '../../platform/time/clock.ts';
 import { withUserDataKey, type UserDataKey } from '../accounts/data-key.ts';
 import { hasActiveConsent } from '../consents/repository.ts';
+import { syncAchievement, withGoals, type AchievementView } from '../goals/engine.ts';
 import type { Principal } from '../sessions/guard.ts';
 import {
   achievementsRepository,
@@ -39,7 +40,8 @@ export type CreateAchievementResult =
   IdempotentOutcome | { readonly outcome: 'consent_required' } | { readonly outcome: 'limit_reached' };
 
 export interface AchievementsService {
-  list(principal: Principal, request: AchievementListRequest): Promise<Page<AchievementRecord>>;
+  /** Each achievement evaluated now by the goal engine (A-21). */
+  list(principal: Principal, request: AchievementListRequest): Promise<Page<AchievementView>>;
   /** `render` turns the new achievement into the response that a retry with the same key replays (ADR-0008). */
   create(
     principal: Principal,
@@ -47,7 +49,7 @@ export interface AchievementsService {
     request: IdempotentRequest,
     render: (created: AchievementRecord) => StoredResponse,
   ): Promise<CreateAchievementResult>;
-  get(principal: Principal, achievementId: string): Promise<AchievementRecord | undefined>;
+  get(principal: Principal, achievementId: string): Promise<AchievementView | undefined>;
 }
 
 /** Rolls back a refused create: nothing of it may remain, not even its idempotency record (Q-39). */
@@ -75,13 +77,20 @@ export function createAchievementsService(deps: AchievementsServiceDependencies)
 
   return {
     list(principal, request) {
-      return withAchievements(principal.userId, async (repository) =>
-        pageOf(
+      return withGoals(deps, principal.userId, async (scope) => {
+        const repository = achievementsRepository(scope.tx, scope.userId, scope.dataKey);
+        const page = pageOf(
           await repository.list({ ...request, limit: request.limit + 1 }),
           request.limit,
           (achievement) => achievement,
-        ),
-      );
+        );
+        const views: AchievementView[] = [];
+        for (const achievement of page.items) {
+          const synced = await syncAchievement(scope, achievement.id);
+          if (synced !== undefined) views.push(synced.view);
+        }
+        return { items: views, nextCursor: page.nextCursor };
+      });
     },
 
     async create(principal, content, request, render) {
@@ -105,7 +114,7 @@ export function createAchievementsService(deps: AchievementsServiceDependencies)
     },
 
     get(principal, achievementId) {
-      return withAchievements(principal.userId, (repository) => repository.find(achievementId));
+      return withGoals(deps, principal.userId, async (scope) => (await syncAchievement(scope, achievementId))?.view);
     },
   };
 }

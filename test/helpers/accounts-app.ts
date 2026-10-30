@@ -9,6 +9,7 @@ import { createProfileService } from '../../src/modules/accounts/profile-service
 import { createAccountsService } from '../../src/modules/accounts/service.ts';
 import { createAchievementsService } from '../../src/modules/achievements/service.ts';
 import { createConsentsService } from '../../src/modules/consents/service.ts';
+import { createQuestsService } from '../../src/modules/quests/service.ts';
 import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
 import { createSessionsService, type SessionsService } from '../../src/modules/sessions/service.ts';
 import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
@@ -138,6 +139,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
         emailChanges: createEmailChangeService(shared),
         passwords: createPasswordsService({ ...shared, breachedPasswords }),
         profiles: createProfileService(shared),
+        quests: createQuestsService(shared),
         rateLimiter: options.rateLimits === 'enforced' ? createRateLimiter({ ...shared, rateLimitKey }) : ALLOW_ALL,
         sessions,
       },

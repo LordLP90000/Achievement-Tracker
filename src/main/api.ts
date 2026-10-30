@@ -8,6 +8,7 @@ import { createProfileService } from '../modules/accounts/profile-service.ts';
 import { createAccountsService } from '../modules/accounts/service.ts';
 import { createAchievementsService } from '../modules/achievements/service.ts';
 import { createConsentsService } from '../modules/consents/service.ts';
+import { createQuestsService } from '../modules/quests/service.ts';
 import { createRateLimiter } from '../modules/rate-limit/limiter.ts';
 import { createSessionsService } from '../modules/sessions/service.ts';
 import type { ApiConfig } from '../platform/config/config.ts';
@@ -57,6 +58,7 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
     profiles: createProfileService(shared),
     consents: createConsentsService(shared),
     achievements: createAchievementsService(shared),
+    quests: createQuestsService(shared),
     rateLimiter: createRateLimiter({ ...shared, rateLimitKey: keys.rateLimitKey }),
     sessions: createSessionsService(shared),
   };

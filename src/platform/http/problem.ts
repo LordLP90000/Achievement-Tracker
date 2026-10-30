@@ -41,6 +41,8 @@ export const Problems = {
   notFound: { status: 404, slug: 'not-found', title: 'Not Found' },
   emailTaken: { status: 409, slug: 'email-taken', title: 'Email address already in use' },
   consentAlreadyGranted: { status: 409, slug: 'consent-already-granted', title: 'Consent already granted' },
+  /** R-ACH-07, R-QST-07: a completed achievement and its quests are the user's read-only archive. */
+  achievementCompleted: { status: 409, slug: 'achievement-completed', title: 'Completed achievements are read-only' },
   /** Use with `extensions: { current_version }` (contract `VersionConflictProblem`). */
   versionConflict: { status: 409, slug: 'version-conflict', title: 'The resource was changed meanwhile' },
   preconditionRequired: { status: 428, slug: 'precondition-required', title: 'If-Match header required' },
@@ -62,6 +64,11 @@ export const Problems = {
 /** A per-user limit of R-IN-01 (Q-16) is reached; `message` names it, statically. */
 export function limitReached(message: string): ProblemDefinition {
   return { status: 422, slug: 'limit-reached', title: 'Limit reached', errors: [{ pointer: '', message }] };
+}
+
+/** A well-formed request that breaks a rule (contract `UnprocessableContent`); static message, never the value. */
+export function unprocessable(pointer: string, message: string): ProblemDefinition {
+  return { status: 422, slug: 'unprocessable', title: 'The request breaks a rule', errors: [{ pointer, message }] };
 }
 
 function instanceOf(url: string): string {

@@ -72,6 +72,7 @@ export interface QuestStateChange {
 
 export interface QuestsRepository {
   insert(quest: NewQuest, now: Date): Promise<QuestRecord>;
+  find(id: string): Promise<QuestRecord | undefined>;
   /** The quests of an achievement in their order: position, then creation. */
   listByAchievement(achievementId: string): Promise<QuestRecord[]>;
   /** Applies the change and bumps the version, as every change of a quest does (ADR-0008). */
@@ -167,6 +168,14 @@ export function questsRepository(tx: Transaction, userId: string, dataKey: UserD
         .returning();
       if (row === undefined) throw new Error('the quest was not stored');
       return toRecord(row);
+    },
+
+    async find(id) {
+      const [row] = await tx
+        .select()
+        .from(quests)
+        .where(and(mine, eq(quests.id, id)));
+      return row === undefined ? undefined : toRecord(row);
     },
 
     async listByAchievement(achievementId) {

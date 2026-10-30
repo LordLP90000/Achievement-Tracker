@@ -13,6 +13,8 @@ import type { AchievementsService } from './modules/achievements/service.ts';
 import { consentsRoutes } from './modules/consents/routes.ts';
 import type { ConsentsService } from './modules/consents/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
+import { questsRoutes } from './modules/quests/routes.ts';
+import type { QuestsService } from './modules/quests/service.ts';
 import { registerRequestLimits } from './modules/rate-limit/http.ts';
 import type { RateLimiter } from './modules/rate-limit/limiter.ts';
 import { registerAuthGuard } from './modules/sessions/guard.ts';
@@ -34,6 +36,7 @@ export interface AppServices {
   readonly emailChanges: EmailChangeService;
   readonly passwords: PasswordsService;
   readonly profiles: ProfileService;
+  readonly quests: QuestsService;
   readonly rateLimiter: RateLimiter;
   readonly sessions: SessionsService;
 }
@@ -83,6 +86,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(consentsRoutes, { consents: deps.services.consents });
       void v1.register(sessionsRoutes, { sessions: deps.services.sessions, limiter });
       void v1.register(achievementsRoutes, { achievements: deps.services.achievements });
+      void v1.register(questsRoutes, { quests: deps.services.quests });
       done();
     },
     { prefix: API_PREFIX },
