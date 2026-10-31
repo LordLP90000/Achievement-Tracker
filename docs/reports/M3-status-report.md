@@ -146,3 +146,16 @@ account deletion with the 30-day grace period, crypto-shredding and tombstones, 
 accounts, no emails to accounts pending deletion (A-22). First Node 26.13.0 (on or after 2026-11-04). If you choose
 (b) for O-09, I build it before M4 (about half a day); if you approve O-10, the contract freeze, the mail catcher and
 `client-security.md` come first (about 1–2 days).
+
+---
+
+## Addendum 2026-10-30 — review with the PM, part 1
+
+- **Q-44 (O-09):** while a gamble is pending, a change that would complete its achievement without a check-in —
+  deleting the last open required quest, making it a bonus, or lowering an open target to what was already reached —
+  is refused with `409 gamble-pending`, as a change of the target date is (A-26). Recorded in
+  `docs/requirements.md` §6.5; to be built before M4 (an additive contract change, about half a day).
+- **Paused after M3** at the PM's request. Still open: O-10 (when the mobile app starts), the confirmation of
+  A-34…A-43 and the "go" for M4.
+
+**Status**: M3 is in **REVIEW**.
