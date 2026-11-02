@@ -4,6 +4,7 @@ import { addDays } from './dates.ts';
 import {
   evaluateQuest,
   summarizeAchievement,
+  workLeft,
   type CountingCheckIn,
   type HabitDefinition,
   type QuestDefinition,
@@ -340,5 +341,58 @@ describe('achievement summary [R-ACH-03]', () => {
       progress: 0,
       xpRequiredTotal: 0,
     });
+  });
+});
+
+describe('work left: what an open quest still asks for [Q-47]', () => {
+  const open = { completed: false, currentValue: null };
+  const nothing = { checkIns: 0, days: 0, distance: 0 };
+
+  it('asks a one-time quest for its check-in', () => {
+    expect(workLeft({ type: 'one_time' }, open)).toEqual({ checkIns: 1, days: 0, distance: 0 });
+  });
+
+  it('asks a habit for the check-ins and the days of its run, a week counting 7 days [R-XP-02]', () => {
+    expect(workLeft(habit(), open)).toEqual({ checkIns: 12, days: 28, distance: 0 });
+    expect(workLeft(habit({ period: 'day', timesPerPeriod: 2, periodCount: 5 }), open)).toEqual({
+      checkIns: 10,
+      days: 5,
+      distance: 0,
+    });
+  });
+
+  it('asks a target quest for the distance from its current value to the target, in the target’s direction', () => {
+    // Losing weight: 75.5 kg on the way from 80 kg to 70 kg.
+    expect(workLeft(target, { completed: false, currentValue: 75_500 })).toEqual({ ...nothing, distance: 5_500 });
+    const increasing: QuestDefinition = { type: 'target', start: 0, target: 10_000 };
+    expect(workLeft(increasing, { completed: false, currentValue: 2_500 })).toEqual({ ...nothing, distance: 7_500 });
+    // A value on the far side of the start is further away still.
+    expect(workLeft(increasing, { completed: false, currentValue: -2_000 })).toEqual({
+      ...nothing,
+      distance: 12_000,
+    });
+  });
+
+  it('measures a target quest without a current value from its start value', () => {
+    expect(workLeft(target, open)).toEqual({ ...nothing, distance: 10_000 });
+  });
+
+  it('asks a completed quest of any type for nothing', () => {
+    for (const definition of [{ type: 'one_time' } as const, habit(), target]) {
+      expect(workLeft(definition, { completed: true, currentValue: 70_000 })).toEqual(nothing);
+    }
+  });
+
+  it('agrees with the evaluation: an open target quest has a distance left, a completed one none', () => {
+    const value = fc.integer({ min: -1_000_000_000_000, max: 1_000_000_000_000 });
+    fc.assert(
+      fc.property(value, value, value, (start, goal, current) => {
+        fc.pre(start !== goal);
+        const definition: QuestDefinition = { type: 'target', start, target: goal };
+        const evaluation = evaluateQuest(quest(definition, [checkIn(TODAY, current)]), TODAY);
+
+        expect(workLeft(definition, evaluation).distance > 0).toBe(!evaluation.completed);
+      }),
+    );
   });
 });

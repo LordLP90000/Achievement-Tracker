@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.3.2
+  version: 0.3.3
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -9,8 +9,9 @@ info:
     **Frozen as 0.3.0 on 2026-11-02 (Q-45):** from then on the contract only grows — new operations, optional
     parameters and properties, new responses and values — and every change needs the PM's approval;
     `test/contract/freeze.test.ts` compares it with the snapshot `openapi/frozen/openapi.yaml`, which is renewed
-    when an implemented operation joins the freeze (0.3.1: `exportData`, 0.3.2: `deleteAccount`). Clients should
-    ignore properties and enum values they do not know yet. Since 0.3.2 every operation is frozen.
+    when an implemented operation joins the freeze (0.3.1: `exportData`, 0.3.2: `deleteAccount`) and with every
+    approved change since, so that an addition is frozen too. Clients should ignore properties and enum values they
+    do not know yet. Since 0.3.2 every operation is frozen.
     0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
     0.2.2 (2026-10-29): `429` documented on every authenticated operation (Q-30); gamble rules for parallel stakes
     and for the size of wins and losses (Q-31).
@@ -32,6 +33,8 @@ info:
     — and the export's rolling limit of 2 per 24 hours (R-PRIV-05; approved by the PM; `exportData` joins the freeze).
     0.3.2 (2026-11-02): `deleteAccount` implemented as described and frozen with `AccountDeletionScheduled`; no
     operation changed.
+    0.3.3 (2026-11-02): while a gamble is pending, no quest edit or deletion lowers what an open required quest still
+    asks for (`409 gamble-pending`, Q-47; descriptions of `updateQuest` and `deleteQuest`).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -916,8 +919,11 @@ paths:
         omitted `start_date` means today — and `unit: null` removes the unit (Q-41). While a gamble on the achievement
         is pending, an edit that would complete the achievement without a check-in — making its last open required
         quest a bonus, lowering an open target quest's target to the value it reached, making a completed bonus quest
-        required — is refused with `409 urn:questline:problem:gamble-pending` and changes nothing; every other edit
-        goes through (Q-44).
+        required — is refused with `409 urn:questline:problem:gamble-pending` and changes nothing (Q-44); so is an
+        edit that lowers what an open required quest still asks for, even short of that: making it a bonus quest,
+        bringing a target quest's target closer to its current value — the latest check-in, else `start_value`, in the
+        target's own direction — or asking a habit whose settings may still change for fewer check-ins
+        (`times_per_period × period_count`) or a shorter run (Q-47). Every other edit goes through.
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -949,9 +955,9 @@ paths:
       summary: Delete a quest and its check-ins; revokes XP earned through it (Q-12)
       description: |
         The effects can include an unlock (e.g. the last incomplete required quest was deleted) with its rank, and a
-        gamble lost since the last request (A-21). While a gamble on the achievement is pending, a deletion that would
-        complete the achievement without a check-in is refused with `409 urn:questline:problem:gamble-pending` and
-        changes nothing (Q-44). Quests of a `completed` achievement are read-only →
+        gamble lost since the last request (A-21). While a gamble on the achievement is pending, deleting an open
+        required quest is refused with `409 urn:questline:problem:gamble-pending` and changes nothing — whether or not
+        it would complete the achievement (Q-44, Q-47). Quests of a `completed` achievement are read-only →
         `409 urn:questline:problem:achievement-completed` (R-QST-07).
       parameters:
         - $ref: '#/components/parameters/IfMatch'

@@ -6,8 +6,10 @@ import {
   revertWin,
   settleAsLost,
   settleOnUnlock,
+  takesWorkAway,
   targetDatePassed,
   type PlacementInputs,
+  type QuestWork,
 } from './gamble.ts';
 import { levelForXp, xpAboveLevel } from './xp.ts';
 
@@ -169,5 +171,56 @@ describe('gamble states: settled exactly once [R-GMB-04, T-17]', () => {
     expect(() => {
       assertGambleTransition(from, to);
     }).toThrow(`a gamble cannot go from ${from} to ${to}`);
+  });
+});
+
+describe('no work taken away while a gamble is pending [Q-47]', () => {
+  /** An open required habit: 3 check-ins a week for 4 weeks. */
+  const habit = (left: Partial<QuestWork['left']> = {}, isRequired = true): QuestWork => ({
+    isRequired,
+    left: { checkIns: 12, days: 28, distance: 0, ...left },
+  });
+  const nothing = { checkIns: 0, days: 0, distance: 0 };
+  const target = (distance: number): QuestWork => ({ isRequired: true, left: { ...nothing, distance } });
+  const oneTime: QuestWork = { isRequired: true, left: { ...nothing, checkIns: 1 } };
+
+  it.each([
+    ['deleting it', null],
+    ['making it a bonus quest', habit({}, false)],
+    ['fewer check-ins', habit({ checkIns: 11 })],
+    ['a shorter run', habit({ days: 27 })],
+    ['more check-ins in a much shorter run', habit({ checkIns: 20, days: 4 })],
+    ['completing it', { isRequired: true, left: nothing }],
+  ] as const)('refuses %s for an open required quest', (_case, after) => {
+    expect(takesWorkAway(habit(), after)).toBe(true);
+  });
+
+  it.each([
+    ['the same work', habit()],
+    ['more check-ins', habit({ checkIns: 13 })],
+    ['a longer run', habit({ days: 35 })],
+  ] as const)('lets an open required quest keep %s', (_case, after) => {
+    expect(takesWorkAway(habit(), after)).toBe(false);
+  });
+
+  it('refuses a target brought closer, and lets it stay or move away', () => {
+    expect(takesWorkAway(target(7_500), target(7_499))).toBe(true);
+    expect(takesWorkAway(target(7_500), target(7_500))).toBe(false);
+    expect(takesWorkAway(target(7_500), target(9_000))).toBe(false);
+  });
+
+  it('counts an open one-time quest and an open target as work, whatever their other measures', () => {
+    expect(takesWorkAway(oneTime, null)).toBe(true);
+    expect(takesWorkAway(oneTime, oneTime)).toBe(false);
+    expect(takesWorkAway(target(1), null)).toBe(true);
+    expect(takesWorkAway(target(1), { isRequired: false, left: nothing })).toBe(true);
+  });
+
+  it('takes no work away from a bonus quest or a completed one, whatever happens to it', () => {
+    for (const before of [habit({}, false), { isRequired: true, left: nothing }]) {
+      for (const after of [null, { isRequired: false, left: nothing }, habit({ checkIns: 1, days: 1 })]) {
+        expect(takesWorkAway(before, after)).toBe(false);
+      }
+    }
   });
 });

@@ -10,10 +10,12 @@ type Tree = Record<string, unknown>;
 /**
  * The core contract is frozen since 0.3.0 (Q-45): afterwards it only grows, each addition approved by the PM.
  * `openapi/frozen/openapi.yaml` is `openapi/openapi.yaml` as last frozen, byte for byte: 0.3.0, renewed as 0.3.1 when
- * `exportData` and as 0.3.2 when `deleteAccount` was implemented and joined the freeze.
+ * `exportData` and as 0.3.2 when `deleteAccount` was implemented and joined the freeze, and since then with every
+ * approved change (0.3.3: Q-47), once the contract passed this check against the snapshot before it — so that what a
+ * change added is frozen as well.
  */
 const FROZEN = parse(readFileSync(new URL('../../openapi/frozen/openapi.yaml', import.meta.url), 'utf8')) as Tree;
-const FROZEN_VERSION = '0.3.2';
+const FROZEN_VERSION = '0.3.3';
 
 /**
  * Operations not frozen yet: none since `deleteAccount` joined with 0.3.2 (PM, 2026-11-02: implemented operations

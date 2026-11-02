@@ -19,6 +19,16 @@ export function habitProgress(metPeriods: number, periodCount: number): number {
   return Math.min(1, metPeriods / periodCount);
 }
 
+/** What a quest still asks for (Q-47, `workLeft` in `quest-evaluation.ts`); only versions of one quest compare. */
+export interface WorkLeft {
+  /** A one-time quest's check-in; a habit's run, `times_per_period × period_count`. */
+  readonly checkIns: number;
+  /** A habit run's length, a week counting 7 days as for its XP (R-XP-02). */
+  readonly days: number;
+  /** From a target quest's current value to its target, in the target's direction (thousandths). */
+  readonly distance: number;
+}
+
 export interface WeightedProgress {
   readonly isRequired: boolean;
   /** Effective XP of the quest (`duration.ts`), its weight. */

@@ -1,5 +1,12 @@
 import { daysBetween, type LocalDate } from './dates.ts';
-import { durationFactor, effectiveXp, type HabitPeriod, type HabitSpan, type QuestSize } from './duration.ts';
+import {
+  durationFactor,
+  effectiveXp,
+  habitSpanDays,
+  type HabitPeriod,
+  type HabitSpan,
+  type QuestSize,
+} from './duration.ts';
 import { evaluateHabit, type CurrentPeriod } from './habit-reset.ts';
 import type { WeekStart } from './periods.ts';
 import {
@@ -8,6 +15,7 @@ import {
   oneTimeProgress,
   targetProgress,
   type WeightedProgress,
+  type WorkLeft,
 } from './progress.ts';
 import { bestAfterRunEnds, habitStreak, type Streak } from './streak.ts';
 import { habitStartOnUnlock, questState, type QuestState } from './transitions.ts';
@@ -173,6 +181,35 @@ export interface AchievementSummary {
   readonly progress: number;
   /** Effective XP of the required quests (contract `xp_required_total`). */
   readonly xpRequiredTotal: number;
+}
+
+const NOTHING_LEFT: WorkLeft = Object.freeze({ checkIns: 0, days: 0, distance: 0 });
+
+/**
+ * What a quest still asks for (Q-47). Nothing once the quest is complete. A habit's settings change only while its run
+ * has made no progress (Q-37), so its whole run is what is left whenever an edit could change it. An open target quest
+ * has not reached its target in the target's direction, so the distance is plain; without a current value it is
+ * measured from the start value.
+ */
+export function workLeft(
+  definition: QuestDefinition,
+  evaluation: Pick<QuestEvaluation, 'completed' | 'currentValue'>,
+): WorkLeft {
+  if (evaluation.completed) return NOTHING_LEFT;
+  switch (definition.type) {
+    case 'one_time':
+      return { checkIns: 1, days: 0, distance: 0 };
+    case 'habit':
+      return {
+        checkIns: definition.timesPerPeriod * definition.periodCount,
+        days: habitSpanDays(definition),
+        distance: 0,
+      };
+    case 'target': {
+      const current = evaluation.currentValue ?? definition.start;
+      return { checkIns: 0, days: 0, distance: Math.abs(definition.target - current) };
+    }
+  }
 }
 
 /** Progress and required XP of an achievement (R-ACH-03): XP-weighted over its required quests. */

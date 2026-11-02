@@ -1,5 +1,6 @@
 import { MIN_ACHIEVEMENT_AGE_MS } from './constants.ts';
 import { daysBetween, type LocalDate } from './dates.ts';
+import type { WorkLeft } from './progress.ts';
 import { xpAboveLevel } from './xp.ts';
 
 /**
@@ -98,4 +99,26 @@ export function assertGambleTransition(from: GambleStatus, to: GambleStatus): vo
   const settles = from === 'pending' && to !== 'pending';
   const reverts = from === 'won' && to === 'pending';
   if (!(settles || reverts)) throw new Error(`a gamble cannot go from ${from} to ${to}`);
+}
+
+/** A quest of the gamble's achievement, as an edit or a deletion finds it and leaves it. */
+export interface QuestWork {
+  readonly isRequired: boolean;
+  readonly left: WorkLeft;
+}
+
+/**
+ * Q-47: while a gamble is pending, an edit or a deletion may not lower what an open required quest of its achievement
+ * still asks for — deleting it (`after` null), making it a bonus quest, or asking for fewer check-ins, fewer days or a
+ * shorter distance. Q-44 refuses a change that completes the achievement; this one, a change that only shrinks it.
+ */
+export function takesWorkAway(before: QuestWork, after: QuestWork | null): boolean {
+  const open = before.left.checkIns > 0 || before.left.distance > 0;
+  if (!before.isRequired || !open) return false;
+  if (!after?.isRequired) return true;
+  return (
+    after.left.checkIns < before.left.checkIns ||
+    after.left.days < before.left.days ||
+    after.left.distance < before.left.distance
+  );
 }

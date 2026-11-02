@@ -12,9 +12,11 @@ import {
   type XpEventKind,
 } from '../../domain/effects.ts';
 import type { WeekStart } from '../../domain/periods.ts';
+import type { WorkLeft } from '../../domain/progress.ts';
 import {
   evaluateQuest,
   summarizeAchievement,
+  workLeft,
   type CountingCheckIn,
   type QuestDefinition,
   type QuestEvaluation,
@@ -126,11 +128,15 @@ export const lockedQuestsOf = (view: AchievementView): ReadonlySet<string> =>
 export const questView = (synced: GoalSync | undefined, questId: string): QuestView | undefined =>
   synced?.view.quests.find((quest) => quest.record.id === questId);
 
+/** What the quest still asks for, as of its evaluation (Q-47). */
+export const workLeftOf = (quest: QuestView): WorkLeft =>
+  workLeft(definitionOf(quest.record, quest.record.habit), quest.evaluation);
+
 /**
  * A change would break the rules of a pending gamble, so it is refused (`409 gamble-pending`): an undo would return a
  * won gamble to pending while the user has another one pending — one at a time (R-GMB-01, Q-31, Q-43) — or a quest
- * edit or deletion would complete the gamble's achievement without a check-in (Q-44). Thrown inside the transaction,
- * which rolls back.
+ * edit or deletion would complete the gamble's achievement without a check-in (Q-44) or lower what its open required
+ * quests still ask for (Q-47). Thrown inside the transaction, which rolls back.
  */
 export class PendingGambleConflict extends Error {
   override readonly name = 'PendingGambleConflict';

@@ -85,7 +85,9 @@ target values and check-in notes are encrypted at rest on the server — the dev
 - **Gambles** stake XP only — never money, purchases or anything with real-world value (R-GMB-05, Q-32). Show the
   rules before placing one: double or nothing on unlocking by the target date, at most one pending, never
   cancellable, a loss never lowers the level, and no win pays for an Achievement unlocked within 7 × 24 h of its
-  creation (Q-31, A-34).
+  creation (Q-31, A-34). While it is pending, the Achievement's target date is fixed and no quest change may ask for
+  less — deleting or demoting an open required quest, a target brought closer, a habit not yet begun made smaller
+  (`409 gamble-pending`, A-26, Q-44, Q-47): say so before the user places it, and explain the `409` when it comes.
 - **Rate limits** (R-AUTH-08, A-31, Q-30): every operation may answer `429` with `Retry-After` (seconds). Wait at
   least that long, back off exponentially with jitter, never retry in a tight loop; after repeated wrong passwords
   show the wait instead of retrying.

@@ -705,7 +705,7 @@ describe('quest edits and deletions [R-QST-07, R-QST-08, Q-12, Q-37, Q-38, Q-41,
     expect(await questRow(quest.id)).toEqual(before);
   });
 
-  describe('while a gamble is pending: no gamble won without the work [Q-44, A-26]', () => {
+  describe('while a gamble is pending: no gamble won without the work, no work taken away [Q-44, Q-47, A-26]', () => {
     type Change = (user: GoalUser) => ReturnType<typeof patchQuest>;
 
     let userTables: readonly string[];
@@ -786,6 +786,193 @@ describe('quest edits and deletions [R-QST-07, R-QST-08, Q-12, Q-37, Q-38, Q-41,
       ).map((row) => row.table_name);
     });
 
+    /** A habit whose run has not begun, so its settings may change (Q-37): from Monday, 2026-11-02. */
+    const notBegun = (period: 'day' | 'week', timesPerPeriod: number, periodCount: number) => ({
+      type: 'habit',
+      habit: { period, times_per_period: timesPerPeriod, period_count: periodCount, start_date: '2026-11-02' },
+    });
+    /**
+     * Prepares an achievement with a second open required quest, so that no change below completes it (Q-44 refuses
+     * those), and returns a change that only lowers what the first one still asks for.
+     */
+    const reducingChanges: readonly (readonly [string, (user: GoalUser, achievementId: string) => Promise<Change>])[] =
+      [
+        [
+          'deleting an open required quest',
+          async (user, achievementId) => {
+            const open = await createQuest(user, achievementId, { title: 'Open' });
+            await createQuest(user, achievementId, { title: 'Also open' });
+            return (as) => deleteQuest(as, open.id, tag(1));
+          },
+        ],
+        [
+          'making an open required quest a bonus',
+          async (user, achievementId) => {
+            const open = await createQuest(user, achievementId, { title: 'Open' });
+            await createQuest(user, achievementId, { title: 'Also open' });
+            return (as) => patchQuest(as, open.id, { is_required: false }, tag(1));
+          },
+        ],
+        [
+          'lowering an open target, short of the value reached',
+          async (user, achievementId) => {
+            const target = await createQuest(user, achievementId, {
+              type: 'target',
+              target: { start_value: '0', target_value: '10' },
+            });
+            await createQuest(user, achievementId, { title: 'Also open' });
+            await checkIn(user, target.id, '5');
+            return (as) => patchQuest(as, target.id, { target: { start_value: '0', target_value: '8' } }, tag(1));
+          },
+        ],
+        [
+          // Allowed under Q-44 alone, as it completes the quest but not the achievement.
+          'lowering an open target to the value reached',
+          async (user, achievementId) => {
+            const target = await createQuest(user, achievementId, {
+              type: 'target',
+              target: { start_value: '0', target_value: '10' },
+            });
+            await createQuest(user, achievementId, { title: 'Also open' });
+            await checkIn(user, target.id, '5');
+            return (as) => patchQuest(as, target.id, { target: { start_value: '0', target_value: '5' } }, tag(1));
+          },
+        ],
+        [
+          'a start value closer to the target while no check-in exists',
+          async (user, achievementId) => {
+            const target = await createQuest(user, achievementId, {
+              type: 'target',
+              target: { start_value: '0', target_value: '10' },
+            });
+            await createQuest(user, achievementId, { title: 'Also open' });
+            return (as) => patchQuest(as, target.id, { target: { start_value: '6', target_value: '10' } }, tag(1));
+          },
+        ],
+        [
+          'turning a target around, so that its value counts as reached',
+          async (user, achievementId) => {
+            const target = await createQuest(user, achievementId, {
+              type: 'target',
+              target: { start_value: '0', target_value: '10' },
+            });
+            await createQuest(user, achievementId, { title: 'Also open' });
+            await checkIn(user, target.id, '5');
+            return (as) => patchQuest(as, target.id, { target: { start_value: '20', target_value: '10' } }, tag(1));
+          },
+        ],
+        [
+          'bringing a falling target closer: from 80 kg to 70 kg, now at 75 kg, a target of 72 kg',
+          async (user, achievementId) => {
+            const target = await createQuest(user, achievementId, {
+              type: 'target',
+              target: { start_value: '80', target_value: '70', unit: 'kg' },
+            });
+            await createQuest(user, achievementId, { title: 'Also open' });
+            await checkIn(user, target.id, '75');
+            return (as) => patchQuest(as, target.id, { target: { start_value: '80', target_value: '72' } }, tag(1));
+          },
+        ],
+        [
+          'fewer check-ins for a habit whose run has not begun',
+          async (user, achievementId) => {
+            const habit = await createQuest(user, achievementId, notBegun('week', 3, 4));
+            await createQuest(user, achievementId, { title: 'Also open' });
+            return (as) =>
+              patchQuest(as, habit.id, { habit: { period: 'week', times_per_period: 2, period_count: 4 } }, tag(1));
+          },
+        ],
+        [
+          'the same check-ins in a shorter run for a habit whose run has not begun',
+          async (user, achievementId) => {
+            const habit = await createQuest(user, achievementId, notBegun('week', 1, 4));
+            await createQuest(user, achievementId, { title: 'Also open' });
+            return (as) =>
+              patchQuest(as, habit.id, { habit: { period: 'day', times_per_period: 1, period_count: 4 } }, tag(1));
+          },
+        ],
+      ];
+
+    it.each(reducingChanges)(
+      'refuses %s with 409 gamble-pending and changes nothing; the same change goes through without a gamble [Q-47]',
+      async (_change, prepare) => {
+        const user = await goalUser(ctx);
+        const staked = await achievementOf(user, { title: 'Staked', target_date: '2026-11-30' });
+        const other = await achievementOf(user, { title: 'Not staked' });
+        const refusedChange = await prepare(user, staked);
+        const allowedChange = await prepare(user, other);
+        const gambleId = await placeGamble(user, staked);
+        await getAchievement(user, staked);
+        const before = await userRows(user.userId);
+
+        const refused = await refusedChange(user);
+
+        expect(refused.statusCode).toBe(409);
+        expect(refused.json()).toMatchObject({ type: 'urn:questline:problem:gamble-pending', status: 409 });
+        expect(await userRows(user.userId)).toEqual(before);
+        expect(await gambleStatus(gambleId)).toBe('pending');
+        // Only the gamble's own achievement is guarded.
+        const allowed = await allowedChange(user);
+        expect(allowed.statusCode).toBe(200);
+        expect(allowed.json()).toMatchObject({ achievement_unlocked: false, gamble: null });
+        expect(await gambleStatus(gambleId)).toBe('pending');
+      },
+    );
+
+    it('lets every change through that asks for no less: more work, completed and bonus quests, a new start after a check-in [Q-47]', async () => {
+      const user = await goalUser(ctx);
+      const achievementId = await achievementOf(user, { title: 'Staked', target_date: '2026-11-30' });
+      const done = await createQuest(user, achievementId, { title: 'Done' });
+      const open = await createQuest(user, achievementId, { title: 'Open' });
+      const target = await createQuest(user, achievementId, {
+        type: 'target',
+        target: { start_value: '0', target_value: '10', unit: 'km' },
+      });
+      const falling = await createQuest(user, achievementId, {
+        type: 'target',
+        target: { start_value: '80', target_value: '70', unit: 'kg' },
+      });
+      const habit = await createQuest(user, achievementId, notBegun('day', 1, 10));
+      const bonusTarget = await createQuest(user, achievementId, {
+        title: 'Bonus target',
+        is_required: false,
+        type: 'target',
+        target: { start_value: '0', target_value: '10' },
+      });
+      const bonus = await createQuest(user, achievementId, { title: 'Bonus', is_required: false });
+      await checkIn(user, done.id);
+      await checkIn(user, target.id, '5');
+      await checkIn(user, falling.id, '75');
+      const gambleId = await placeGamble(user, achievementId);
+
+      for (const change of [
+        () => patchQuest(user, open.id, { title: 'Still open', notes: 'more to do', size: 'L', position: 0 }, tag(1)),
+        // A further target in another unit: more to do.
+        () => patchQuest(user, target.id, { target: { start_value: '0', target_value: '12', unit: 'mi' } }, tag(1)),
+        // A start value nearer the target while a check-in decides the current value: as far to go as before.
+        () => patchQuest(user, target.id, { target: { start_value: '3', target_value: '12' } }, tag(2)),
+        // A falling target further away: 65 kg instead of 70 kg.
+        () => patchQuest(user, falling.id, { target: { start_value: '80', target_value: '65' } }, tag(1)),
+        // More check-ins in a longer run, starting later.
+        () =>
+          patchQuest(
+            user,
+            habit.id,
+            { habit: { period: 'week', times_per_period: 2, period_count: 10, start_date: '2026-11-09' } },
+            tag(1),
+          ),
+        () => patchQuest(user, done.id, { is_required: false }, tag(2)),
+        () => patchQuest(user, bonusTarget.id, { target: { start_value: '0', target_value: '1' } }, tag(1)),
+        () => deleteQuest(user, bonusTarget.id, tag(2)),
+        () => patchQuest(user, bonus.id, { is_required: true }, tag(1)),
+      ]) {
+        const response = await change();
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({ achievement_unlocked: false, gamble: null });
+      }
+      expect(await gambleStatus(gambleId)).toBe('pending');
+    });
+
     it.each(unlockingChanges)(
       'refuses %s with 409 gamble-pending and changes nothing; the same change unlocks an achievement without one',
       async (_change, prepare) => {
@@ -814,25 +1001,18 @@ describe('quest edits and deletions [R-QST-07, R-QST-08, Q-12, Q-37, Q-38, Q-41,
       },
     );
 
-    it('lets every other change through, and a check-in that completes the achievement still wins it [R-GMB-02]', async () => {
+    it('lets changes through that keep the work, and a check-in that completes the achievement still wins it [R-GMB-02]', async () => {
       let user = await goalUser(ctx);
       const achievementId = await achievementOf(user, { title: 'Staked', target_date: '2026-11-30' });
       const done = await createQuest(user, achievementId, { title: 'Done' });
       const open = await createQuest(user, achievementId, { title: 'Open' });
-      const target = await createQuest(user, achievementId, {
-        type: 'target',
-        target: { start_value: '0', target_value: '10' },
-      });
       const bonus = await createQuest(user, achievementId, { title: 'Bonus', is_required: false });
       await checkIn(user, done.id);
-      await checkIn(user, target.id, '5');
       const gambleId = await placeGamble(user, achievementId);
       user = await afterDays(user, 8);
 
       for (const change of [
         () => patchQuest(user, open.id, { title: 'Last one', notes: 'still open', size: 'L' }, tag(1)),
-        // Completes the quest, not the achievement: another required quest stays open.
-        () => patchQuest(user, target.id, { target: { start_value: '0', target_value: '5' } }, tag(1)),
         () => patchQuest(user, done.id, { is_required: false }, tag(2)),
         () => deleteQuest(user, bonus.id, tag(1)),
       ]) {

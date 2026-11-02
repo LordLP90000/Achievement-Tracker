@@ -1,4 +1,5 @@
 import { formatDecimal, parseDecimal } from '../../domain/decimal.ts';
+import { takesWorkAway } from '../../domain/gamble.ts';
 import {
   runIdempotent,
   type IdempotentOutcome,
@@ -7,6 +8,7 @@ import {
 } from '../../platform/idempotency/idempotent.ts';
 import { achievementsRepository } from '../achievements/repository.ts';
 import { hasActiveConsent } from '../consents/repository.ts';
+import { pendingGambleAchievement } from '../gambles/repository.ts';
 import {
   deleteQuest,
   effectsOf,
@@ -15,6 +17,7 @@ import {
   questView,
   syncAchievement,
   withGoals,
+  workLeftOf,
   type GoalDependencies,
   type GoalEffects,
   type GoalScope,
@@ -103,7 +106,21 @@ function refuseWinWithoutWork(after: GoalSync): void {
   if (after.outcome?.gamble?.outcome === 'won') throw new PendingGambleConflict();
 }
 
-/** Runs an edit or a deletion; a gamble it would win without the work refuses it (Q-44). */
+/** Whether the user's pending gamble is on the achievement — as of now: the sync before the change settled it. */
+const isStaked = async (scope: GoalScope, achievementId: string): Promise<boolean> =>
+  (await pendingGambleAchievement(scope.tx, scope.userId)) === achievementId;
+
+/**
+ * Q-47: nor may an edit or a deletion lower what an open required quest of that achievement still asks for, even
+ * short of completing it. `after` is null for a deletion, which is checked before anything is deleted.
+ */
+function refuseWorkTakenAway(staked: boolean, before: QuestView, after: QuestView | null): void {
+  if (!staked) return;
+  const asked = (quest: QuestView) => ({ isRequired: quest.record.isRequired, left: workLeftOf(quest) });
+  if (takesWorkAway(asked(before), after === null ? null : asked(after))) throw new PendingGambleConflict();
+}
+
+/** Runs an edit or a deletion; a gamble it would win without the work, or take work from, refuses it (Q-44, Q-47). */
 async function guarded<T>(change: () => Promise<T>): Promise<T | { readonly outcome: 'gamble_pending' }> {
   try {
     return await change();
@@ -202,6 +219,7 @@ export function createQuestsService(deps: GoalDependencies): QuestsService {
           const found = await changeable(scope, questId, expectedVersion);
           if ('outcome' in found) return found;
           const { before, quest } = found;
+          const staked = await isStaked(scope, quest.record.achievementId);
           const edited = applyEdit(edit, {
             quest: quest.record,
             evaluation: quest.evaluation,
@@ -218,6 +236,7 @@ export function createQuestsService(deps: GoalDependencies): QuestsService {
           const updated = questView(after, questId);
           if (after === undefined || updated === undefined) throw new Error('the edited quest is gone');
           refuseWinWithoutWork(after);
+          refuseWorkTakenAway(staked, quest, updated);
           return { outcome: 'updated', quest: updated, effects: effectsOf(before, after) };
         }),
       );
@@ -228,6 +247,7 @@ export function createQuestsService(deps: GoalDependencies): QuestsService {
         withGoals(deps, principal.userId, async (scope): Promise<DeleteQuestResult> => {
           const found = await changeable(scope, questId, expectedVersion);
           if ('outcome' in found) return found;
+          refuseWorkTakenAway(await isStaked(scope, found.quest.record.achievementId), found.quest, null);
           const after = await deleteQuest(scope, found.quest.record, {
             lockedBefore: lockedQuestsOf(found.before.view),
           });
