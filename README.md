@@ -25,6 +25,7 @@ for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for archi
 | [docs/privacy/dpia.md](docs/privacy/dpia.md) | DPIA draft |
 | [docs/privacy/processors.md](docs/privacy/processors.md) | External processors (each requires PM approval) |
 | [docs/test-strategy.md](docs/test-strategy.md) | Test layers, determinism rules, coverage & mutation targets, CI gates |
+| [docs/client-security.md](docs/client-security.md) | Security guidance for the mobile app (OWASP MASVS-aligned) |
 | [docs/hosting-options.md](docs/hosting-options.md) | Hosting / KMS / email options in Switzerland and the EU |
 | [docs/plan.md](docs/plan.md) | Milestone plan and effort estimates |
 
@@ -72,6 +73,9 @@ anywhere, so use made-up addresses only.
    `docker/.env` to the address your app's links use; it is `https://questline.test` otherwise.
 
 The contract is [`openapi/openapi.yaml`](openapi/openapi.yaml), frozen as `0.3.0`: it only grows, so ignore
-properties and enum values you do not know yet. Emails go over TLS only, with a throw-away certificate made inside
-Docker on the first start and kept for a year (ADR-0018). `docker compose -f docker/compose.yml down --volumes`
-resets everything: database, emails and certificate.
+properties and enum values you do not know yet. Read [`docs/client-security.md`](docs/client-security.md) before
+building against it (token storage, refreshing, retries, sensitive operations). The iOS simulator reaches the stack
+directly, the Android emulator at `10.0.2.2`, a USB-connected Android device after `adb reverse tcp:3000 tcp:3000`.
+Emails go over TLS only, with a throw-away certificate made inside Docker on the first start and kept for a year
+(ADR-0018). `docker compose -f docker/compose.yml down --volumes` resets everything: database, emails and
+certificate.
