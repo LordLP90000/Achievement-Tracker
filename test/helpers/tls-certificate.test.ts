@@ -43,6 +43,27 @@ describe('createTestCertificate', () => {
     expect(new X509Certificate(second.cert).serialNumber).not.toBe(new X509Certificate(first.cert).serialNumber);
   });
 
+  it('names the given hosts, the first as its subject, and lasts the given days', () => {
+    const certificate = new X509Certificate(
+      createTestCertificate({ hostnames: ['mailpit', 'localhost'], validDays: 365 }).cert,
+    );
+
+    expect(certificate.subject).toBe('CN=mailpit');
+    expect([certificate.checkHost('mailpit'), certificate.checkHost('localhost')]).toEqual(['mailpit', 'localhost']);
+    expect(certificate.checkHost('example.test')).toBeUndefined();
+    expect(certificate.checkIP('127.0.0.1')).toBe('127.0.0.1');
+    const lifetimeMs = Date.parse(certificate.validTo) - Date.parse(certificate.validFrom);
+    // Valid from one hour ago; X.509 times have whole seconds.
+    expect(lifetimeMs).toBe(365 * 86_400_000 + 3_600_000);
+  });
+
+  it.each([[{ hostnames: [] }], [{ hostnames: ['bad host'] }], [{ validDays: 0 }], [{ validDays: 3651 }]])(
+    'refuses %j',
+    (options) => {
+      expect(() => createTestCertificate(options)).toThrow(/certificate/);
+    },
+  );
+
   it('is trusted by a TLS client only when passed as a trust anchor', async () => {
     const certificate = createTestCertificate();
 

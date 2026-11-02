@@ -371,3 +371,33 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   the strict Trivy gate (0 HIGH/CRITICAL incl. unfixed at adoption). Native add-ons must ship glibc builds.
 - **Tests:** `test/e2e/smoke.test.ts` (uid ≠ 0, read-only root, no shell, no package manager, no secrets in logs,
   production refusal); CI Trivy gate.
+
+## ADR-0018 · Local mail catcher: Mailpit over TLS in the Compose stack
+
+- **Status:** accepted (2026-11-02, the PM approved the image; Q-45)
+- **Context:** The mobile app starts now (Q-45), but a sign-up could not be verified locally: without SMTP settings
+  the worker leaves emails queued. SMTP must stay TLS-only (E-12, ADR-0014), no private key may be committed, and the
+  app team should need nothing but Docker.
+- **Decision:** the local Compose stack (`docker/compose.yml`, development only) runs **Mailpit 1.32.0**
+  (`axllent/mailpit`, MIT, pinned by digest; Trivy found no HIGH, CRITICAL or MEDIUM vulnerability at adoption) as
+  the worker's relay.
+  - SMTP over implicit TLS only (`MP_SMTP_REQUIRE_TLS`: no plaintext, no STARTTLS that could be stripped) with SMTP
+    authentication (`MAIL_CATCHER_PASSWORD`, a local random value); the worker uses `SMTP_TLS=implicit` and verifies
+    the certificate as it would a real relay's.
+  - The certificate (ECDSA P-256 for `mailpit` and `localhost`, one year) is made by `scripts/dev-mail-certificate.ts`
+    in a one-off service that runs in the app image with the script mounted read-only and writes into a Compose
+    volume, so the key never reaches the host or git. The worker trusts it in addition to the system CAs through
+    `NODE_EXTRA_CA_CERTS` — no code change, still verified TLS. It is kept until it expires, because Mailpit and the
+    worker read it only at start.
+  - Mailpit runs as uid 65532 with a read-only root filesystem and no capabilities; its web UI and API are published
+    on 127.0.0.1 only and answer only requests for that address (`MP_ALLOWED_HOSTS`, against DNS rebinding); it logs
+    errors only, so no address appears in its log, and never contacts GitHub (`MP_DISABLE_VERSION_CHECK`).
+  - Not a processor: it runs on the developer's machine and holds only synthetic test emails (R-SUP-05).
+- **Consequences:** the app team signs up, verifies and uses the API locally with Docker alone. One more pinned
+  third-party image, used only in development and never shipped, so CI's Trivy gate on the app image does not cover
+  it: each version bump is scanned with the CI's Trivy image first and respects the 7-day rule, like npm packages.
+  The integration tests still run the worker without SMTP settings (emails stay queued).
+- **Tests:** `test/e2e/smoke.test.ts` (both emails of a sign-up delivered; a plaintext client gets no SMTP reply; the
+  UI only on 127.0.0.1 and a foreign `Host` refused; the journey from sign-up through the emailed link to the stats;
+  no address, password or token in any container log), `test/scripts/dev-mail-certificate.test.ts`,
+  `test/helpers/tls-certificate.test.ts`.

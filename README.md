@@ -50,7 +50,7 @@ pre-commit secret scan (Windows: `winget install Gitleaks.Gitleaks`).
 | `npm run mutation` | Stryker mutation testing of `src/domain` and `src/platform/crypto` (breaks below 80 %) |
 | `npm run build:password-filter` | Rebuilds the committed breached-password filter from the pinned, checksum-verified list (ADR-0012; needs network access) |
 | `npm run test:e2e` | Builds the image and checks the running Compose stack (non-root, read-only, no shell or package manager, no secrets in logs) |
-| `docker compose -f docker/compose.yml up --build` | Local stack (copy `docker/.env.example` to `docker/.env` first); API on `127.0.0.1:3000` |
+| `docker compose -f docker/compose.yml up --build` | Local stack (copy `docker/.env.example` to `docker/.env` first); API on `127.0.0.1:3000`, mail catcher on `127.0.0.1:8025` |
 
 For a partial test run (single files), set `CONTRACT_COVERAGE=off` so the spec-coverage gate does not fail.
 
@@ -58,3 +58,20 @@ Work is pushed directly to `master` (ADR-0001); never bypass a hook with `--no-v
 (`.github/workflows/ci.yml`) runs every gate on each push and nightly: the checks above, Stryker, Semgrep (registry
 rulesets and the tested custom rules in `.semgrep/`), osv-scanner, gitleaks over the full history, Trivy on the
 built image, CycloneDX SBOMs (build artifact) and the e2e smoke test. A red pipeline is fixed or reverted first.
+
+## Local stack for the app team
+
+Needs only Docker. The stack runs the API, the worker, PostgreSQL and a mail catcher on your machine; nothing is sent
+anywhere, so use made-up addresses only.
+
+1. Copy `docker/.env.example` to `docker/.env` and replace every placeholder with a random value (the file shows how).
+2. Start it: `docker compose -f docker/compose.yml up --build`. The API listens on `http://127.0.0.1:3000/v1`
+   (`API_PORT`), the mail catcher's inbox on `http://127.0.0.1:8025` (`MAIL_UI_PORT`); both only on your machine.
+3. Sign up with `POST /v1/auth/register`: the verification email appears in the mail catcher. Its link ends in
+   `#token=…` — the app sends that token to `POST /v1/auth/verify-email` (A-32). Set `PUBLIC_LINK_BASE_URL` in
+   `docker/.env` to the address your app's links use; it is `https://questline.test` otherwise.
+
+The contract is [`openapi/openapi.yaml`](openapi/openapi.yaml), frozen as `0.3.0`: it only grows, so ignore
+properties and enum values you do not know yet. Emails go over TLS only, with a throw-away certificate made inside
+Docker on the first start and kept for a year (ADR-0018). `docker compose -f docker/compose.yml down --volumes`
+resets everything: database, emails and certificate.

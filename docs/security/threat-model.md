@@ -94,7 +94,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | T-08 | Prerequisite cycles or cross-achievement prerequisites to corrupt lock logic | Service validation (same achievement, acyclic, depth ≤ 20) | `transitions.test.ts` (`checkPrerequisite`: same achievement, no cycles — stored corrupt links included — chains ≤ 20 links), `integration/quests.test.ts`, `integration/quest-changes.test.ts` |
 | T-09 | Manipulated `local_date` (future / far past) to fabricate streaks | Validation against today in the account timezone; ≤ 7 days back-dating, and back-dated check-ins never count (R-CHK-04) | `integration/check-ins.test.ts` with injected clock and `Europe/Zurich` DST dates |
 | T-10 | Malicious or vulnerable dependency (typosquat, compromised release) | Lockfile, `npm ci`, minimal deps, `osv-scanner`, Semgrep, dependency review in reports (R-SUP-01/02) | `ci` gates; `supply-chain/dependency-allowlist.test.ts` (runtime deps must be in the documented allowlist, architecture §7; exact versions; no payment SDK) |
-| T-11 | Tampered container image | Images built in CI, digest-pinned deployments, Trivy scan, SBOM | `ci` |
+| T-11 | Tampered container image | Images built in CI, digest-pinned deployments, Trivy scan, SBOM; third-party images pinned by digest (PostgreSQL, and Mailpit in the local stack only, scanned with Trivy at each version bump, ADR-0018) | `ci` |
 | T-12 | Schema changes or DDL through the app connection | `questline_app` has no DDL rights; migrations by a separate role in a separate job (ADR-0003) | `security/db-roles.test.ts` |
 | T-13 | Idempotency key reused with a different body to overwrite/replay | Request hash compared; mismatch → 422 | `integration/idempotency.test.ts` |
 | T-14 | Tampered pagination cursor | Cursor parsed with Zod, rejected → 400; even a valid cursor from A yields only B's rows under B's scope | `integration/pagination.test.ts` |
@@ -138,6 +138,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | I-20 | Goal content in push notifications | No server push in v1; client guidance (`docs/client-security.md`, M4, Q-45) | n/a |
 | I-21 | SSRF via user-supplied URLs | No feature fetches user URLs; Semgrep rule flags `fetch`/`http.request` with non-constant URLs | `ci` SAST |
 | I-22 | Verbose validation errors echo submitted values (e.g. a password that failed policy) | Static messages + JSON pointers only | `contract/problem-details.test.ts` |
+| I-23 | The local mail catcher (development only) shows verification and reset links to someone else on the network or to a web page in the developer's browser (DNS rebinding) | Web UI and API published on 127.0.0.1 only and answering only requests for that address; SMTP over TLS with authentication; errors-only logging; synthetic data only (R-SUP-05, ADR-0018, Q-45) | `e2e/smoke.test.ts` (UI bound to 127.0.0.1, a foreign `Host` → 403, no address or token in any container log) |
 
 ### 3.5 Denial of service
 
@@ -169,7 +170,7 @@ usage data; the current design keeps field boundaries so this is an additive cha
 | E-09 | Worker code path used for cross-user access from the API | Worker role credentials only in the worker process; dependency-cruiser forbids API modules importing retention code | `ci` (dependency-cruiser), `security/db-roles.test.ts` |
 | E-10 | Goal content created without consent | Consent guard on create endpoints (R-PRIV-04) | `security/consent.test.ts` |
 | E-11 | Compromise of the 1Password Connect server or its token yields the KEK (ADR-0013) | Connect server in the private network only; token scoped to one vault, rotated with the KEK; KEK fetched once at startup and held in guarded memory; startup refused if Connect is unreachable; access logged | `kek-source.test.ts`, M6 runbook (rotation drill) |
-| E-12 | Stolen SMTP relay credentials used to send phishing as Questline | Credentials only in 1Password/env, TLS-only transport, dedicated sending sub-domain with DMARC `p=reject`, outbox rate limits | `integration/smtp-sender.test.ts`, `src/platform/email/smtp-sender.test.ts`, `src/platform/config/config.test.ts` |
+| E-12 | Stolen SMTP relay credentials used to send phishing as Questline | Credentials only in 1Password/env, TLS-only transport, dedicated sending sub-domain with DMARC `p=reject`, outbox rate limits | `integration/smtp-sender.test.ts`, `src/platform/email/smtp-sender.test.ts`, `src/platform/config/config.test.ts`, `e2e/smoke.test.ts` (the local stack, too, delivers only over verified TLS: a plaintext SMTP client gets no reply from its mail catcher, ADR-0018) |
 | E-13 | Deactivated (pending deletion) account used or reactivated by an attacker | All sessions/tokens revoked at deactivation; reactivation only by password login (rate-limited, audited) and notice email to the user; no other endpoint accepts the account | `security/deactivation.test.ts` (M4) |
 
 ## 4. Residual risks (accepted for v1, revisited each milestone)

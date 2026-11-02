@@ -104,9 +104,11 @@ Rules enforced by lint/tests:
   (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`. Secrets are injected as environment
   variables (from 1Password or the host's secret store); only the KEK is fetched from Connect at runtime.
 - The worker's email variables (`SMTP_*`, `EMAIL_FROM`, `PUBLIC_LINK_BASE_URL`) are all or none. Outside production,
-  none set means email delivery is off and emails stay queued (the local Compose stack has no relay); production
-  requires them, a strong `SMTP_PASSWORD` and an `https` `PUBLIC_LINK_BASE_URL` without credentials, query or
-  fragment. `SMTP_TLS` has no plaintext value; its port defaults to 587 (`starttls`) or 465 (`implicit`).
+  none set means email delivery is off and emails stay queued (the integration tests); the local Compose stack sends
+  every email to its mail catcher, Mailpit, over implicit TLS with a throw-away certificate that the worker trusts
+  through `NODE_EXTRA_CA_CERTS` (ADR-0018). Production requires them, a strong `SMTP_PASSWORD` and an `https`
+  `PUBLIC_LINK_BASE_URL` without credentials, query or fragment. `SMTP_TLS` has no plaintext value; its port defaults
+  to 587 (`starttls`) or 465 (`implicit`).
 
 ### 4.2 Database (`platform/db`)
 

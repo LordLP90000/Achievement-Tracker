@@ -1,4 +1,4 @@
-# Local development stack: PostgreSQL + one-off db-init and migrate jobs + API + worker.
+# Local development stack: PostgreSQL + one-off db-init and migrate jobs + API + worker + a mail catcher (Mailpit).
 # Usage: copy docker/.env.example to docker/.env, fill in local-only secrets, then
 #   docker compose -f docker/compose.yml up --build
 # Production deployment is defined in M6 for the PM's hosting (O-01); these settings are for local use only.
@@ -96,15 +96,75 @@ services:
   worker:
     <<: *app
     command: ['dist/worker.js']
-    # No SMTP settings here: locally the worker leaves emails queued (it logs "email delivery off"). Production
-    # requires SMTP_HOST, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM and PUBLIC_LINK_BASE_URL (architecture §4.1).
+    # Locally every email goes to the mail catcher, over TLS that the worker verifies: it trusts the catcher's
+    # throw-away certificate in addition to the system CAs (NODE_EXTRA_CA_CERTS). Production requires a real relay
+    # (SMTP_HOST, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM and PUBLIC_LINK_BASE_URL; architecture §4.1, ADR-0014).
     environment:
       APP_ENV: development
       DATABASE_URL_WORKER: postgres://questline_worker:${DB_PASSWORD_WORKER}@db:5432/questline
       KEK_SOURCE: env
       LOCAL_KEK: ${LOCAL_KEK:?set LOCAL_KEK in docker/.env}
+      SMTP_HOST: mailpit
+      SMTP_PORT: '1025'
+      SMTP_TLS: implicit
+      SMTP_USER: questline
+      SMTP_PASSWORD: ${MAIL_CATCHER_PASSWORD:?set MAIL_CATCHER_PASSWORD in docker/.env}
+      EMAIL_FROM: noreply@questline.test
+      PUBLIC_LINK_BASE_URL: ${PUBLIC_LINK_BASE_URL:-https://questline.test}
+      NODE_EXTRA_CA_CERTS: /certs/mailpit.pem
+    volumes:
+      - mail-certificate:/certs:ro
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
+
+  # Local development only (Q-45, ADR-0018): a throw-away certificate for the mail catcher, made by the repository's
+  # script with Node.js in the app image (mounted read-only, never part of the image); the key stays in the volume.
+  mail-certificate:
+    <<: *app
+    command: ['/dev-tools/scripts/dev-mail-certificate.ts', '/home/nonroot']
+    volumes:
+      # /home/nonroot belongs to the image's user, so the new volume does too.
+      - mail-certificate:/home/nonroot
+      - ../scripts/dev-mail-certificate.ts:/dev-tools/scripts/dev-mail-certificate.ts:ro
+      - ../test/helpers/tls-certificate.ts:/dev-tools/test/helpers/tls-certificate.ts:ro
+    restart: 'no'
+
+  # Local development only (Q-45, ADR-0018): catches every email the worker sends; nothing leaves the machine. Web UI
+  # and API on http://127.0.0.1:8025 (MAIL_UI_PORT).
+  mailpit:
+    image: axllent/mailpit:v1.32.0@sha256:0790692be935ea4420d085694f7985b1f692ca6a8771ab0e0bd8ba75ac180498
+    user: '65532:65532'
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      MP_SMTP_TLS_CERT: /certs/mailpit.pem
+      MP_SMTP_TLS_KEY: /certs/mailpit-key.pem
+      # TLS from the first byte: no plaintext SMTP, and no STARTTLS that could be stripped (E-12).
+      MP_SMTP_REQUIRE_TLS: 'true'
+      MP_SMTP_AUTH: questline:${MAIL_CATCHER_PASSWORD:?set MAIL_CATCHER_PASSWORD in docker/.env}
+      MP_SMTP_DISABLE_RDNS: 'true'
+      # Errors only: no addresses or subjects in its log.
+      MP_QUIET: 'true'
+      # No request to GitHub for new releases.
+      MP_DISABLE_VERSION_CHECK: 'true'
+      # Only requests for the published address are answered (DNS rebinding).
+      MP_ALLOWED_HOSTS: 127.0.0.1:${MAIL_UI_PORT:-8025},localhost:${MAIL_UI_PORT:-8025}
+    volumes:
+      - mail-certificate:/certs:ro
+    ports:
+      - 127.0.0.1:${MAIL_UI_PORT:-8025}:8025
+    networks:
+      - backend
+    depends_on:
+      mail-certificate:
         condition: service_completed_successfully
 
 networks:
@@ -112,3 +172,4 @@ networks:
 
 volumes:
   db-data: {}
+  mail-certificate: {}

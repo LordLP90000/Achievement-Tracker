@@ -18,6 +18,11 @@ agreement (DPA), a CH/EU processing location, and an entry here **before** any i
 The hosting/KMS/email candidate list from M0 v1 (Exoscale, Scaleway, Infomaniak, …) is superseded by the PM's
 decisions above; it remains in `docs/hosting-options.md` for reference if the own hosting option falls through.
 
+## Development tools that are not processors
+
+The mail catcher of the local Compose stack (Mailpit, ADR-0018) runs on the developer's machine, receives only
+synthetic test emails (R-SUP-05) and sends nothing anywhere; it is not a processor.
+
 ## Explicitly not used
 
 - Third-party analytics, crash reporting, A/B testing, advertising or attribution SDKs/services.

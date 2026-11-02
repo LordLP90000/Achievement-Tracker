@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { request } from 'node:http';
 import { createServer, type AddressInfo } from 'node:net';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { xpAboveLevel } from '../../src/domain/xp.ts';
 import { checkPassword, loadBreachedPasswordFilter } from '../../src/modules/accounts/password-policy.ts';
 import { retentionJobs } from '../../src/modules/privacy/retention.ts';
 
@@ -11,6 +13,21 @@ const COMPOSE = ['compose', '-f', 'docker/compose.yml', '-p', 'questline-e2e'];
 const MAX_BUFFER = 64 * 1024 * 1024;
 const secret = () => randomBytes(24).toString('base64url');
 const key = () => randomBytes(32).toString('base64');
+const zurichDate = (instant: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zurich' }).format(instant);
+/** The worker polls the outbox every 5 s (`OUTBOX_POLL_MS`). */
+const MAIL_WAIT_MS = 30_000;
+const DAY_MS = 86_400_000;
+
+/** Plaintext SMTP to the mail catcher from inside the network: a plaintext server would answer within 2 s. */
+const PLAINTEXT_SMTP_PROBE = [
+  "const socket = require('node:net').connect(1025, 'mailpit');",
+  "let received = '';",
+  "socket.setEncoding('latin1');",
+  "socket.on('connect', () => socket.write('EHLO probe\\r\\n'));",
+  "socket.on('data', (chunk) => { received += chunk; });",
+  "socket.on('error', () => undefined);",
+  'setTimeout(() => { console.log(JSON.stringify({ smtpReply: /^\\d{3}[ -]/m.test(received) })); process.exit(0); }, 2000);',
+].join(' ');
 
 /** A random password the offline breach filter accepts: about 1 % of random strings are false positives (ADR-0012). */
 function acceptedPassword(): string {
@@ -18,6 +35,18 @@ function acceptedPassword(): string {
   let candidate = secret();
   while (checkPassword(breached, candidate) !== 'ok') candidate = secret();
   return candidate;
+}
+
+/** The status of a GET with the given `Host` header, which `fetch` would not send. */
+function statusWithHost(url: string, host: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const sent = request(url, { headers: { host } }, (response) => {
+      response.resume();
+      resolve(response.statusCode ?? 0);
+    });
+    sent.on('error', reject);
+    sent.end();
+  });
 }
 
 async function freePort(): Promise<number> {
@@ -43,18 +72,57 @@ describe('container smoke test', () => {
     LOCAL_KEK: key(),
     BLIND_INDEX_KEY: key(),
     RATE_LIMIT_KEY: key(),
+    MAIL_CATCHER_PASSWORD: secret(),
   };
   const env: NodeJS.ProcessEnv = { ...process.env, ...secrets };
   let baseUrl = '';
+  let mailUrl = '';
 
   const compose = (...args: string[]) => run('docker', [...COMPOSE, ...args], { env, maxBuffer: MAX_BUFFER });
   const inApi = (...command: string[]) => compose('exec', '-T', 'api', ...command);
   // The distroless runtime contains no shell or coreutils; Node.js is the only executable.
   const inApiNode = (script: string) => inApi('/nodejs/bin/node', '-e', script);
+  const sql = async (query: string) =>
+    (await compose('exec', '-T', 'db', 'psql', '-U', 'postgres', '-d', 'questline', '-tAc', query)).stdout.trim();
+
+  interface Request {
+    readonly token?: string;
+    readonly body?: unknown;
+    /** Sends a fresh `Idempotency-Key`, as every create needs. */
+    readonly create?: boolean;
+  }
+  const api = (path: string, { token, body, create = false }: Request = {}) =>
+    fetch(`${baseUrl}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+        ...(create ? { 'idempotency-key': randomUUID() } : {}),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  interface Mail {
+    readonly ID: string;
+  }
+  /** The emails the catcher holds for the address, once there are `count` of them (or the wait is over). */
+  const mailsTo = async (address: string, count: number): Promise<readonly Mail[]> => {
+    const url = `${mailUrl}/api/v1/search?query=${encodeURIComponent(`to:"${address}"`)}`;
+    const deadline = Date.now() + MAIL_WAIT_MS;
+    for (;;) {
+      const { messages } = (await (await fetch(url)).json()) as { messages: Mail[] };
+      if (messages.length >= count || Date.now() > deadline) return messages;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  };
+  const mailText = async (mail: Mail | undefined) =>
+    ((await (await fetch(`${mailUrl}/api/v1/message/${mail?.ID ?? 'none'}`)).json()) as { Text: string }).Text;
 
   beforeAll(async () => {
     env['API_PORT'] = String(await freePort());
+    env['MAIL_UI_PORT'] = String(await freePort());
     baseUrl = `http://127.0.0.1:${env['API_PORT']}`;
+    mailUrl = `http://127.0.0.1:${env['MAIL_UI_PORT']}`;
     await compose('up', '--build', '--detach', '--wait');
   });
 
@@ -103,22 +171,16 @@ describe('container smoke test', () => {
     expect(result.prebuilds).toEqual([result.platform]);
   });
 
-  it('keeps the database, the API and the worker running', async () => {
+  it('keeps the database, the API, the worker and the mail catcher running', async () => {
     const { stdout } = await compose('ps', '--status', 'running', '--services');
 
-    expect(stdout.split(/\r?\n/).filter(Boolean).sort()).toEqual(['api', 'db', 'worker']);
+    expect(stdout.split(/\r?\n/).filter(Boolean).sort()).toEqual(['api', 'db', 'mailpit', 'worker']);
   });
 
   it('runs every scheduled job in the worker container with the worker role [R-PRIV-07, A-20, ADR-0009]', async () => {
     // The retention jobs and the daily goal evaluation.
     const expected = String(retentionJobs().length + 1);
-    const succeededJobs = async () =>
-      (
-        await compose(
-          ...['exec', '-T', 'db', 'psql', '-U', 'postgres', '-d', 'questline', '-tAc'],
-          "select count(distinct job_name) from job_runs where status = 'succeeded'",
-        )
-      ).stdout.trim();
+    const succeededJobs = () => sql("select count(distinct job_name) from job_runs where status = 'succeeded'");
     let succeeded = await succeededJobs();
     for (let attempt = 0; attempt < 20 && succeeded !== expected; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -127,17 +189,25 @@ describe('container smoke test', () => {
 
     expect(succeeded).toBe(expected);
     const { stdout } = await compose('logs', '--no-color', 'worker');
-    expect(stdout).toContain('email delivery off: no SMTP settings, emails stay queued');
+    expect(stdout).toContain('"email_delivery":"on"');
   });
 
-  it('registers an account in the built image: one user, its data key, two queued emails, nothing logged [R-AUTH-07, R-LOG-02]', async () => {
+  it('runs the mail catcher with TLS-only SMTP and its web UI on 127.0.0.1 only [E-12, Q-45]', async () => {
+    const { stdout: published } = await compose('port', 'mailpit', '8025');
+    const { stdout: probe } = await compose('exec', '-T', 'worker', '/nodejs/bin/node', '-e', PLAINTEXT_SMTP_PROBE);
+
+    expect(published.trim()).toBe(`127.0.0.1:${env['MAIL_UI_PORT'] ?? ''}`);
+    expect(JSON.parse(probe)).toEqual({ smtpReply: false });
+    // Only requests for the published address are answered, against DNS rebinding.
+    expect(await statusWithHost(`${mailUrl}/api/v1/messages`, 'attacker.example')).toBe(403);
+  });
+
+  it('registers an account in the built image: one user, its data key, both emails delivered over TLS, nothing logged [R-AUTH-07, R-LOG-02]', async () => {
     const email = `e2e-${randomBytes(6).toString('hex')}@example.test`;
     const password = acceptedPassword();
     const register = (chosen: string) =>
-      fetch(`${baseUrl}/v1/auth/register`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email, password: chosen, privacy_policy_version: '2026-10-01', age_confirmed: true }),
+      api('/v1/auth/register', {
+        body: { email, password: chosen, privacy_policy_version: '2026-10-01', age_confirmed: true },
       });
 
     const first = await register(password);
@@ -146,14 +216,73 @@ describe('container smoke test', () => {
 
     expect([first.status, again.status, breached.status]).toEqual([202, 202, 422]);
     expect(await again.json()).toEqual(await first.json());
-    const { stdout } = await compose(
-      ...['exec', '-T', 'db', 'psql', '-U', 'postgres', '-d', 'questline', '-tAc'],
-      "select (select count(*) from users) || ' ' || (select count(*) from user_keys) || ' ' || " +
-        "(select string_agg(template, ' ' order by created_at) from email_outbox)",
-    );
-    expect(stdout.trim()).toBe('1 1 verify_email registration_notice');
+    expect(await sql("select (select count(*) from users) || ' ' || (select count(*) from user_keys)")).toBe('1 1');
+    // The verification link, and the notice that someone tried again, which never carries a link (A-33).
+    const texts = await Promise.all((await mailsTo(email, 2)).map(mailText));
+    expect(texts.map((text) => /\/verify-email#token=[\w-]+/.test(text)).sort()).toEqual([false, true]);
+    // A sent email leaves the outbox at once; the catcher may hold it a moment before the worker commits that.
+    let queued = await sql('select count(*) from email_outbox');
+    for (let attempt = 0; attempt < 20 && queued !== '0'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      queued = await sql('select count(*) from email_outbox');
+    }
+    expect(queued).toBe('0');
     const logs = await compose('logs', '--no-color');
     for (const value of [email, password]) expect(logs.stdout + logs.stderr).not.toContain(value);
+  });
+
+  it('takes a new user from sign-up through the emailed link to their stats: the app journey [Q-45, R-AUTH-02]', async () => {
+    const email = `journey-${randomBytes(6).toString('hex')}@example.test`;
+    const password = acceptedPassword();
+    const today = zurichDate(new Date());
+
+    const registered = await api('/v1/auth/register', {
+      body: { email, password, privacy_policy_version: '2026-10-01', age_confirmed: true },
+    });
+    const [verification] = await mailsTo(email, 1);
+    const token = /#token=([\w-]+)/.exec(await mailText(verification))?.[1] ?? 'missing';
+    const verified = await api('/v1/auth/verify-email', { body: { token } });
+    const login = await api('/v1/auth/login', { body: { email, password, client: 'ios' } });
+    const { access_token: accessToken } = (await login.json()) as { access_token: string };
+    const consent = await api('/v1/me/consents', {
+      token: accessToken,
+      body: { type: 'goal_content', version: '2026-10-01' },
+    });
+    const achievement = await api('/v1/achievements', {
+      token: accessToken,
+      create: true,
+      body: { title: 'Run a half marathon', target_date: zurichDate(new Date(Date.now() + 30 * DAY_MS)) },
+    });
+    const { id: achievementId } = (await achievement.json()) as { id: string };
+    const questIds: string[] = [];
+    for (const title of ['Run 10 km', 'Run 21 km']) {
+      const quest = await api(`/v1/achievements/${achievementId}/quests`, {
+        token: accessToken,
+        create: true,
+        body: { title, type: 'one_time', size: 'M' },
+      });
+      questIds.push(((await quest.json()) as { id: string }).id);
+    }
+    const checkIn = (questId = 'missing') =>
+      api(`/v1/quests/${questId}/check-ins`, { token: accessToken, create: true, body: { local_date: today } });
+    const firstCheckIn = await checkIn(questIds[0]);
+    const gamble = await api(`/v1/achievements/${achievementId}/gambles`, {
+      token: accessToken,
+      create: true,
+      body: {},
+    });
+    const unlock = await checkIn(questIds[1]);
+    const stats = await api('/v1/me/stats', { token: accessToken });
+
+    expect(
+      [registered, verified, login, consent, achievement, firstCheckIn, gamble, unlock, stats].map((r) => r.status),
+    ).toEqual([202, 204, 200, 201, 201, 201, 201, 201, 200]);
+    expect(await gamble.json()).toMatchObject({ status: 'pending', stake: xpAboveLevel(25) });
+    // Within 7 × 24 h of its creation an unlock pays no rank bonus and the win pays nothing (A-34).
+    expect(await unlock.json()).toMatchObject({ achievement_unlocked: true, gamble: { outcome: 'won', xp_delta: 0 } });
+    expect(await stats.json()).toMatchObject({ xp_total: 50, gambles: { won: 1, lost: 0 } });
+    const logs = await compose('logs', '--no-color');
+    for (const value of [email, password, token]) expect(logs.stdout + logs.stderr).not.toContain(value);
   });
 
   it('never writes a password to any container log', async () => {
