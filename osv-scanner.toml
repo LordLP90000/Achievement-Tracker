@@ -5,3 +5,13 @@
 id = "GHSA-67mh-4wv8-2f99"
 ignoreUntil = 2027-01-31
 reason = "esbuild <=0.24.2 dev-server CORS issue, reached only through drizzle-kit's dev-only @esbuild-kit loader. drizzle-kit never starts esbuild's serve mode and is not part of the container image. Re-check when drizzle-kit drops @esbuild-kit (accepted in M1, 2026-10-22)."
+
+[[IgnoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+ignoreUntil = 2026-11-30
+reason = "glob 10.5.0 (dev only: archiver-utils under testcontainers, cacache under the SBOM tool) keeps walking after an AbortSignal. No tool here aborts a walk or globs attacker-controlled patterns or directories; not in the container image. Fixed only in glob 14.0.2, which the parents (glob ^10) do not accept yet. Re-check for parent updates (accepted by the PM, 2026-11-02)."
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2026-11-30
+reason = "minimatch 5.1.9, 9.0.9 and 10.2.6 (dev only: ESLint, typescript-eslint, Stryker, testcontainers' archiver) amplify attacker-supplied glob patterns. Every pattern they match comes from this repository's own configuration, never from users; not in the container image. Fixed only in minimatch 11.0.1, which the parents (^5, ^10, ~10.2) do not accept yet. Re-check for parent updates (accepted by the PM, 2026-11-02)."

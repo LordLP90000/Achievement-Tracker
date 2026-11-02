@@ -159,3 +159,14 @@ accounts, no emails to accounts pending deletion (A-22). First Node 26.13.0 (on 
   A-34…A-43 and the "go" for M4.
 
 **Status**: M3 is in **REVIEW**.
+
+## Addendum 2026-11-02 — review with the PM, part 2
+
+- **CI was red from 2026-10-31 (runs #83–#85)** in one job, the dependency scan, which I noticed only on 2026-11-02
+  while work was paused. Two advisories published on 2026-10-30, both Medium and both in dev-only packages:
+  GHSA-3g3m-2fjr-6pw4 (`glob` 10.5.0 keeps walking after an `AbortSignal`) and GHSA-g3hv-75wg-m249 (`minimatch`
+  5.1.9, 9.0.9 and 10.2.6 amplify attacker-supplied patterns). Neither ships in the image, and no tool here globs
+  patterns or directories that users control. The fixes are new major versions that ESLint, Stryker and
+  Testcontainers do not accept yet.
+- **Exceptions register** (accepted by the PM): both advisories in `osv-scanner.toml` until **2026-11-30**, each
+  with its reason; then re-check whether the parent packages accept the fixed versions.
