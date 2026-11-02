@@ -185,7 +185,8 @@ its response (headers and body, encrypted with the user's data key) in the same 
   the lease ends and a crash loop still reaches the attempt limit. The payload is decrypted with the user's data key
   and rendered from fixed templates (`platform/email/templates.ts`). A link email is sent only while its token still
   works — a replaced, used or expired link is deleted unsent (D-05) — while security notices are always sent. An
-  email queued after its account asked for deletion is deleted unsent too, except the deletion notice (A-22, Q-46);
+  email queued after its account asked for deletion is deleted unsent too, except the deletion notice and a reset
+  link the owner asked for, which brings the account back (A-22, Q-46, Q-48);
   one queued before still goes out, so the owner hears of an address or password change that preceded it. After
   sending, the row is deleted; a failure is retried after 1, 2, 4 … 64 min and dead-lettered after the 8th attempt
   (dead letters keep the encrypted payload for 7 days); a permanent refusal of the recipient or message, or an

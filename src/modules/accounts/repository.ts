@@ -269,16 +269,20 @@ export async function isOneTimeTokenUsed(
   return token !== undefined && token.usedAt !== null;
 }
 
-/** True while the token is unused and unexpired; it is consumed later with `consumeOneTimeToken`. */
-export async function isOneTimeTokenUsable(
+/**
+ * The account of an unused, unexpired token, with its deletion request: whether the link can still succeed is decided
+ * before any Argon2id work (D-01). The token is consumed later with `consumeOneTimeToken`.
+ */
+export async function findUsableOneTimeToken(
   tx: Transaction,
   purpose: OneTimeTokenPurpose,
   tokenHash: Buffer,
   now: Date,
-): Promise<boolean> {
+): Promise<{ readonly userId: string; readonly deactivatedAt: Date | null } | undefined> {
   const [token] = await tx
-    .select({ id: oneTimeTokens.id })
+    .select({ userId: oneTimeTokens.userId, deactivatedAt: users.deactivatedAt })
     .from(oneTimeTokens)
+    .innerJoin(users, eq(users.id, oneTimeTokens.userId))
     .where(
       and(
         eq(oneTimeTokens.tokenHash, tokenHash),
@@ -287,7 +291,7 @@ export async function isOneTimeTokenUsable(
         gt(oneTimeTokens.expiresAt, now),
       ),
     );
-  return token !== undefined;
+  return token;
 }
 
 /** True when the address was unverified until now. */

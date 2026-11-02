@@ -2,7 +2,7 @@
 
 Status: **draft v0.4** (2026-11-02, M4: the data-subject rights built and tested — export, deletion with the 30-day
 window, hard delete with crypto-shredding and tombstone, no email to accounts pending deletion as decided with Q-46;
-R-6, R-14 and R-16 updated, open item 7 added; v0.3 on 2026-10-29: the PM's product review of R-15 recorded, Q-32; v0.2 in M0, 2026-10-22, with the PM decisions applied), maintained every milestone; to be reviewed by a data-protection expert
+R-6, R-14 and R-16 updated, open item 7 added and closed by the PM's decision Q-48 at the M4 review; v0.3 on 2026-10-29: the PM's product review of R-15 recorded, Q-32; v0.2 in M0, 2026-10-22, with the PM decisions applied), maintained every milestone; to be reviewed by a data-protection expert
 before launch (M6 review package). Legal bases: GDPR Art. 35; Swiss FADP Art. 22 (data protection impact
 assessment where processing may entail a high risk, notably large-scale processing of sensitive personal data).
 
@@ -72,7 +72,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | R-13 | Function creep (later use of content for analytics, recommendations, training) | 2 | 3 | 6 medium | Purpose limitation written into the inventory; any new purpose needs a new consent version and DPIA update; no analytics SDKs | 1 × 3 = **3 low** |
 | R-14 | Re-identification or interception of export files | 1 | 3 | 3 low | Re-auth, rate limiting, audit, `no-store`; the app should store exports only where the user chooses. M4: the password entered within 10 minutes, at most 2 exports in any 24 hours (rolling), each audited, served as an attachment with `no-store`; only the requester's rows (`security/export.test.ts`); app guidance in `client-security.md` | 1 × 3 = **3 low** |
 | R-15 | **Gambling-like mechanics** (double-or-nothing XP stakes, steep rank multipliers) may encourage compulsive behaviour, especially for users aged 13–15 (Q-23) | 2 | 2 | 4 low | XP only — no money, no purchases, no real-world value in v1; no chance element (the outcome depends only on the user finishing their own achievement); one pending gamble per user at a time; a loss removes at most the XP above the current level's threshold, so a level is never lost; a win pays at most the achievement's required XP and nothing within 7 days of the achievement's creation (Q-31); no cancel/re-roll loops. **Product review by the PM on 2026-10-29 (O-05 → Q-32): gambles stay available to all users ≥ 13 with these safeguards.** If a reward currency/coupons arrive in v2, this risk must be re-assessed with legal input (gambling law). | 2 × 1 = **2 low** |
-| R-16 | **Deactivated accounts retained 30 days** (Q-11) keeps data longer than an immediate deletion would | 1 | 2 | 2 low | All sessions revoked, account unusable, encrypted at rest, hard-deleted automatically with tombstone; user informed of the deadline. M4: every emailed link void as well; no endpoint but the password login accepts the account, and none reveals it; no email but the deletion notice, while notices queued before the request still reach the owner (A-22, Q-46). A deletion by someone who knew the password is told to the owner, who cannot yet recover the account without the password (open item 7, O-12) | 1 × 2 = **2 low** |
+| R-16 | **Deactivated accounts retained 30 days** (Q-11) keeps data longer than an immediate deletion would | 1 | 2 | 2 low | All sessions revoked, account unusable, encrypted at rest, hard-deleted automatically with tombstone; user informed of the deadline. M4: every emailed link void as well; no endpoint but the password login and the password reset accepts the account, and none reveals it; no email but the deletion notice and a reset link the owner asks for, while notices queued before the request still reach the owner (A-22, Q-46). A deletion by someone who knew the password is told to the owner, who can take the account back by resetting the password within the 30 days (Q-48) | 1 × 2 = **2 low** |
 
 ## 5. Measures summary (mapped to requirements)
 
@@ -103,7 +103,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | 4 | Encrypt `target_date` (R-5) — decided by the PM: yes (Q-24) | done |
 | 5 | Controller identity and contact for the privacy policy | PM |
 | 6 | Breach-notification runbook (FADP Art. 24: notify FDPIC "as soon as possible"; GDPR Art. 33: 72 h) | lead engineer, M6 |
-| 7 | Recovering an account deleted by someone who knew the password: accept, or let a password reset within the 30 days reactivate it (O-12) | PM, M4 review |
+| 7 | Recovering an account deleted by someone who knew the password: decided by the PM on 2026-11-02 — a password reset within the 30 days reactivates it (Q-48, O-12) | done |
 
 ## 8. Sign-off
 

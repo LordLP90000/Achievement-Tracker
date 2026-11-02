@@ -17,11 +17,12 @@ interface DeletedAccount extends TestAccount {
 const authenticated = specOperations.filter((operation) => operation.requiresAuth);
 
 /**
- * E-13: an account pending deletion (R-PRIV-06) is of no use to whoever holds its former tokens, gets no email and
- * gives itself away to no one (A-22, Q-46, R-AUTH-07), and only a password login brings it back — under the login's
- * rate limit and audited. Real rate limits throughout, each request from its own client network.
+ * E-13: an account pending deletion (R-PRIV-06) is of no use to whoever holds its former tokens, gets no email but
+ * the deletion notice and a reset link it asks for, and gives itself away to no one (A-22, Q-46, Q-48, R-AUTH-07);
+ * only a password login or a password reset brings it back — rate-limited and audited. Real rate limits throughout,
+ * each request from its own client network.
  */
-describe('an account pending deletion [E-13, A-22, Q-46, R-PRIV-06]', () => {
+describe('an account pending deletion [E-13, A-22, Q-46, Q-48, R-PRIV-06]', () => {
   let ctx: AccountsApp;
   let network = 0;
   const nextIp = () => {
@@ -87,7 +88,7 @@ describe('an account pending deletion [E-13, A-22, Q-46, R-PRIV-06]', () => {
     expect(refreshed.statusCode).toBe(401);
   });
 
-  it('gets no email and stays hidden: registration, resend and forgot-password answer as for an unknown address [A-22, R-AUTH-07]', async () => {
+  it('stays hidden: registration, resend and forgot-password answer as for an unknown address, and only the reset link is sent [A-22, R-AUTH-07, Q-48]', async () => {
     const account = await deletedAccount();
     // The account's own registration used one of the address's 3 emails an hour (A-25): all are back after an hour.
     ctx.clock.advance({ hours: 1 });
@@ -115,14 +116,43 @@ describe('an account pending deletion [E-13, A-22, Q-46, R-PRIV-06]', () => {
     const change = await post('/v1/me/email-change', { new_email: account.email }, bearer(other.access_token));
 
     expect(change.statusCode).toBe(202);
-    expect(await emailsTo(account.email)).toEqual(queued);
     expect(queued).toEqual(['verify_email', 'account_deleted_notice']);
-    const [links] = await ctx.admin.sql<{ count: number }[]>`
-      select count(*)::int as count from one_time_tokens where user_id = ${account.userId}`;
-    expect(links?.count).toBe(0);
+    expect(await emailsTo(account.email)).toEqual([...queued, 'password_reset']);
+    const links = await ctx.admin.sql<{ purpose: string }[]>`
+      select purpose from one_time_tokens where user_id = ${account.userId}`;
+    expect(links.map((link) => link.purpose)).toEqual(['reset_password']);
   });
 
-  it('comes back only through a password login, which is rate-limited and audited [S-01, D-04, R-LOG-03]', async () => {
+  it('comes back through a password reset as well: the link proves control of the address, and it is audited [Q-48, R-LOG-03]', async () => {
+    const account = await deletedAccount();
+    ctx.clock.advance({ minutes: 1 });
+    expect((await post('/v1/auth/password/forgot', { email: account.email })).statusCode).toBe(202);
+    const token = (await ctx.emails()).findLast(
+      (email) => email.payload.to === account.email && email.template === 'password_reset',
+    )?.payload.token;
+    ctx.clock.advance({ minutes: 1 });
+
+    const reset = await post('/v1/auth/password/reset', { token, new_password: 'seven silver swans swimming' });
+
+    expect(reset.statusCode).toBe(204);
+    expect(await isDeactivated(account.userId)).toBe(false);
+    expect((await login(account.email, account.password)).statusCode).toBe(401);
+    expect((await login(account.email, 'seven silver swans swimming')).statusCode).toBe(200);
+    expect((await post('/v1/auth/refresh', { refresh_token: account.tokens.refresh_token })).statusCode).toBe(401);
+    const events = await ctx.admin.sql<{ event_type: string }[]>`
+      select event_type from audit_events where user_id = ${account.userId}
+        and event_type in ('account_deleted', 'password_reset_requested', 'account_reactivated',
+                           'password_reset_completed')
+      order by created_at, event_type`;
+    expect(events.map((event) => event.event_type)).toEqual([
+      'account_deleted',
+      'password_reset_requested',
+      'account_reactivated',
+      'password_reset_completed',
+    ]);
+  });
+
+  it('comes back through a password login only within the login backoff, and audited [S-01, D-04, R-LOG-03]', async () => {
     const account = await deletedAccount();
     const wrong = [];
     for (let attempt = 0; attempt < 6; attempt += 1) {

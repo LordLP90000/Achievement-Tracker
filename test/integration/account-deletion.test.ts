@@ -220,7 +220,8 @@ describe('hard delete 30 days after the request [R-PRIV-06, Q-13, I-18]', () => 
     const response = await contractInject(ctx.app, { method: 'DELETE', url: '/v1/me', headers: bearer(token) });
     if (response.statusCode !== 202) throw new Error(`deletion failed: ${String(response.statusCode)}`);
   };
-  const login = (email: string) => ctx.post('/v1/auth/login', { email, password: TEST_PASSWORD, client: 'ios' });
+  const login = (email: string, password = TEST_PASSWORD) =>
+    ctx.post('/v1/auth/login', { email, password, client: 'ios' });
   const create = async (url: string, token: string, body: unknown) => {
     const response = await ctx.post(url, body, { ...bearer(token), 'idempotency-key': randomUUID() });
     if (response.statusCode !== 201) throw new Error(`${url} answered ${String(response.statusCode)}`);
@@ -253,6 +254,13 @@ describe('hard delete 30 days after the request [R-PRIV-06, Q-13, I-18]', () => 
     const [row] = await ctx.admin.sql<{ count: string }[]>`
       select count(*) from pg_stat_activity
       where datname = current_database() and wait_event_type = 'Lock' and usename = 'questline_worker'`;
+    return Number(row?.count);
+  };
+  /** API connections of this test database that wait for a row lock. */
+  const apiWaiting = async () => {
+    const [row] = await ctx.admin.sql<{ count: string }[]>`
+      select count(*) from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock' and usename = 'questline_app'`;
     return Number(row?.count);
   };
 
@@ -339,6 +347,76 @@ describe('hard delete 30 days after the request [R-PRIV-06, Q-13, I-18]', () => 
     expect(await job).toBe(0);
     expect(await rowsOf(user.userId)).toHaveProperty('users', 1);
     expect(await tombstonesOf(user.userId)).toEqual([]);
+  });
+
+  it('lets a password reset begun before the deadline finish first, without a deadlock: the job then deletes nothing [Q-48]', async () => {
+    const user = await goalUser(ctx);
+    await deleteAccount(user.token);
+    const deadline = START_MS + 30 * DAY_MS;
+    ctx.clock.set(new Date(deadline - 10 * 60_000).toISOString());
+    expect((await ctx.post('/v1/auth/password/forgot', { email: user.email })).statusCode).toBe(202);
+    const token = (await ctx.emails()).findLast(
+      (email) => email.payload.to === user.email && email.template === 'password_reset',
+    )?.payload.token;
+    ctx.clock.set(new Date(deadline - 1).toISOString());
+    // Hold the reset link's row: the reset waits for it while holding the account row, which the job needs as well.
+    const { promise: released, resolve: release } = Promise.withResolvers<undefined>();
+    const { promise: isLocked, resolve: locked } = Promise.withResolvers<undefined>();
+    const holder = ctx.admin.sql.begin(async (tx) => {
+      await tx`select id from one_time_tokens where user_id = ${user.userId} for update`;
+      locked(undefined);
+      await released;
+    });
+    await isLocked;
+
+    const resetting = ctx.post('/v1/auth/password/reset', { token, new_password: 'a brand new passphrase here' });
+    await expect.poll(apiWaiting, { timeout: 5000, interval: 10 }).toBe(1);
+    ctx.clock.set(new Date(deadline).toISOString());
+    const job = purge();
+    await expect.poll(workersWaiting, { timeout: 5000, interval: 10 }).toBe(1);
+    release(undefined);
+    await holder;
+
+    expect((await resetting).statusCode).toBe(204);
+    expect(await job).toBe(0);
+    expect(await rowsOf(user.userId)).toHaveProperty('users', 1);
+    expect(await tombstonesOf(user.userId)).toEqual([]);
+    expect((await login(user.email, 'a brand new passphrase here')).statusCode).toBe(200);
+  });
+
+  it('answers a reset that waited for an account the job deleted at the deadline with 401: nothing of it is left [Q-48]', async () => {
+    const user = await goalUser(ctx);
+    await deleteAccount(user.token);
+    const deadline = START_MS + 30 * DAY_MS;
+    ctx.clock.set(new Date(deadline - 10 * 60_000).toISOString());
+    expect((await ctx.post('/v1/auth/password/forgot', { email: user.email })).statusCode).toBe(202);
+    const token = (await ctx.emails()).findLast(
+      (email) => email.payload.to === user.email && email.template === 'password_reset',
+    )?.payload.token;
+    // Hold the reset link's row: the job deletes the account and then waits for it, holding the account row.
+    const { promise: released, resolve: release } = Promise.withResolvers<undefined>();
+    const { promise: isLocked, resolve: locked } = Promise.withResolvers<undefined>();
+    const holder = ctx.admin.sql.begin(async (tx) => {
+      await tx`select id from one_time_tokens where user_id = ${user.userId} for update`;
+      locked(undefined);
+      await released;
+    });
+    await isLocked;
+    ctx.clock.set(new Date(deadline).toISOString());
+    const job = purge();
+    await expect.poll(workersWaiting, { timeout: 5000, interval: 10 }).toBe(1);
+    // A reset begun a moment before the deadline still finds the link usable, then waits for the account row.
+    ctx.clock.set(new Date(deadline - 1).toISOString());
+
+    const resetting = ctx.post('/v1/auth/password/reset', { token, new_password: 'a brand new passphrase here' });
+    await expect.poll(apiWaiting, { timeout: 5000, interval: 10 }).toBe(1);
+    release(undefined);
+    await holder;
+
+    expect((await resetting).statusCode).toBe(401);
+    expect(await job).toBe(1);
+    expect(await rowsOf(user.userId)).toEqual({});
+    expect(await tombstonesOf(user.userId)).toEqual([{ deleted_ms: deadline }]);
   });
 
   it('frees the address: the old password no longer logs in, and the address can be registered and verified again', async () => {

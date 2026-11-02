@@ -21,7 +21,7 @@ defaults:
 tables:
   users:
     user_relation: id
-    retention: until account deletion; a deletion request deactivates the account and the purge-job hard-deletes it 30 days later unless the user logs in (Q-11; hourly, with the tombstone in the same transaction, Q-13); unverified accounts purged after 7 days (purge-job)
+    retention: until account deletion; a deletion request deactivates the account and the purge-job hard-deletes it 30 days later unless the user logs in or resets the password (Q-11, Q-48; hourly, with the tombstone in the same transaction, Q-13); unverified accounts purged after 7 days (purge-job)
     columns:
       id:                      { category: C3, personal: true }
       email_enc:               { category: C1, personal: true, encrypted: true }
@@ -33,7 +33,7 @@ tables:
       week_start:              { category: C3, personal: true }
       age_confirmed:           { category: C3, personal: true }
       email_verified_at:       { category: C3, personal: true }
-      deactivated_at:          { category: C3, personal: true, retention: set by a deletion request; the account is hard-deleted 30 days later unless reactivated by login (Q-11) }
+      deactivated_at:          { category: C3, personal: true, retention: set by a deletion request; the account is hard-deleted 30 days later unless reactivated by a login or a password reset (Q-11; Q-48) }
       privacy_policy_version:  { category: C3, personal: true }
       password_changed_at:     { category: C2, personal: true }
       created_at:              { category: C3, personal: true }
@@ -257,7 +257,7 @@ tables:
 
   email_outbox:
     user_relation: user_id
-    retention: deleted on send; dead letters 7 days (purge-job); an email queued after its account's deletion request is deleted unsent, the deletion notice aside (A-22, Q-46); cascade on deletion
+    retention: deleted on send; dead letters 7 days (purge-job); an email queued after its account's deletion request is deleted unsent, the deletion notice and a reset link the owner asks for aside (A-22, Q-46, Q-48); cascade on deletion
     columns:
       id:               { category: C10, personal: false, export: excluded, export_reason: transient delivery record }
       user_id:          { category: C10, personal: true,  export: excluded, export_reason: transient delivery record }

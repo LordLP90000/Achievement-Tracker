@@ -107,8 +107,8 @@ target values and check-in notes are encrypted at rest on the server — the dev
 - **Account deletion** (R-PRIV-06, Q-11, A-22, M4): explain before the user confirms that logging in again with the
   password within 30 days cancels the deletion, and that afterwards everything is gone for good. After re-auth,
   `DELETE /me` answers `202` with `deletion_scheduled_for` and ends **every** session, this one included: clear the
-  tokens and all local data, and show the date. Until then only the password login works: a forgotten password
-  cannot be reset while the account is pending deletion (A-22, O-12), so say so before the user confirms.
+  tokens and all local data, and show the date. Until then a password login brings the account back, and so does a
+  password reset through the emailed link if the password is forgotten (Q-48): say both before the user confirms.
 
 ## 6. Email links [MASVS-PLATFORM]
 

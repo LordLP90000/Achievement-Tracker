@@ -12,6 +12,7 @@ import {
   isOneTimeTokenUsable,
   recordFailedAttempt,
   type ClaimedEmail,
+  type EmailTemplate,
   type TokenReference,
 } from './outbox-repository.ts';
 import { EmailDeliveryError, type EmailMessage, type EmailSender } from './sender.ts';
@@ -21,7 +22,8 @@ import { isLinkTemplate, linkFor, renderEmail, type LinkTemplate } from './templ
  * The worker side of the outbox (ADR-0009, ADR-0014, architecture §4.7). Each email is claimed with a lease, composed
  * from its encrypted payload, sent, and then deleted, retried with exponential backoff, or dead-lettered. A link
  * email is sent only while its single-use token still works (D-05): a replaced, used or expired link is dropped.
- * An email queued after its account asked for deletion is withheld, except the deletion notice (A-22, Q-46).
+ * An email queued after its account asked for deletion is withheld, except the deletion notice and a reset link
+ * (A-22, Q-46, Q-48).
  * A relay failure pauses all delivery for a while, so a broken relay is not hammered (D-07).
  */
 
@@ -99,14 +101,17 @@ interface Delivered {
 }
 
 /**
- * A-22 as decided with Q-46: nothing caused while the account is pending deletion goes out but the deletion notice.
- * What was queued before the deletion still does — the owner must hear of an address or password change even if
- * the account was deleted right after it.
+ * A-22 as decided with Q-46: nothing caused while the account is pending deletion goes out but the deletion notice
+ * and, since Q-48, a reset link the owner asked for, which brings the account back. What was queued before the
+ * deletion still does — the owner must hear of an address or password change even if the account was deleted right
+ * after it.
  */
+const STILL_SENT: ReadonlySet<EmailTemplate> = new Set(['account_deleted_notice', 'password_reset']);
+
 const isWithheld = (email: ClaimedEmail): boolean =>
   email.accountDeactivatedAt !== null &&
   email.createdAt.getTime() > email.accountDeactivatedAt.getTime() &&
-  email.template !== 'account_deleted_notice';
+  !STILL_SENT.has(email.template);
 
 export function createOutboxDelivery(
   deps: OutboxDeliveryDependencies,

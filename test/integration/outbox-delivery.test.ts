@@ -429,7 +429,7 @@ describe('outbox delivery', () => {
     ]);
   });
 
-  it('sends what was queued until an account’s deletion and its deletion notice, and withholds what was queued after it [A-22, Q-46]', async () => {
+  it('sends what was queued until an account’s deletion, its deletion notice and a reset link it asks for, and withholds the rest queued after it [A-22, Q-46, Q-48]', async () => {
     const account = await ctx.account();
     const login = await ctx.post('/v1/auth/login', { email: account.email, password: account.password, client: 'ios' });
     await ctx.admin.sql`delete from email_outbox`;
@@ -442,6 +442,8 @@ describe('outbox delivery', () => {
     });
     expect(deleted.statusCode).toBe(202);
     ctx.clock.advance({ seconds: 1 });
+    // The owner asks for a reset link, which brings the account back (Q-48).
+    expect((await ctx.post('/v1/auth/password/forgot', { email: account.email })).statusCode).toBe(202);
     // Afterwards, as a code path that forgot A-22 would queue them.
     const [key] = await ctx.worker.sql<{ wrapped_dek: Buffer; kek_id: string; kek_version: number }[]>`
       select wrapped_dek, kek_id, kek_version from user_keys where user_id = ${account.userId}`;
@@ -459,12 +461,18 @@ describe('outbox delivery', () => {
       }),
     );
 
-    expect(await delivery().deliverDue()).toEqual({ ...NOTHING, sent: 3, withheld: 1 });
+    expect(await delivery().deliverDue()).toEqual({ ...NOTHING, sent: 4, withheld: 1 });
 
     const subject = (template: 'registration_notice' | 'account_deleted_notice') =>
       renderEmail({ template }, 'de-CH').subject;
+    const resetSubject = renderEmail({ template: 'password_reset', link: LINK_BASE }, 'de-CH').subject;
     expect(sender.sent.map((message) => message.subject).sort()).toEqual(
-      [subject('registration_notice'), subject('account_deleted_notice'), subject('account_deleted_notice')].sort(),
+      [
+        subject('registration_notice'),
+        subject('account_deleted_notice'),
+        resetSubject,
+        subject('account_deleted_notice'),
+      ].sort(),
     );
     expect(await outbox()).toEqual([]);
     expect(logs.records()).toContainEqual(

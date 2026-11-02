@@ -9,7 +9,8 @@ import type { Clock } from '../../platform/time/clock.ts';
 import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent, type AuditEvent } from '../audit/repository.ts';
 import { hasRecentReauth, type Principal } from '../sessions/guard.ts';
-import { revokeAllSessions } from '../sessions/repository.ts';
+import { lockLoginAccount, reactivateAccount, revokeAllSessions } from '../sessions/repository.ts';
+import { isPastDeletionDeadline } from '../sessions/service.ts';
 import { emailField, RESET_PASSWORD, sendTokenEmail, withAccountKey } from './account-mail.ts';
 import { checkPassword, type BreachedPasswordFilter } from './password-policy.ts';
 import {
@@ -17,7 +18,7 @@ import {
   consumeOneTimeToken,
   findAccountByBlindIndex,
   findAccountById,
-  isOneTimeTokenUsable,
+  findUsableOneTimeToken,
   markEmailVerified,
 } from './repository.ts';
 
@@ -42,9 +43,9 @@ export interface PasswordsService {
     passwords: { readonly current: string; readonly next: string },
     context: RequestContext,
   ): Promise<ChangePasswordResult>;
-  /** Emails a reset link to a registered, active address; answers nothing either way (R-AUTH-07). */
+  /** Emails a reset link to a registered address — also of an account pending deletion (Q-48); answers nothing either way (R-AUTH-07). */
   requestReset(email: string, context: RequestContext): Promise<void>;
-  /** Sets a new password with a reset token; ends every session. */
+  /** Sets a new password with a reset token; ends every session and reactivates an account pending deletion. */
   reset(token: string, password: string, context: RequestContext): Promise<ResetPasswordResult>;
 }
 
@@ -110,9 +111,10 @@ export function createPasswordsService(deps: PasswordsServiceDependencies): Pass
 
       await inTransaction(deps.db, async (tx) => {
         const account = await findAccountByBlindIndex(tx, blindIndex);
-        // Unknown or pending deletion: nothing, and the same answer (R-AUTH-07, A-22). Unverified accounts do get the
-        // link: it proves control of the address, so a completed reset also verifies it.
-        if (account?.deactivatedAt !== null) return;
+        // Unknown, or deleted for good — 30 days after its deletion request: nothing, and the same answer (R-AUTH-07).
+        // Unverified accounts and accounts pending deletion do get the link: it proves control of the address, so a
+        // completed reset verifies the one (A-30) and reactivates the other (Q-48).
+        if (account === undefined || isPastDeletionDeadline(account.deactivatedAt, now)) return;
         await withAccountKey(tx, deps.dataKeys, account.id, async (dataKey) => {
           const to = decryptText(dataKey, emailField(account.id), account.emailEnc);
           await sendTokenEmail(tx, dataKey, { userId: account.id, to, locale: account.locale }, RESET_PASSWORD, now);
@@ -137,17 +139,29 @@ export function createPasswordsService(deps: PasswordsServiceDependencies): Pass
       const hash = tokenHash('passwordReset', token);
       if (hash === undefined) return 'invalid_token';
       const now = deps.clock.now();
-      // Check before hashing, so invalid tokens cost no Argon2id work (D-01).
-      if (!(await inTransaction(deps.db, (tx) => isOneTimeTokenUsable(tx, 'reset_password', hash, now)))) {
-        return 'invalid_token';
-      }
+      // Check before hashing, so a link that cannot succeed costs no Argon2id work (D-01): unknown, used, expired, or
+      // of an account deleted for good (Q-48).
+      const link = await inTransaction(deps.db, (tx) => findUsableOneTimeToken(tx, 'reset_password', hash, now));
+      if (link === undefined || isPastDeletionDeadline(link.deactivatedAt, now)) return 'invalid_token';
       const next = await deps.hasher.hash(password);
 
       return inTransaction(deps.db, async (tx) => {
-        const userId = (await consumeOneTimeToken(tx, 'reset_password', hash, now))?.userId;
-        if (userId === undefined) return 'invalid_token';
+        const { userId } = link;
         await setUserContext(tx, userId);
+        // The account row before the link, in the order the hard delete takes them (users, then by cascade the link):
+        // a reset racing the deletion at the deadline waits for it instead of deadlocking with it.
+        const account = await lockLoginAccount(tx, userId);
+        if (account === undefined) return 'invalid_token';
+        if ((await consumeOneTimeToken(tx, 'reset_password', hash, now)) === undefined) return 'invalid_token';
         await changePasswordHash(tx, userId, { next }, now);
+        if (account.deactivatedAt !== null) {
+          await reactivateAccount(tx, userId, now);
+          await audit(
+            tx,
+            { userId, eventType: 'account_reactivated', outcome: 'success', ipPrefix: context.ipPrefix, client: null },
+            now,
+          );
+        }
         if (await markEmailVerified(tx, userId, now)) {
           await audit(
             tx,

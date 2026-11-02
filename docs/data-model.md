@@ -67,7 +67,7 @@ or blind index before the user is known (narrow repository API, explicit filters
 | `week_start` | text NOT NULL DEFAULT 'monday' CHECK IN (`monday`, `sunday`, `saturday`) | Q-18 |
 | `age_confirmed` | boolean NOT NULL | self-declared ≥ 13 (Q-23); registration rejected if false |
 | `email_verified_at` | timestamptz NULL | NULL = unverified → purged after 7 days |
-| `deactivated_at` | timestamptz NULL | deletion requested (Q-11); login reactivates within 30 days, then hard delete |
+| `deactivated_at` | timestamptz NULL | deletion requested (Q-11); a login or a password reset reactivates within 30 days (Q-48), then hard delete |
 | `privacy_policy_version` | text NOT NULL | A-14 |
 | `password_changed_at` | timestamptz NOT NULL | |
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
@@ -358,7 +358,7 @@ purge job (worker). No `dek_version`: like `email_outbox.payload_enc`, it lives 
 Sent rows are deleted immediately; dead letters after 7 days. A link email whose token no longer works (used,
 replaced by a newer one or expired) is deleted unsent (D-05); notices are always sent. An email whose
 `created_at` lies after its account's `deactivated_at` is deleted unsent as well, except `account_deleted_notice`
-(A-22, Q-46): the API queues none, and the worker makes sure.
+and a `password_reset` the owner asked for (A-22, Q-46, Q-48): the API queues nothing else, and the worker makes sure.
 
 #### `rate_limit_buckets` (UNLOGGED, no user relation)
 
@@ -472,7 +472,10 @@ ledger amounts that are 0 or have the wrong sign. Tested in `test/integration/go
    user ends (reason `account_deleted`, tokens deleted), every one-time token is deleted — used ones too, so no
    emailed link answers any more — and the audit event and the notice commit with it. A request whose session ended
    meanwhile (a simultaneous deletion from another device) changes nothing and gets `401`.
-2. **Reactivation**: a successful `POST /v1/auth/login` within 30 days clears `deactivated_at` (audited).
+2. **Reactivation**: a successful `POST /v1/auth/login` within 30 days clears `deactivated_at` (audited), and so does
+   a completed `POST /v1/auth/password/reset` (Q-48): forgot-password emails an account pending deletion the link as
+   it does an active one. Both lock the account row first, as the hard delete does, so at the deadline one waits for
+   the other instead of deadlocking; from 30 days after the request on, neither accepts the account.
 3. **Hard delete** (retention job `purge_deleted_accounts`, hourly): every user with `deactivated_at ≤ now − 30
    days` — the instant from which login refuses the account — is deleted with `DELETE FROM users`, which removes,
    via `ON DELETE CASCADE`: `user_keys`

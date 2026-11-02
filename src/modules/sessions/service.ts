@@ -97,11 +97,15 @@ export interface SessionView {
 
 const INVALID_CREDENTIALS = Object.freeze({ outcome: 'invalid_credentials' as const });
 
-/** Past the grace period an account pending deletion counts as deleted, even before the purge job ran. */
-const isGone = (account: LoginAccount | undefined, now: Date): boolean => {
-  const requested = account?.deactivatedAt ?? null;
-  return requested !== null && requested.getTime() <= now.getTime() - DELETION_GRACE_MS;
-};
+/**
+ * From 30 days after its deletion request on, an account counts as deleted even before the purge job ran: no login
+ * and no password reset brings it back (R-PRIV-06, Q-48).
+ */
+export const isPastDeletionDeadline = (deactivatedAt: Date | null, now: Date): boolean =>
+  deactivatedAt !== null && deactivatedAt.getTime() <= now.getTime() - DELETION_GRACE_MS;
+
+const isGone = (account: LoginAccount | undefined, now: Date): boolean =>
+  isPastDeletionDeadline(account?.deactivatedAt ?? null, now);
 
 export function createSessionsService(deps: SessionsServiceDependencies): SessionsService {
   const audit = async (tx: Transaction, event: AuditEvent, now: Date): Promise<void> => {

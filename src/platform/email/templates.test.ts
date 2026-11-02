@@ -109,6 +109,20 @@ describe('email templates [A-19, S-11]', () => {
     expect(renderEmail({ template: 'password_reset', link: LINK }, 'it').text).toMatch(/password/);
     expect(renderEmail({ template: 'password_reset', link: LINK }, 'en').text).toMatch(/password/);
   });
+
+  it.each([
+    ['en', 'resetting your password'],
+    ['de', 'setzen Sie Ihr Passwort zurück'],
+    ['fr', 'réinitialisez votre mot de passe'],
+    ['it', 'reimposta la password'],
+  ] as const)(
+    'tells the owner in %s that resetting the password brings the account back, as signing in does [Q-48]',
+    (locale, phrase) => {
+      const { text } = renderEmail({ template: 'account_deleted_notice' }, locale);
+
+      expect(text).toContain(phrase);
+    },
+  );
 });
 
 describe('linkFor [A-19]', () => {

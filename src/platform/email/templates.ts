@@ -136,9 +136,10 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
       account_deleted_notice: {
         subject: 'Your Questline account will be deleted',
         paragraphs: [
-          'Your Questline account was deactivated and will be deleted for good in {days} days. If you sign in ' +
-            'before then, it is reactivated.',
-          'If this was not you, sign in right away and change your password.',
+          'Your Questline account was deactivated and will be deleted for good in {days} days. Signing in before ' +
+            'then reactivates it, and so does resetting your password.',
+          'If this was not you, sign in right away and change your password. If your password no longer works, ' +
+            'reset it in the Questline app.',
         ],
       },
     },
@@ -202,8 +203,9 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
         subject: 'Ihr Questline-Konto wird gelöscht',
         paragraphs: [
           'Ihr Questline-Konto wurde deaktiviert und wird in {days} Tagen endgültig gelöscht. Melden Sie sich ' +
-            'vorher an, wird es wieder aktiviert.',
-          'Falls Sie das nicht waren, melden Sie sich sofort an und ändern Sie Ihr Passwort.',
+            'vorher an oder setzen Sie Ihr Passwort zurück, wird es wieder aktiviert.',
+          'Falls Sie das nicht waren, melden Sie sich sofort an und ändern Sie Ihr Passwort. Funktioniert es nicht ' +
+            'mehr, setzen Sie es in der Questline-App zurück.',
         ],
       },
     },
@@ -265,8 +267,9 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
         subject: 'Votre compte Questline va être supprimé',
         paragraphs: [
           'Votre compte Questline a été désactivé et sera définitivement supprimé dans {days} jours. Si vous vous ' +
-            "connectez d'ici là, il sera réactivé.",
-          "Si ce n'était pas vous, connectez-vous immédiatement et modifiez votre mot de passe.",
+            "connectez ou réinitialisez votre mot de passe d'ici là, il sera réactivé.",
+          "Si ce n'était pas vous, connectez-vous immédiatement et modifiez votre mot de passe. S'il ne fonctionne " +
+            "plus, réinitialisez-le dans l'app Questline.",
         ],
       },
     },
@@ -326,8 +329,9 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
         subject: 'Il Suo account Questline verrà eliminato',
         paragraphs: [
           'Il Suo account Questline è stato disattivato e verrà eliminato definitivamente tra {days} giorni. Se ' +
-            'accede prima di allora, verrà riattivato.',
-          'Se non è stato Lei, acceda subito e modifichi la password.',
+            'accede o reimposta la password prima di allora, verrà riattivato.',
+          'Se non è stato Lei, acceda subito e modifichi la password. Se la password non funziona più, la reimposti ' +
+            "nell'app Questline.",
         ],
       },
     },

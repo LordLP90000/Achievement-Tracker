@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.3.3
+  version: 0.3.4
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -35,6 +35,8 @@ info:
     operation changed.
     0.3.3 (2026-11-02): while a gamble is pending, no quest edit or deletion lowers what an open required quest still
     asks for (`409 gamble-pending`, Q-47; descriptions of `updateQuest` and `deleteQuest`).
+    0.3.4 (2026-11-02): a password reset reactivates an account pending deletion (Q-48; descriptions of
+    `deleteAccount`, `forgotPassword` and `resetPassword`).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -294,6 +296,10 @@ paths:
       tags: [auth]
       operationId: forgotPassword
       summary: Request a password-reset email
+      description: |
+        Answers `202` with the same body whether or not the address is registered (R-AUTH-07). A registered address
+        gets a reset link valid for 30 minutes — also an unverified one (A-30) and one of an account pending deletion
+        (Q-48); 30 days after a deletion request the account counts as deleted and gets nothing.
       security: []
       requestBody:
         required: true
@@ -311,6 +317,10 @@ paths:
       tags: [auth]
       operationId: resetPassword
       summary: Set a new password with a single-use reset token; revokes all sessions
+      description: |
+        Also verifies an unverified address (A-30) and reactivates an account pending deletion (Q-48, audited
+        `account_reactivated`): the link proves control of the address. 30 days after a deletion request the account
+        counts as deleted, and its links → `401`.
       security: []
       requestBody:
         required: true
@@ -387,10 +397,12 @@ paths:
       description: |
         Requires recent re-authentication (R-AUTH-06). Deactivates the account immediately (R-PRIV-06): all sessions
         and tokens are revoked, the request is audited and a notice with the deadline is emailed. Until
-        `deletion_scheduled_for` (request time + 30 days) the account can only be **reactivated by logging in with
-        its password** (`POST /auth/login`); every other endpoint treats it as unusable and no further email is sent
-        (A-22). At the deadline the retention job hard-deletes every row of the user, destroys the wrapped data key
-        (crypto-shredding) and writes a tombstone (Q-13) — nothing of the user remains, including audit events.
+        `deletion_scheduled_for` (request time + 30 days) the account is **reactivated by logging in with its
+        password** (`POST /auth/login`) or **by resetting its password** (`POST /auth/password/forgot`, then
+        `/auth/password/reset`; Q-48); every other endpoint treats it as unusable, and no email is sent but the notice
+        and a reset link the user asks for (A-22, Q-46). At the deadline the retention job hard-deletes every row of the
+        user, destroys the wrapped data key (crypto-shredding) and writes a tombstone (Q-13) — nothing of the user
+        remains, including audit events.
       responses:
         '202':
           description: Deletion scheduled; the account is deactivated and every session, including this one, is revoked.
