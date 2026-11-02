@@ -1,6 +1,8 @@
 # Data Protection Impact Assessment (DPIA) — draft
 
-Status: **draft v0.3** (2026-10-29: the PM's product review of R-15 recorded, Q-32; v0.2 in M0, 2026-10-22, with the PM decisions applied), maintained every milestone; to be reviewed by a data-protection expert
+Status: **draft v0.4** (2026-11-02, M4: the data-subject rights built and tested — export, deletion with the 30-day
+window, hard delete with crypto-shredding and tombstone, no email to accounts pending deletion as decided with Q-46;
+R-6, R-14 and R-16 updated, open item 7 added; v0.3 on 2026-10-29: the PM's product review of R-15 recorded, Q-32; v0.2 in M0, 2026-10-22, with the PM decisions applied), maintained every milestone; to be reviewed by a data-protection expert
 before launch (M6 review package). Legal bases: GDPR Art. 35; Swiss FADP Art. 22 (data protection impact
 assessment where processing may entail a high risk, notably large-scale processing of sensitive personal data).
 
@@ -33,8 +35,9 @@ and "data processed on a large scale / systematic monitoring" apply.
 2. User grants explicit consent for goal content in the app (unticked checkbox, versioned text) → stored.
 3. User creates achievements/quests, records check-ins → content encrypted with the user's DEK before storage;
    engine computes progress/XP/streaks from decrypted values in memory per request.
-4. User may export everything (JSON), revoke sessions, withdraw consent (content deleted), delete the account
-   (deactivated at once; hard delete + DEK destroyed after a 30-day reactivation window).
+4. User may export everything (JSON; the password entered within 10 minutes, at most 2 per 24 hours, audited),
+   revoke sessions, withdraw consent (content deleted), delete the account (deactivated at once; hard delete + DEK
+   destroyed after a 30-day reactivation window).
 
 ## 3. Necessity and proportionality
 
@@ -59,7 +62,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | R-3 | Compromise of the application server (RCE, leaked runtime credentials) → decryption of user data | 1 | 4 | 4 low | Minimal non-root read-only container, SAST/dependency/container scanning, no secrets in images, 1Password Connect access logging, alerting (RR-1). **Updated 2026-10-22:** the KEK is loaded into process memory from a self-hosted 1Password Connect server (PM decision Q-02, ADR-0013), so a compromised process can decrypt all users, not only active ones; accepted by the PM, Connect server kept private, rotation runbook in M6 | 1 × 4 = **4 low** (E2E for v2) |
 | R-4 | Processing health-related content without a valid legal basis | 2 | 3 | 6 medium | Explicit, unticked, versioned consent before any content is stored; withdrawal deletes content; consent proof retained; content guard on create endpoints (R-PRIV-04, E-10) | 1 × 3 = **3 low** |
 | R-5 | Inference from plaintext metadata (counts, check-in dates, statuses, habit cadence, ranks) | 2 | 2 | 4 low | Only structural fields are plaintext; no categories/labels in plaintext; `target_date` encrypted (Q-24) | 2 × 1 = **2 low** |
-| R-6 | Excessive retention (data kept after deletion, stale tokens, logs) | 2 | 3 | 6 medium | Cascading hard delete, crypto-shredding, retention jobs with tests, data-inventory guard test, tombstone replay after restores (R-PRIV-06/07/08) | 1 × 2 = **2 low** |
+| R-6 | Excessive retention (data kept after deletion, stale tokens, logs) | 2 | 3 | 6 medium | Cascading hard delete, crypto-shredding, retention jobs with tests, data-inventory guard test, tombstone replay after restores (R-PRIV-06/07/08). M4: the hourly hard delete removes every row of the account — audit events included — and its wrapped key, and writes the tombstone in the same transaction; tested table by table (`integration/account-deletion.test.ts`); bounded batches, so a backlog is worked off over the following hours, not skipped | 1 × 2 = **2 low** |
 | R-7 | Processor incident (SMTP relay breach exposes addresses; hosting provider access) | 2 | 3 | 6 medium | Processors under DPA (CH/EU preferred; R-9 for a US relay), minimal data shared (addresses + one-time links; no content), short-lived links, relay retention minimised | 1 × 3 = **3 low** |
 | R-8 | Loss or corruption of user data (availability/integrity) | 2 | 2 | 4 low | Managed PostgreSQL with backups/PITR, AEAD integrity, restore drills (M6), idempotent retries, optimistic concurrency | 1 × 2 = **2 low** |
 | R-9 | Foreign-government access or transfer outside CH/EU (US CLOUD Act if a US provider hosts the service, or if Gmail/Google Workspace is the SMTP relay) | depends on O-01/O-02 | 3 | – | Prefer Swiss/EU-headquartered providers; a US SMTP relay receives only email addresses and one-time links (no goal content); on a US host, goal content stays encrypted with a KEK held in 1Password, outside the host | **to be assessed once O-01 and O-02 are named** |
@@ -67,9 +70,9 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | R-11 | Exposure through the user's own device (shared phone, backups of the device, screenshots) | 2 | 3 | 6 medium | `Cache-Control: no-store`, short tokens, `is_private` hint for the app, `docs/client-security.md` (Keychain/Keystore, no content in notifications) — device security is largely outside backend control | 2 × 2 = **4 low** |
 | R-12 | Children using the app and providing sensitive goals without valid consent | 2 | 3 | 6 medium | Minimum age **13**, self-declared at registration (`age_confirmed`, R-AUTH-11, Q-23); no date of birth collected (minimisation); parental consent handled by the terms (O-04). Self-declaration can be bypassed, and in EU member states whose age of digital consent is 14–16 (GDPR Art. 8) a 13–15-year-old's own consent may not be valid without a parent — DP-expert review required | 2 × 3 = **6 medium** (until the DP-expert review) |
 | R-13 | Function creep (later use of content for analytics, recommendations, training) | 2 | 3 | 6 medium | Purpose limitation written into the inventory; any new purpose needs a new consent version and DPIA update; no analytics SDKs | 1 × 3 = **3 low** |
-| R-14 | Re-identification or interception of export files | 1 | 3 | 3 low | Re-auth, rate limiting, audit, `no-store`; the app should store exports only where the user chooses | 1 × 3 = **3 low** |
+| R-14 | Re-identification or interception of export files | 1 | 3 | 3 low | Re-auth, rate limiting, audit, `no-store`; the app should store exports only where the user chooses. M4: the password entered within 10 minutes, at most 2 exports in any 24 hours (rolling), each audited, served as an attachment with `no-store`; only the requester's rows (`security/export.test.ts`); app guidance in `client-security.md` | 1 × 3 = **3 low** |
 | R-15 | **Gambling-like mechanics** (double-or-nothing XP stakes, steep rank multipliers) may encourage compulsive behaviour, especially for users aged 13–15 (Q-23) | 2 | 2 | 4 low | XP only — no money, no purchases, no real-world value in v1; no chance element (the outcome depends only on the user finishing their own achievement); one pending gamble per user at a time; a loss removes at most the XP above the current level's threshold, so a level is never lost; a win pays at most the achievement's required XP and nothing within 7 days of the achievement's creation (Q-31); no cancel/re-roll loops. **Product review by the PM on 2026-10-29 (O-05 → Q-32): gambles stay available to all users ≥ 13 with these safeguards.** If a reward currency/coupons arrive in v2, this risk must be re-assessed with legal input (gambling law). | 2 × 1 = **2 low** |
-| R-16 | **Deactivated accounts retained 30 days** (Q-11) keeps data longer than an immediate deletion would | 1 | 2 | 2 low | All sessions revoked, account unusable, encrypted at rest, hard-deleted automatically with tombstone; user informed of the deadline | 1 × 2 = **2 low** |
+| R-16 | **Deactivated accounts retained 30 days** (Q-11) keeps data longer than an immediate deletion would | 1 | 2 | 2 low | All sessions revoked, account unusable, encrypted at rest, hard-deleted automatically with tombstone; user informed of the deadline. M4: every emailed link void as well; no endpoint but the password login accepts the account, and none reveals it; no email but the deletion notice, while notices queued before the request still reach the owner (A-22, Q-46). A deletion by someone who knew the password is told to the owner, who cannot yet recover the account without the password (open item 7, O-12) | 1 × 2 = **2 low** |
 
 ## 5. Measures summary (mapped to requirements)
 
@@ -77,7 +80,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 - Strong authentication and session management (R-AUTH-*), deny-by-default authorization with per-endpoint
   ownership tests (R-AUTHZ-*).
 - Minimisation and retention automation (R-PRIV-01/07), guard test (R-PRIV-08).
-- Rights handling in-app (R-PRIV-05/06, consent withdrawal).
+- Rights handling in-app (R-PRIV-05/06, consent withdrawal) — built and tested in M4.
 - No third parties beyond approved processors (R-PRIV-02/03).
 - Secure development: TDD, SAST, dependency and container scanning, secret scanning, SBOM (R-SUP-*).
 - Logging without personal data, audit trail with minimal data (R-LOG-*).
@@ -100,6 +103,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | 4 | Encrypt `target_date` (R-5) — decided by the PM: yes (Q-24) | done |
 | 5 | Controller identity and contact for the privacy policy | PM |
 | 6 | Breach-notification runbook (FADP Art. 24: notify FDPIC "as soon as possible"; GDPR Art. 33: 72 h) | lead engineer, M6 |
+| 7 | Recovering an account deleted by someone who knew the password: accept, or let a password reset within the 30 days reactivate it (O-12) | PM, M4 review |
 
 ## 8. Sign-off
 

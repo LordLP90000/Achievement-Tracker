@@ -21,7 +21,7 @@ defaults:
 tables:
   users:
     user_relation: id
-    retention: until account deletion; a deletion request deactivates the account and the purge-job hard-deletes it 30 days later unless the user logs in (Q-11); unverified accounts purged after 7 days (purge-job)
+    retention: until account deletion; a deletion request deactivates the account and the purge-job hard-deletes it 30 days later unless the user logs in (Q-11; hourly, with the tombstone in the same transaction, Q-13); unverified accounts purged after 7 days (purge-job)
     columns:
       id:                      { category: C3, personal: true }
       email_enc:               { category: C1, personal: true, encrypted: true }
@@ -53,7 +53,7 @@ tables:
 
   one_time_tokens:
     user_relation: user_id
-    retention: ≤ 30 min or until used; purged hourly (purge-job); cascade on deletion
+    retention: ≤ 30 min or until used; purged hourly (purge-job); all of an account's deleted by its deletion request (E-13); cascade on deletion
     columns:
       id:                     { category: C2, personal: false, export: excluded, export_reason: transient secret record }
       user_id:                { category: C2, personal: true, export: excluded, export_reason: transient secret record }
@@ -257,7 +257,7 @@ tables:
 
   email_outbox:
     user_relation: user_id
-    retention: deleted on send; dead letters 7 days (purge-job); cascade on deletion
+    retention: deleted on send; dead letters 7 days (purge-job); an email queued after its account's deletion request is deleted unsent, the deletion notice aside (A-22, Q-46); cascade on deletion
     columns:
       id:               { category: C10, personal: false, export: excluded, export_reason: transient delivery record }
       user_id:          { category: C10, personal: true,  export: excluded, export_reason: transient delivery record }
