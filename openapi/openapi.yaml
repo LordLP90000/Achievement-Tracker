@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.9-draft
+  version: 0.2.10-draft
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -20,6 +20,8 @@ info:
     malformed `If-Match` → `400` on the deletions too.
     0.2.9 (2026-10-29): no check-in on a completed quest (`409 quest-completed`, Q-42); no undo that would make a
     second gamble pending (`409 gamble-pending`, Q-43); the check-in limit counts by `local_date` (A-42).
+    0.2.10 (2026-11-02): while a gamble is pending, a quest edit or deletion that would complete its achievement
+    without a check-in → `409 gamble-pending` (Q-44).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -897,7 +899,11 @@ paths:
         starts on the unlock day (Q-38). A completed quest keeps its `target` values (`422`, A-37). Quests of a
         `completed` achievement are read-only → `409 urn:questline:problem:achievement-completed` (R-QST-07).
         `habit` and `target` are sent whole; an omitted `start_date` or `unit` keeps the stored one — at a restart an
-        omitted `start_date` means today — and `unit: null` removes the unit (Q-41).
+        omitted `start_date` means today — and `unit: null` removes the unit (Q-41). While a gamble on the achievement
+        is pending, an edit that would complete the achievement without a check-in — making its last open required
+        quest a bonus, lowering an open target quest's target to the value it reached, making a completed bonus quest
+        required — is refused with `409 urn:questline:problem:gamble-pending` and changes nothing; every other edit
+        goes through (Q-44).
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       requestBody:
@@ -928,8 +934,10 @@ paths:
       operationId: deleteQuest
       summary: Delete a quest and its check-ins; revokes XP earned through it (Q-12)
       description: |
-        The effects can include an unlock (e.g. the last incomplete required quest was deleted) with rank and gamble
-        settlement. Quests of a `completed` achievement are read-only →
+        The effects can include an unlock (e.g. the last incomplete required quest was deleted) with its rank, and a
+        gamble lost since the last request (A-21). While a gamble on the achievement is pending, a deletion that would
+        complete the achievement without a check-in is refused with `409 urn:questline:problem:gamble-pending` and
+        changes nothing (Q-44). Quests of a `completed` achievement are read-only →
         `409 urn:questline:problem:achievement-completed` (R-QST-07).
       parameters:
         - $ref: '#/components/parameters/IfMatch'

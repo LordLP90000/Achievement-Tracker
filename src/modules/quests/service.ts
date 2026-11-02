@@ -11,6 +11,7 @@ import {
   deleteQuest,
   effectsOf,
   lockedQuestsOf,
+  PendingGambleConflict,
   questView,
   syncAchievement,
   withGoals,
@@ -35,7 +36,7 @@ export type CreateQuestResult =
 
 /** Why an edit or a deletion cannot touch the quest at all. */
 export type QuestChangeRefusal =
-  | { readonly outcome: 'not_found' | 'achievement_completed' }
+  | { readonly outcome: 'not_found' | 'achievement_completed' | 'gamble_pending' }
   | { readonly outcome: 'version_conflict'; readonly currentVersion: number };
 
 export type UpdateQuestResult =
@@ -92,6 +93,24 @@ async function changeable(
     return { outcome: 'version_conflict', currentVersion: quest.record.version };
   }
   return { before, quest };
+}
+
+/**
+ * Q-44: an edit or a deletion never completes an achievement whose gamble is pending — that would win the gamble
+ * without the work. The change's own transaction rolls back, so the refused change leaves nothing behind.
+ */
+function refuseWinWithoutWork(after: GoalSync): void {
+  if (after.outcome?.gamble?.outcome === 'won') throw new PendingGambleConflict();
+}
+
+/** Runs an edit or a deletion; a gamble it would win without the work refuses it (Q-44). */
+async function guarded<T>(change: () => Promise<T>): Promise<T | { readonly outcome: 'gamble_pending' }> {
+  try {
+    return await change();
+  } catch (error) {
+    if (error instanceof PendingGambleConflict) return { outcome: 'gamble_pending' };
+    throw error;
+  }
 }
 
 export function createQuestsService(deps: GoalDependencies): QuestsService {
@@ -178,36 +197,44 @@ export function createQuestsService(deps: GoalDependencies): QuestsService {
     },
 
     update(principal, questId, expectedVersion, edit) {
-      return withGoals(deps, principal.userId, async (scope): Promise<UpdateQuestResult> => {
-        const found = await changeable(scope, questId, expectedVersion);
-        if ('outcome' in found) return found;
-        const { before, quest } = found;
-        const edited = applyEdit(edit, {
-          quest: quest.record,
-          evaluation: quest.evaluation,
-          paused: before.view.record.status === 'paused',
-          quests: before.view.quests.map((sibling) => sibling.record),
-          today: scope.today,
-          weekStart: scope.weekStart,
-        });
-        if (edited.outcome === 'invalid') return edited;
-        await questsRepository(scope.tx, scope.userId, scope.dataKey).update(quest.record, edited.quest, scope.now);
-        const after = await syncAchievement(scope, quest.record.achievementId, {
-          lockedBefore: lockedQuestsOf(before.view),
-        });
-        const updated = questView(after, questId);
-        if (after === undefined || updated === undefined) throw new Error('the edited quest is gone');
-        return { outcome: 'updated', quest: updated, effects: effectsOf(before, after) };
-      });
+      return guarded(() =>
+        withGoals(deps, principal.userId, async (scope): Promise<UpdateQuestResult> => {
+          const found = await changeable(scope, questId, expectedVersion);
+          if ('outcome' in found) return found;
+          const { before, quest } = found;
+          const edited = applyEdit(edit, {
+            quest: quest.record,
+            evaluation: quest.evaluation,
+            paused: before.view.record.status === 'paused',
+            quests: before.view.quests.map((sibling) => sibling.record),
+            today: scope.today,
+            weekStart: scope.weekStart,
+          });
+          if (edited.outcome === 'invalid') return edited;
+          await questsRepository(scope.tx, scope.userId, scope.dataKey).update(quest.record, edited.quest, scope.now);
+          const after = await syncAchievement(scope, quest.record.achievementId, {
+            lockedBefore: lockedQuestsOf(before.view),
+          });
+          const updated = questView(after, questId);
+          if (after === undefined || updated === undefined) throw new Error('the edited quest is gone');
+          refuseWinWithoutWork(after);
+          return { outcome: 'updated', quest: updated, effects: effectsOf(before, after) };
+        }),
+      );
     },
 
     delete(principal, questId, expectedVersion) {
-      return withGoals(deps, principal.userId, async (scope): Promise<DeleteQuestResult> => {
-        const found = await changeable(scope, questId, expectedVersion);
-        if ('outcome' in found) return found;
-        const after = await deleteQuest(scope, found.quest.record, { lockedBefore: lockedQuestsOf(found.before.view) });
-        return { outcome: 'deleted', effects: effectsOf(found.before, after) };
-      });
+      return guarded(() =>
+        withGoals(deps, principal.userId, async (scope): Promise<DeleteQuestResult> => {
+          const found = await changeable(scope, questId, expectedVersion);
+          if ('outcome' in found) return found;
+          const after = await deleteQuest(scope, found.quest.record, {
+            lockedBefore: lockedQuestsOf(found.before.view),
+          });
+          refuseWinWithoutWork(after);
+          return { outcome: 'deleted', effects: effectsOf(found.before, after) };
+        }),
+      );
     },
   };
 }

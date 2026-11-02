@@ -108,6 +108,8 @@ function problemOf(refusal: CreateQuestRefusal | QuestChangeRefusal): ProblemDef
       return Problems.notFound;
     case 'achievement_completed':
       return Problems.achievementCompleted;
+    case 'gamble_pending':
+      return Problems.gamblePending;
     case 'version_conflict':
       return { ...Problems.versionConflict, extensions: { current_version: refusal.currentVersion } };
     case 'limit_reached':

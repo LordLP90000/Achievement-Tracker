@@ -674,6 +674,188 @@ describe('quest edits and deletions [R-QST-07, R-QST-08, Q-12, Q-37, Q-38, Q-41,
       habit: { start_date: '2026-10-31' },
     });
   });
+
+  it('fails closed with 500 when the stored quest does not decrypt, for an edit and a deletion alike [R-ENC-01]', async () => {
+    const user = await goalUser(ctx);
+    const achievementId = await achievementOf(user);
+    const quest = await createQuest(user, achievementId, { title: 'Mine' });
+    const other = await createQuest(user, achievementId, { title: 'Other' });
+    // Another record's ciphertext: bound to another record ID, it fails authentication (ADR-0006).
+    await ctx.admin.sql`
+      update quests set title_enc = (select title_enc from quests where id = ${other.id}) where id = ${quest.id}`;
+    const before = await questRow(quest.id);
+
+    const edited = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/v1/quests/${quest.id}`,
+      headers: { ...bearer(user.token), 'content-type': 'application/json', 'if-match': tag(1) },
+      payload: JSON.stringify({ title: 'Changed' }),
+    });
+    const deleted = await ctx.app.inject({
+      method: 'DELETE',
+      url: `/v1/quests/${quest.id}`,
+      headers: { ...bearer(user.token), 'if-match': tag(1) },
+    });
+
+    expect([edited.statusCode, deleted.statusCode]).toEqual([500, 500]);
+    expect([edited.json(), deleted.json()]).toMatchObject([
+      { type: 'urn:questline:problem:internal' },
+      { type: 'urn:questline:problem:internal' },
+    ]);
+    expect(await questRow(quest.id)).toEqual(before);
+  });
+
+  describe('while a gamble is pending: no gamble won without the work [Q-44, A-26]', () => {
+    type Change = (user: GoalUser) => ReturnType<typeof patchQuest>;
+
+    let userTables: readonly string[];
+
+    /** Stakes the XP above the level's threshold on the achievement, through the API (R-GMB-01). */
+    const placeGamble = async (user: GoalUser, achievementId: string) => {
+      await ctx.admin.sql`
+        insert into xp_events (id, user_id, kind, amount, local_date, created_at)
+        values (${randomUUID()}, ${user.userId}, 'quest_completed', 1000, ${TODAY}, ${ctx.clock.now()})`;
+      const placed = await ctx.post(
+        `/v1/achievements/${achievementId}/gambles`,
+        {},
+        { ...bearer(user.token), 'idempotency-key': randomUUID() },
+      );
+      if (placed.statusCode !== 201) throw new Error(`gamble not placed: ${String(placed.statusCode)}`);
+      return placed.json<{ id: string }>().id;
+    };
+    const gambleStatus = async (gambleId: string) =>
+      (await ctx.admin.sql<{ status: string }[]>`select status from gambles where id = ${gambleId}`)[0]?.status;
+    /** Every row of every table with a `user_id`: what a refused change leaves as it was. */
+    const userRows = async (userId: string) => {
+      const rows: Record<string, string[]> = {};
+      for (const table of userTables) {
+        const found = await ctx.admin.sql`select * from ${ctx.admin.sql(table)} where user_id = ${userId}`;
+        rows[table] = found.map((row) => JSON.stringify(row)).sort();
+      }
+      return rows;
+    };
+
+    /** Prepares an achievement one change away from its unlock, and returns that change. */
+    const unlockingChanges: readonly (readonly [string, (user: GoalUser, achievementId: string) => Promise<Change>])[] =
+      [
+        [
+          'deleting the last open required quest',
+          async (user, achievementId) => {
+            const done = await createQuest(user, achievementId, { title: 'Done' });
+            const open = await createQuest(user, achievementId, { title: 'Open' });
+            await checkIn(user, done.id);
+            return (as) => deleteQuest(as, open.id, tag(1));
+          },
+        ],
+        [
+          'making the last open required quest a bonus',
+          async (user, achievementId) => {
+            const done = await createQuest(user, achievementId, { title: 'Done' });
+            const open = await createQuest(user, achievementId, { title: 'Open' });
+            await checkIn(user, done.id);
+            return (as) => patchQuest(as, open.id, { is_required: false }, tag(1));
+          },
+        ],
+        [
+          'lowering an open target quest’s target to the value it reached',
+          async (user, achievementId) => {
+            const target = await createQuest(user, achievementId, {
+              type: 'target',
+              target: { start_value: '0', target_value: '10' },
+            });
+            await checkIn(user, target.id, '5');
+            return (as) => patchQuest(as, target.id, { target: { start_value: '0', target_value: '5' } }, tag(1));
+          },
+        ],
+        [
+          // Beyond the three named changes: without a required quest an achievement cannot unlock (A-17) until one is.
+          'making a completed bonus quest the only required one',
+          async (user, achievementId) => {
+            const bonus = await createQuest(user, achievementId, { title: 'Bonus', is_required: false });
+            await checkIn(user, bonus.id);
+            return (as) => patchQuest(as, bonus.id, { is_required: true }, tag(2));
+          },
+        ],
+      ];
+
+    beforeAll(async () => {
+      userTables = (
+        await ctx.admin.sql<{ table_name: string }[]>`
+          select table_name from information_schema.columns
+          where table_schema = 'public' and column_name = 'user_id' order by table_name`
+      ).map((row) => row.table_name);
+    });
+
+    it.each(unlockingChanges)(
+      'refuses %s with 409 gamble-pending and changes nothing; the same change unlocks an achievement without one',
+      async (_change, prepare) => {
+        let user = await goalUser(ctx);
+        const staked = await achievementOf(user, { title: 'Staked', target_date: '2026-11-30' });
+        const other = await achievementOf(user, { title: 'Not staked' });
+        const refusedChange = await prepare(user, staked);
+        const allowedChange = await prepare(user, other);
+        const gambleId = await placeGamble(user, staked);
+        // Older than 7 × 24 h, the achievement's unlock would pay the win (Q-31, A-34).
+        user = await afterDays(user, 8);
+        await getAchievement(user, staked);
+        const before = await userRows(user.userId);
+
+        const refused = await refusedChange(user);
+
+        expect(refused.statusCode).toBe(409);
+        expect(refused.json()).toMatchObject({ type: 'urn:questline:problem:gamble-pending', status: 409 });
+        expect(await userRows(user.userId)).toEqual(before);
+        expect(await gambleStatus(gambleId)).toBe('pending');
+        // Only the gamble's own achievement is guarded: the other one unlocks, and the gamble stays pending.
+        const unlocked = await allowedChange(user);
+        expect(unlocked.statusCode).toBe(200);
+        expect(unlocked.json()).toMatchObject({ achievement_unlocked: true, gamble: null });
+        expect(await gambleStatus(gambleId)).toBe('pending');
+      },
+    );
+
+    it('lets every other change through, and a check-in that completes the achievement still wins it [R-GMB-02]', async () => {
+      let user = await goalUser(ctx);
+      const achievementId = await achievementOf(user, { title: 'Staked', target_date: '2026-11-30' });
+      const done = await createQuest(user, achievementId, { title: 'Done' });
+      const open = await createQuest(user, achievementId, { title: 'Open' });
+      const target = await createQuest(user, achievementId, {
+        type: 'target',
+        target: { start_value: '0', target_value: '10' },
+      });
+      const bonus = await createQuest(user, achievementId, { title: 'Bonus', is_required: false });
+      await checkIn(user, done.id);
+      await checkIn(user, target.id, '5');
+      const gambleId = await placeGamble(user, achievementId);
+      user = await afterDays(user, 8);
+
+      for (const change of [
+        () => patchQuest(user, open.id, { title: 'Last one', notes: 'still open', size: 'L' }, tag(1)),
+        // Completes the quest, not the achievement: another required quest stays open.
+        () => patchQuest(user, target.id, { target: { start_value: '0', target_value: '5' } }, tag(1)),
+        () => patchQuest(user, done.id, { is_required: false }, tag(2)),
+        () => deleteQuest(user, bonus.id, tag(1)),
+      ]) {
+        const response = await change();
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({ achievement_unlocked: false, gamble: null });
+      }
+      expect(await gambleStatus(gambleId)).toBe('pending');
+
+      const checkedIn = await ctx.post(
+        `/v1/quests/${open.id}/check-ins`,
+        { local_date: '2026-11-06' },
+        { ...bearer(user.token), 'idempotency-key': randomUUID() },
+      );
+
+      expect(checkedIn.statusCode).toBe(201);
+      expect(checkedIn.json()).toMatchObject({
+        achievement_unlocked: true,
+        gamble: { gamble_id: gambleId, outcome: 'won', loss_reason: null },
+      });
+      expect(await gambleStatus(gambleId)).toBe('won');
+    });
+  });
 });
 
 interface Ids {

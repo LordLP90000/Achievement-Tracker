@@ -127,8 +127,10 @@ export const questView = (synced: GoalSync | undefined, questId: string): QuestV
   synced?.view.quests.find((quest) => quest.record.id === questId);
 
 /**
- * An undo would return a won gamble to pending while the user has another one pending: one at a time (R-GMB-01,
- * Q-31), so the undo is refused (Q-43). Thrown inside the transaction, which rolls back.
+ * A change would break the rules of a pending gamble, so it is refused (`409 gamble-pending`): an undo would return a
+ * won gamble to pending while the user has another one pending — one at a time (R-GMB-01, Q-31, Q-43) — or a quest
+ * edit or deletion would complete the gamble's achievement without a check-in (Q-44). Thrown inside the transaction,
+ * which rolls back.
  */
 export class PendingGambleConflict extends Error {
   override readonly name = 'PendingGambleConflict';
