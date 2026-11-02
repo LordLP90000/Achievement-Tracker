@@ -183,3 +183,43 @@ by digest, used only in the local stack. No new external service, processor or c
 
   M5 needs two approvals from you: a WebAuthn library (I recommend `@simplewebauthn/server` over writing our own
   verification) and the relying-party ID/domain (Q-19).
+
+---
+
+## Addendum 2026-11-02 — review with the PM
+
+**Your decisions** (recorded in `requirements.md` §6.7, `ee01990`): **Q-47** — option (b) for O-11; **Q-48** — option
+(b) for O-12; **Q-49** — option (a) for the exceptions. All three are built, each test-first in its own commit with a
+`PROGRESS.md` row, and green in CI.
+
+- `3d62fa0` **Q-47 — no work taken away while a gamble is pending.** While a gamble is pending, a quest edit or
+  deletion that lowers what an open required quest of its achievement still asks for → `409 gamble-pending`, nothing
+  changed: deleting or demoting it, a target brought closer to its current value (rising or falling, also through a
+  new start value while no check-in exists), and a habit not yet begun asked for fewer check-ins or a **shorter
+  run**. That last part is my reading of "every change that reduces the remaining work": XP counts a habit's length
+  (R-XP-02), so "once a week for 4 weeks" may not become "once a day for 4 days" either. Everything that asks for no
+  less goes through. The rule is pure domain code, so Stryker covers it (100 %). One Q-44 test changed with the
+  requirement: lowering a target without completing the achievement was "allowed" and is now refused. Contract
+  `0.3.3` (descriptions).
+- `a81c554` **Q-48 — a password reset reactivates an account pending deletion.** Forgot-password emails the link to
+  an account pending deletion with the same answer as for any address, the worker sends it, and the completed reset
+  reactivates the account (audited); 30 days after the request the account counts as deleted for the reset as for
+  the login. **Found while building it:** a reset at the deadline could deadlock with the hard delete, because the
+  two locked the same two rows in opposite orders; the reset now locks the account row first, and a race test
+  holds both orders. The deletion notice says in all four languages that a reset brings the account back (the copy
+  review, O-08, is still open). Two test expectations changed with the requirement (the link now goes to an account
+  pending deletion). Contract `0.3.4` (descriptions).
+- `e5991e5` **Q-49** — both exceptions in `osv-scanner.toml` now expire on 2027-01-31, each reason recording your
+  decision and the check of 2026-11-02; re-checked at every milestone.
+- **The frozen contract**: its snapshot is now renewed with every change you approve, after the check against the
+  one before, so that an addition is frozen as well (ADR-0010 amendment).
+
+**Numbers on the final code**: 1 812 tests in 120 files (+38) and 13 e2e checks, all green; coverage 99.0 % /
+97.7 %; Stryker 99.0 % — the domain 100 % (938 mutants killed, 52 more than in M3), `platform/crypto` 96.6 %
+(unchanged). Fault injection: **27 of 27** new deliberate faults caught, two of them only after I added test cases
+(a falling target, and a start value moved after a check-in); rerunning the Q-44 probes, 2 of 10 are now equivalent,
+because Q-47 refuses every deletion Q-44's deletion check would catch — that check stays as a second layer.
+Semgrep 0 findings; CI runs #99–#103 green, the last one with the extended exceptions in the dependency scan.
+
+**Still open**: Node 26.13.0 LTS on or after 2026-11-04 (one maintenance commit). **M5 waits for your "go"** and
+two approvals: the WebAuthn library (`@simplewebauthn/server` recommended) and the relying-party ID/domain (Q-19).
