@@ -28,7 +28,7 @@ one automated test, deterministic tests only.
 |-------|-------|-------|----------|-------|
 | Unit | Domain engine (progress, habit resets, XP, duration factor, levels, execution score and ranks, gambles, streaks, transitions, effects), validation schemas, crypto wrappers, KEK source, SMTP sender, config parsing, time utilities, password policy | Vitest, `fast-check` (property tests), libsodium known-answer vectors | `src/**/*.test.ts` (colocated) | ms |
 | Integration | API + real PostgreSQL: every endpoint's happy path and error paths, idempotency, concurrency, encryption at rest, outbox, retention jobs, audit | Vitest, Testcontainers (`postgres:17-alpine` pinned by digest), `fastify.inject` (no sockets) | `test/integration/**` | s |
-| Contract | Every integration response validated against `openapi/openapi.yaml` (status, headers, body); spec coverage (every `operationId` exercised); Zod ↔ OpenAPI drift | Ajv 2020-12 + `ajv-formats`, `yaml`, `@redocly/cli lint` | harness hook + `test/contract/**` | s |
+| Contract | Every integration response validated against `openapi/openapi.yaml` (status, headers, body); spec coverage (every `operationId` exercised); Zod ↔ OpenAPI drift; the `0.3.0` freeze (Q-45): nothing frozen removed, moved or newly required, against the snapshot `openapi/frozen/openapi-0.3.0.yaml` | Ajv 2020-12 + `ajv-formats`, `yaml`, `@redocly/cli lint` | harness hook + `test/contract/**` | s |
 | Security | Authz/BOLA for every endpoint (generated from the spec), deny-by-default, auth flows and abuse cases, rate limiting, headers, RLS, DB roles, log leakage, config hardening, mass assignment, injection, prototype pollution | Vitest + Testcontainers | `test/security/**` | s |
 | Privacy | Data-inventory guard, export completeness, deletion completeness (every table), consent gating and withdrawal effects, retention | Vitest + Testcontainers | `test/privacy/**` | s |
 | E2E smoke | Built container image + PostgreSQL via Docker Compose: register → verify → login → consent → achievement → quest → check-in → gamble → stats → export → delete (`202`); container hardening checks (uid ≠ 0, read-only FS, no shell, no package manager) | Vitest over HTTP, Docker | `test/e2e/**` | min |
@@ -147,7 +147,7 @@ one automated test, deterministic tests only.
 | Mutation score `src/domain/**`, `src/platform/crypto/**` | ≥ 80 % | Stryker `thresholds.break` |
 | Lint / format / import boundaries | 0 errors | ESLint (typescript-eslint strict, `eslint-plugin-regexp`, security rules), Prettier, dependency-cruiser |
 | Typecheck | 0 errors, `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` | `tsc --noEmit` |
-| OpenAPI | lint clean; all operations covered by tests | Redocly, spec-coverage test |
+| OpenAPI | lint clean; all operations covered by tests; since `0.3.0` additive changes only (Q-45) | Redocly, spec-coverage test, `contract/freeze.test.ts` |
 | SAST | 0 findings (Semgrep `p/typescript`, `p/nodejs`, `p/owasp-top-ten`, custom rules) | CI |
 | Dependencies | 0 high/critical | `osv-scanner` (lockfile) |
 | Secrets | 0 | gitleaks (CI + pre-commit via lefthook) |

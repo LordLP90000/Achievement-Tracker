@@ -202,6 +202,16 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Consequences:** Dev dependencies `ajv`, `ajv-formats`, `yaml`, `@redocly/cli` (lint). No runtime dependency
   on the spec.
 - **Tests:** `contract/*.test.ts`, harness hook in `test/helpers/contract.ts`.
+- **Amendment (2026-11-02, Q-45):** the core contract is frozen as `0.3.0`, because the mobile app starts against
+  it: afterwards only additive changes, each approved by the PM. `openapi/frozen/openapi-0.3.0.yaml` is the contract
+  as frozen, byte for byte; `test/contract/freeze.test.ts` fails on a removed or moved operation, a change of
+  authentication, a removed parameter, request body, response, header, media type, property or enum value, anything
+  newly required of a request, a type a request no longer accepts or a response may newly return, and a response
+  property no longer always present (rules in `test/helpers/contract-freeze.ts`, each tested in
+  `contract-freeze.test.ts`). Formats, patterns, bounds and conditional rules are not compared. `exportData` and
+  `deleteAccount` (with `ExportDocument` and `AccountDeletionScheduled`) stay outside until M4 implements them; the
+  snapshot is then renewed from the contract of that day, once it passed the check. Chosen by the PM over oasdiff,
+  which would have added a tool to CI.
 
 ## ADR-0011 · Timezone handling with `Intl` only; `local_date` stored per check-in
 

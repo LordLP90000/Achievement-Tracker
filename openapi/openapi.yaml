@@ -1,11 +1,16 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.2.10-draft
+  version: 0.3.0
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
     Q-01…Q-24 in `docs/requirements.md` v2. Enforced by contract tests (ADR-0010).
+    **Frozen as 0.3.0 on 2026-11-02 (Q-45):** from then on the contract only grows — new operations, optional
+    parameters and properties, new responses and values — and every change needs the PM's approval;
+    `test/contract/freeze.test.ts` compares it with the snapshot `openapi/frozen/openapi-0.3.0.yaml`. Clients should
+    ignore properties and enum values they do not know yet. `exportData`, `deleteAccount` and their schemas join
+    the freeze when M4 implements them.
     0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
     0.2.2 (2026-10-29): `429` documented on every authenticated operation (Q-30); gamble rules for parallel stakes
     and for the size of wins and losses (Q-31).
@@ -22,6 +27,7 @@ info:
     second gamble pending (`409 gamble-pending`, Q-43); the check-in limit counts by `local_date` (A-42).
     0.2.10 (2026-11-02): while a gamble is pending, a quest edit or deletion that would complete its achievement
     without a check-in → `409 gamble-pending` (Q-44).
+    0.3.0 (2026-11-02): the core contract is frozen (Q-45); no operation changed.
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.

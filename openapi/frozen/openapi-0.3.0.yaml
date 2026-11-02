@@ -1,0 +1,1981 @@
+openapi: 3.1.0
+info:
+  title: Questline API
+  version: 0.3.0
+  summary: Backend API for the Questline mobile achievement-tracking app.
+  description: |
+    **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
+    Q-01…Q-24 in `docs/requirements.md` v2. Enforced by contract tests (ADR-0010).
+    **Frozen as 0.3.0 on 2026-11-02 (Q-45):** from then on the contract only grows — new operations, optional
+    parameters and properties, new responses and values — and every change needs the PM's approval;
+    `test/contract/freeze.test.ts` compares it with the snapshot `openapi/frozen/openapi-0.3.0.yaml`. Clients should
+    ignore properties and enum values they do not know yet. `exportData`, `deleteAccount` and their schemas join
+    the freeze when M4 implements them.
+    0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
+    0.2.2 (2026-10-29): `429` documented on every authenticated operation (Q-30); gamble rules for parallel stakes
+    and for the size of wins and losses (Q-31).
+    0.2.3 (2026-10-29): habit quests show their `current_period` (Q-35); first weekly period and `week_start`
+    changes (Q-33, Q-34).
+    0.2.4 (2026-10-29): undo only on the day of the check-in (`409`, Q-36); habit settings fixed while a run is
+    open (Q-37); no counting check-in before a habit's run begins (A-36).
+    0.2.5 (2026-10-29): locked habits and their prerequisite (Q-38); a completed quest keeps its target values (A-37).
+    0.2.6 (2026-10-29): `Idempotency-Key` replays successful responses only; a reused key → `422` (Q-39, ADR-0008).
+    0.2.7 (2026-10-29): the limit of 200 achievements counts active and paused ones only (`422 limit-reached`, Q-40).
+    0.2.8 (2026-10-29): editing a quest keeps an omitted `start_date` or `unit`; `unit: null` removes it (Q-41); a
+    malformed `If-Match` → `400` on the deletions too.
+    0.2.9 (2026-10-29): no check-in on a completed quest (`409 quest-completed`, Q-42); no undo that would make a
+    second gamble pending (`409 gamble-pending`, Q-43); the check-in limit counts by `local_date` (A-42).
+    0.2.10 (2026-11-02): while a gamble is pending, a quest edit or deletion that would complete its achievement
+    without a check-in → `409 gamble-pending` (Q-44).
+    0.3.0 (2026-11-02): the core contract is frozen (Q-45); no operation changed.
+
+    Conventions
+    - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
+    - Authenticated responses carry `Cache-Control: no-store`.
+    - Errors are RFC 9457 `application/problem+json`; `type` is a URN `urn:questline:problem:<slug>` (ADR-0007).
+    - IDs are random UUID v4. Pagination is cursor-based (`cursor`, `limit` ≤ 100).
+    - Create endpoints require an `Idempotency-Key` header (UUID). Mutations of versioned resources require
+      `If-Match: "<version>"`; a stale version yields `409`.
+    - Owner, XP, level, rank, execution score, attempt, gamble stake and outcome, the status `completed`, completion
+      flags and timestamps are never accepted from the client (R-AUTHZ-04).
+    - Unknown request fields are rejected with `400`.
+    - Request bodies are JSON only and at most 64 KiB: other media types → `415`, larger bodies → `413` (R-IN-01).
+    - Every `/v1` operation may answer `429` with `Retry-After`: public operations are limited per client network,
+      all others per user (R-AUTH-08, A-31, Q-30).
+    - XP amounts are integers within ±(2^53 − 1), stored as 64-bit integers (R-XP-04).
+    - Closed habit periods are evaluated lazily on every read and write and by a daily job (A-21), so any response
+      may reflect a quest reset (`needs_restart`) or a gamble lost since the previous request.
+    - Vocabulary: Achievement, Quest, Check-in, XP, level, streak, badge, rank, gamble, attempt.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://api.example.invalid/v1
+    description: Placeholder until the PM's hosting option (O-01) and a domain (Q-19) are available.
+tags:
+  - name: health
+    description: Liveness/readiness probes (unauthenticated, no internals disclosed).
+  - name: auth
+    description: Registration, verification, login, token refresh, password reset, re-authentication.
+  - name: me
+    description: The authenticated account.
+  - name: sessions
+    description: Device sessions of the account.
+  - name: consents
+    description: Versioned consents (explicit, unticked, withdrawable).
+  - name: achievements
+    description: Big goals broken into quests; unlocked with a rank (Bronze … Champion). Pausing resets the achievement (new attempt).
+  - name: gambles
+    description: Double-or-nothing XP stakes on unlocking an achievement by its target date (XP only, no money).
+  - name: quests
+    description: Smaller goals (one_time, habit, target) that earn XP.
+  - name: check-ins
+    description: Progress entries for quests; only check-ins dated today count; undo reverses all effects.
+  - name: stats
+    description: XP over time, level, achievements by status and rank, badges, streaks, gamble record.
+  - name: privacy
+    description: Access/portability export and account deletion.
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ───────────────────────────── Health (served at the server root, outside /v1) ─────────────
+  /health/live:
+    servers:
+      - url: https://api.example.invalid
+    get:
+      tags: [health]
+      operationId: healthLive
+      summary: Liveness probe
+      security: []
+      responses:
+        '200':
+          description: Process is up.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /health/ready:
+    servers:
+      - url: https://api.example.invalid
+    get:
+      tags: [health]
+      operationId: healthReady
+      summary: Readiness probe (database reachable, KEK loaded at startup and self-test passed)
+      security: []
+      responses:
+        '200':
+          description: Ready.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503':
+          description: Not ready.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  # ───────────────────────────── Auth (public, rate-limited) ─────────────────────────────
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Register with email and password
+      description: |
+        Always answers `202` with the same body whether or not the email is already registered (R-AUTH-07).
+        A new account receives a verification email; an existing account receives a notice instead (an account
+        pending deletion receives nothing, A-22).
+        Password policy: 12–128 characters (schema → `400`), no composition rules, `422` if found in the offline
+        breach list (the answer depends only on the password, never on the email).
+        `age_confirmed` must be `true`: the user declares to be at least 13 years old; no date of birth is collected
+        (R-AUTH-11).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/WeakPassword' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/verify-email:
+    post:
+      tags: [auth]
+      operationId: verifyEmail
+      summary: Confirm an email address with a single-use token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+      responses:
+        '204': { description: Email verified (or token already consumed by this account). }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/InvalidToken' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/resend-verification:
+    post:
+      tags: [auth]
+      operationId: resendVerification
+      summary: Resend the verification email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Log in and create a device session
+      description: |
+        Invalid email or password → `401 urn:questline:problem:invalid-credentials` with identical body and timing
+        whether or not the account exists. A correct password for an unverified account →
+        `403 urn:questline:problem:email-not-verified` (only disclosed to someone who knows the password).
+        A successful login to an account that is pending deletion (requested less than 30 days ago) **reactivates**
+        it: the scheduled deletion is cancelled and the reactivation is audited (R-PRIV-06, A-22).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Session created.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '403': { $ref: '#/components/responses/EmailNotVerified' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      operationId: refresh
+      summary: Rotate the refresh token and obtain a new access token
+      description: |
+        Presenting a refresh token that has already been rotated revokes the whole session (reuse detection,
+        R-AUTH-04) and returns `401`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refresh_token]
+              properties:
+                refresh_token: { $ref: '#/components/schemas/OpaqueToken' }
+      responses:
+        '200':
+          description: New token pair; the previous refresh token is now invalid.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/InvalidToken' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Revoke the current session
+      responses:
+        '204': { description: Session revoked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/logout-all:
+    post:
+      tags: [auth]
+      operationId: logoutAll
+      summary: Revoke all sessions of the user, including the current one
+      responses:
+        '204': { description: All sessions revoked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/reauth:
+    post:
+      tags: [auth]
+      operationId: reauthenticate
+      summary: Re-enter the password to unlock sensitive operations for 10 minutes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password: { $ref: '#/components/schemas/Password' }
+      responses:
+        '204': { description: Session marked as recently authenticated. }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/password/forgot:
+    post:
+      tags: [auth]
+      operationId: forgotPassword
+      summary: Request a password-reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/password/reset:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: Set a new password with a single-use reset token; revokes all sessions
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, new_password]
+              properties:
+                token: { $ref: '#/components/schemas/OpaqueToken' }
+                new_password: { $ref: '#/components/schemas/Password' }
+      responses:
+        '204': { description: Password changed; all sessions revoked. }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/InvalidToken' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/WeakPassword' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ───────────────────────────── Me ─────────────────────────────
+  /me:
+    get:
+      tags: [me]
+      operationId: getMe
+      summary: Get the authenticated account
+      responses:
+        '200':
+          description: Account.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [me]
+      operationId: updateMe
+      summary: Update nickname, timezone, locale or week start
+      description: |
+        Changing `timezone` applies to dates from the change on, and changing `week_start` applies to habits created or
+        restarted afterwards — a running habit keeps the week start it began with (Q-34); closed periods are never
+        re-bucketed (R-QST-09, A-23).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccountUpdate' }
+      responses:
+        '200':
+          description: Updated account.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [me, privacy]
+      operationId: deleteAccount
+      summary: Request account deletion (30-day reactivation window, then hard delete + crypto-shredding)
+      description: |
+        Requires recent re-authentication (R-AUTH-06). Deactivates the account immediately (R-PRIV-06): all sessions
+        and tokens are revoked, the request is audited and a notice with the deadline is emailed. Until
+        `deletion_scheduled_for` (request time + 30 days) the account can only be **reactivated by logging in with
+        its password** (`POST /auth/login`); every other endpoint treats it as unusable and no further email is sent
+        (A-22). At the deadline the retention job hard-deletes every row of the user, destroys the wrapped data key
+        (crypto-shredding) and writes a tombstone (Q-13) — nothing of the user remains, including audit events.
+      responses:
+        '202':
+          description: Deletion scheduled; the account is deactivated and every session, including this one, is revoked.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountDeletionScheduled' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/password:
+    post:
+      tags: [me]
+      operationId: changePassword
+      summary: Change the password; revokes all other sessions
+      description: Requires recent re-authentication (R-AUTH-06) and the current password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [current_password, new_password]
+              properties:
+                current_password: { $ref: '#/components/schemas/Password' }
+                new_password: { $ref: '#/components/schemas/Password' }
+      responses:
+        '204': { description: Password changed; other sessions revoked. }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/WeakPassword' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/email-change:
+    post:
+      tags: [me]
+      operationId: requestEmailChange
+      summary: Start an email change (verification link sent to the new address)
+      description: Requires recent re-authentication. Always `202`; if the new address is already registered, its owner is notified instead (no enumeration).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [new_email]
+              properties:
+                new_email: { $ref: '#/components/schemas/Email' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/email-change/confirm:
+    post:
+      tags: [me]
+      operationId: confirmEmailChange
+      summary: Confirm the new email address with the single-use token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+      responses:
+        '204': { description: Email changed; a notice was sent to the old address. }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/InvalidToken' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/sessions:
+    get:
+      tags: [sessions]
+      operationId: listSessions
+      summary: List active sessions of the user
+      responses:
+        '200':
+          description: Sessions (active first, newest first). Not paginated — bounded by a per-user session limit.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: '#/components/schemas/Session' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/sessions/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    delete:
+      tags: [sessions]
+      operationId: revokeSession
+      summary: Revoke one session
+      responses:
+        '204': { description: Revoked. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/consents:
+    get:
+      tags: [consents]
+      operationId: listConsents
+      summary: List consents (active and withdrawn)
+      responses:
+        '200':
+          description: Consents.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    items: { $ref: '#/components/schemas/Consent' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [consents]
+      operationId: grantConsent
+      summary: Grant a consent (explicit, unticked checkbox in the app)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [type, version]
+              properties:
+                type: { $ref: '#/components/schemas/ConsentType' }
+                version: { $ref: '#/components/schemas/ConsentVersion' }
+      responses:
+        '201':
+          description: Consent recorded.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Consent' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/consents/{type}:
+    parameters:
+      - name: type
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/ConsentType' }
+    delete:
+      tags: [consents]
+      operationId: withdrawConsent
+      summary: Withdraw a consent
+      description: For `goal_content` this immediately hard-deletes all achievements (including completed ones), gambles, quests, check-ins, XP events and badges; the account stays (R-PRIV-04, Q-10). The app must confirm with the user first.
+      responses:
+        '204': { description: Consent withdrawn and dependent data deleted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/export:
+    get:
+      tags: [privacy]
+      operationId: exportData
+      summary: Export all personal data as JSON (access & portability)
+      description: Requires recent re-authentication; limited to 2 per 24 h; audit-logged.
+      responses:
+        '200':
+          description: Export document.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Content-Disposition:
+              schema: { type: string, const: 'attachment; filename="questline-export.json"' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExportDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/stats:
+    get:
+      tags: [stats]
+      operationId: getStats
+      summary: XP over time, level, achievements by status and rank, badges, best streaks, gamble record
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/LocalDate' }
+          description: 'First local date of the XP series (default: 30 days before `to`).'
+        - name: to
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/LocalDate' }
+          description: 'Last local date (default: today in the account timezone). Range ≤ 366 days.'
+      responses:
+        '200':
+          description: Stats.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Stats' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ───────────────────────────── Achievements ─────────────────────────────
+  /achievements:
+    get:
+      tags: [achievements]
+      operationId: listAchievements
+      summary: List achievements (cursor pagination)
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/AchievementStatus' }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Page of achievements.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AchievementPage' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [achievements]
+      operationId: createAchievement
+      summary: Create an achievement
+      description: >-
+        Requires active `goal_content` consent, otherwise `403 urn:questline:problem:consent-required`. A user has at
+        most 200 achievements that are `active` or `paused`; completed ones, the read-only archive, do not count
+        (Q-40). The next one → `422 urn:questline:problem:limit-reached`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AchievementCreate' }
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { $ref: '#/components/headers/ETag' }
+            Location: { schema: { type: string } }
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Achievement' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentRequired' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /achievements/{achievementId}:
+    parameters:
+      - $ref: '#/components/parameters/AchievementId'
+    get:
+      tags: [achievements]
+      operationId: getAchievement
+      summary: Get one achievement with its quests
+      responses:
+        '200':
+          description: Achievement with quests.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AchievementDetail' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [achievements]
+      operationId: updateAchievement
+      summary: Update an achievement (content, target date, privacy hint, pause/resume)
+      description: |
+        Only `active → paused` and `paused → active` may be requested (R-ACH-07). **Pausing resets the achievement**
+        (R-ACH-06): every quest returns to 0 %, XP earned through the achievement in the current attempt is revoked,
+        a pending gamble is lost and earlier check-ins are kept as history only. Resuming starts attempt `n + 1`.
+        A `completed` achievement is read-only → `409 urn:questline:problem:achievement-completed`. While a gamble is
+        pending, `target_date` cannot be changed or removed → `409 urn:questline:problem:gamble-pending` (T-17).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AchievementUpdate' }
+      responses:
+        '200':
+          description: Updated.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Achievement' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionOrStateConflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [achievements]
+      operationId: deleteAchievement
+      summary: Delete an active or paused achievement with its quests, check-ins and gambles; revokes its XP (Q-12)
+      description: |
+        Revokes all XP earned through the achievement and loses a pending gamble (R-ACH-09). Completed achievements
+        are the user's read-only archive and cannot be deleted → `409 urn:questline:problem:achievement-completed`
+        (R-ACH-07); withdrawing the `goal_content` consent or deleting the account still removes them.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204': { description: Deleted. }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionOrStateConflict' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /achievements/{achievementId}/quests:
+    parameters:
+      - $ref: '#/components/parameters/AchievementId'
+    get:
+      tags: [quests]
+      operationId: listQuests
+      summary: List the quests of an achievement in order (≤ 50, not paginated)
+      responses:
+        '200':
+          description: Quests ordered by `position`.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 50
+                    items: { $ref: '#/components/schemas/Quest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [quests]
+      operationId: createQuest
+      summary: Create a quest in an achievement
+      description: |
+        Quests of a `completed` achievement are read-only → `409 urn:questline:problem:achievement-completed`
+        (R-QST-07). The effective `xp` and `duration_factor` are derived server-side (R-XP-02).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestCreate' }
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { $ref: '#/components/headers/ETag' }
+            Location: { schema: { type: string } }
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quest' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /achievements/{achievementId}/gambles:
+    parameters:
+      - $ref: '#/components/parameters/AchievementId'
+    get:
+      tags: [gambles]
+      operationId: listGambles
+      summary: List the gambles of an achievement (all attempts, newest first, cursor pagination)
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Page of gambles.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GamblePage' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [gambles]
+      operationId: placeGamble
+      summary: Stake the XP of the current level on unlocking the achievement by its target date
+      description: |
+        Double or nothing, XP only (R-GMB-01…05). The stake is computed server-side: the XP above the threshold of
+        the user's current level at placement time; it is recorded (locked) but not removed. No request fields are
+        accepted (R-AUTHZ-04, T-17). A user has at most one pending gamble at a time, across all achievements (Q-31).
+        Settlement is reported in the `gamble` field of the effects of the mutation that causes it (or applied by the
+        daily job): **won** when the achievement is unlocked on or before `target_date` — `+stake`, at most the
+        achievement's required XP (`xp_required_total`), and `+0` when the unlock comes less than 7 days after the
+        achievement was created (Q-31, A-34); **lost** when `target_date` passes without unlock (account timezone,
+        A-20), a habit quest of the achievement resets, or the achievement is paused or deleted — `−stake`, at most
+        the XP above the threshold of the user's level at that moment, so the level never drops (Q-31). A gamble
+        cannot be cancelled; a loss lowers the execution score and rules out Champion (R-GMB-04).
+
+        Rejected with `409` when the achievement is not `active` (`urn:questline:problem:achievement-not-active`), has
+        no `target_date` after today (`urn:questline:problem:gamble-target-date-required`), when a gamble of the user
+        is already pending on this or another achievement (`urn:questline:problem:gamble-pending`, Q-31) or the
+        achievement already lost a gamble in its current attempt (`urn:questline:problem:gamble-lost-this-attempt`,
+        T-16); `422` when the stake would be 0.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GamblePlaceRequest' }
+      responses:
+        '201':
+          description: Gamble placed (status `pending`).
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Gamble' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/NothingToStake' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ───────────────────────────── Quests ─────────────────────────────
+  /quests/{questId}:
+    parameters:
+      - $ref: '#/components/parameters/QuestId'
+    get:
+      tags: [quests]
+      operationId: getQuest
+      summary: Get one quest with progress, lock state and streak
+      responses:
+        '200':
+          description: Quest.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    patch:
+      tags: [quests]
+      operationId: updateQuest
+      summary: Update a quest (type is immutable; progress and XP are recomputed)
+      description: |
+        A habit quest in state `needs_restart` is restarted by sending `habit` with a new `start_date` (today or
+        later), optionally with new `times_per_period`/`period_count`; earlier check-ins stay visible as history and
+        do not count (R-QST-04). While a habit's run is open or completed, `period`, `times_per_period`,
+        `period_count`, `start_date` and `prerequisite_quest_id` cannot change (`422`): only at a restart or before the
+        run begins (Q-37, Q-38). A locked habit never resets; if its `start_date` has passed when it unlocks, its run
+        starts on the unlock day (Q-38). A completed quest keeps its `target` values (`422`, A-37). Quests of a
+        `completed` achievement are read-only → `409 urn:questline:problem:achievement-completed` (R-QST-07).
+        `habit` and `target` are sent whole; an omitted `start_date` or `unit` keeps the stored one — at a restart an
+        omitted `start_date` means today — and `unit: null` removes the unit (Q-41). While a gamble on the achievement
+        is pending, an edit that would complete the achievement without a check-in — making its last open required
+        quest a bonus, lowering an open target quest's target to the value it reached, making a completed bonus quest
+        required — is refused with `409 urn:questline:problem:gamble-pending` and changes nothing; every other edit
+        goes through (Q-44).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestUpdate' }
+      responses:
+        '200':
+          description: Updated quest plus any side effects on XP and the achievement.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Effects' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionOrStateConflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [quests]
+      operationId: deleteQuest
+      summary: Delete a quest and its check-ins; revokes XP earned through it (Q-12)
+      description: |
+        The effects can include an unlock (e.g. the last incomplete required quest was deleted) with its rank, and a
+        gamble lost since the last request (A-21). While a gamble on the achievement is pending, a deletion that would
+        complete the achievement without a check-in is refused with `409 urn:questline:problem:gamble-pending` and
+        changes nothing (Q-44). Quests of a `completed` achievement are read-only →
+        `409 urn:questline:problem:achievement-completed` (R-QST-07).
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Deleted; returns the resulting achievement state and XP delta.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Effects' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionOrStateConflict' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /quests/{questId}/check-ins:
+    parameters:
+      - $ref: '#/components/parameters/QuestId'
+    get:
+      tags: [check-ins]
+      operationId: listCheckIns
+      summary: List check-ins of a quest (newest first, cursor pagination)
+      description: Includes history — back-dated check-ins (`counts_for_progress = false`) and check-ins of earlier attempts.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Page of check-ins.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckInPage' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [check-ins]
+      operationId: createCheckIn
+      summary: Record progress on a quest
+      description: |
+        Only a check-in dated **today** (account timezone, at creation) counts toward progress, streaks, XP, resets
+        and rank; a back-dated check-in (up to 7 days) is stored as history with `counts_for_progress = false` and
+        never counts (R-CHK-04). Rejected with `409 urn:questline:problem:quest-locked` if the prerequisite is not
+        completed, `409 urn:questline:problem:quest-needs-restart` if a habit quest was reset and must be restarted
+        first, `409 urn:questline:problem:quest-completed` if the quest is already completed (Q-42; an undo on the
+        same day reopens it), `409 urn:questline:problem:achievement-not-active` if the achievement is paused or
+        completed (R-CHK-05), and `422` for a future `local_date`, a `local_date` older than 7 days, a check-in dated
+        today on a habit whose run has not begun (`start_date` after today, A-36), a missing `value` on a target quest
+        or a `value` on a non-target quest. At most 50 check-ins of a quest are dated any one day; the next →
+        `422 urn:questline:problem:limit-reached` (R-IN-01, A-42). Returns the check-in, the updated quest and
+        achievement, the XP delta and any unlock, rank and gamble outcome (R-CHK-06).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CheckInCreate' }
+      responses:
+        '201':
+          description: Created.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+            Location: { schema: { type: string } }
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CheckInResult' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ConsentRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ───────────────────────────── Check-ins ─────────────────────────────
+  /check-ins/{checkInId}:
+    parameters:
+      - $ref: '#/components/parameters/CheckInId'
+    delete:
+      tags: [check-ins]
+      operationId: undoCheckIn
+      summary: Undo a check-in (delete it and reverse all its effects)
+      description: |
+        Reverses progress, completion, XP, streak, rank and gamble effects (R-CHK-03). Undoing the check-in that
+        unlocked an achievement re-locks it, removes rank, badge and rank bonus, and returns a gamble won by that
+        unlock to pending (R-ACH-05, R-RANK-04) — unless another gamble of the user is pending by then: one at a time
+        (R-GMB-01), so the undo → `409 urn:questline:problem:gamble-pending` (Q-43). A check-in can be undone only on
+        the day it was made (account timezone); afterwards → `409 urn:questline:problem:check-in-final`, so closed
+        periods and completed achievements never change (Q-36).
+      responses:
+        '200':
+          description: Undone; returns the resulting quest/achievement state and XP delta.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Effects' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Opaque access token (`ql_at_…`), valid ≤ 15 minutes (ADR-0004).
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Client-generated UUID v4, scoped to the user and the operation. A repeat of a successful request with the
+        same key, path and body within 24 h is not run again: it receives the first response (status, `ETag`,
+        `Location`, body) with `Idempotency-Replayed: true`, also while the first request is still running. The same
+        key with a different path or body → `422 urn:questline:problem:idempotency-key-reused`. A request that failed
+        changed nothing and is not stored, so its retry with the same key runs again (Q-39). Missing or not a UUID v4
+        → `400`.
+      schema: { $ref: '#/components/schemas/Uuid' }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Entity tag of the version the client last saw, e.g. `"3"`.
+      schema:
+        type: string
+        pattern: '^"[0-9]{1,9}"$'
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { $ref: '#/components/schemas/Cursor' }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    AchievementId:
+      name: achievementId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    QuestId:
+      name: questId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+    CheckInId:
+      name: checkInId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
+
+  headers:
+    CacheControlNoStore:
+      required: true
+      schema: { type: string, const: no-store }
+    ETag:
+      required: true
+      description: Quoted resource version, mirrors the `version` field.
+      schema: { type: string, pattern: '^"[0-9]{1,9}"$' }
+    IdempotencyReplayed:
+      required: false
+      schema: { type: string, enum: ['true'] }
+    RetryAfter:
+      required: true
+      schema: { type: integer, minimum: 1 }
+
+  responses:
+    Accepted:
+      description: Accepted. The body is identical whether or not the account exists (no enumeration).
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [message]
+            properties:
+              message:
+                type: string
+                const: If the request can be fulfilled, an email has been sent.
+    ValidationError:
+      description: Request failed validation.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ValidationProblem' }
+    Unauthorized:
+      description: Missing, expired or revoked access token.
+      headers:
+        WWW-Authenticate: { schema: { type: string, const: Bearer } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InvalidCredentials:
+      description: Wrong email or password (identical for unknown accounts).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    InvalidToken:
+      description: Unknown, expired or already-used token.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    EmailNotVerified:
+      description: Correct credentials but the email is not verified yet.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ReauthenticationRequired:
+      description: The session must re-enter the password (`POST /auth/reauth`) first.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ConsentRequired:
+      description: Active `goal_content` consent is required.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Not found — also returned for objects that belong to another user (R-AUTHZ-02).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: State conflict (e.g. quest locked or awaiting restart, achievement not active or completed, gamble pending, consent already granted, check-in no longer undoable).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    VersionConflict:
+      description: '`If-Match` does not match the current version.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/VersionConflictProblem' }
+    VersionOrStateConflict:
+      description: |
+        Either the `If-Match` version is stale (`urn:questline:problem:version-conflict`, carries `current_version`)
+        or the state of the resource forbids the change (e.g. `urn:questline:problem:achievement-completed`,
+        `urn:questline:problem:gamble-pending`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ConflictProblem' }
+    PreconditionRequired:
+      description: '`If-Match` header missing.'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnprocessableContent:
+      description: Semantically invalid (business rule violated).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ValidationProblem' }
+    WeakPassword:
+      description: Password found in the offline breach list (length limits are schema rules → `400`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NothingToStake:
+      description: The XP above the threshold of the current level is 0, so there is nothing to stake (R-GMB-01).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    RateLimited:
+      description: Too many requests.
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PayloadTooLarge:
+      description: |
+        The request body is larger than 64 KiB (R-IN-01, Q-25); nothing was processed.
+        Problem type `urn:questline:problem:payload-too-large`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    UnsupportedMediaType:
+      description: |
+        The request body is not `application/json` (Q-25); nothing was processed.
+        Problem type `urn:questline:problem:unsupported-media-type`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+
+  schemas:
+    # ── primitives ──
+    Uuid:
+      type: string
+      format: uuid
+      pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339 UTC timestamp.
+    LocalDate:
+      type: string
+      format: date
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+      description: Calendar date in the user's timezone.
+    Cursor:
+      type: string
+      pattern: '^[A-Za-z0-9_-]{1,200}$'
+      description: Opaque pagination cursor.
+    Email:
+      type: string
+      format: email
+      minLength: 3
+      maxLength: 254
+    Password:
+      type: string
+      minLength: 12
+      maxLength: 128
+      description: Any Unicode; no composition rules (NIST SP 800-63B). Minimum length Q-06.
+    OpaqueToken:
+      type: string
+      pattern: '^ql_[a-z]{2}_[A-Za-z0-9_-]{43}$'
+      description: Prefixed opaque token (`ql_at_` access, `ql_rt_` refresh, `ql_vt_` verification, `ql_pt_` password reset).
+    Timezone:
+      type: string
+      minLength: 1
+      maxLength: 64
+      description: IANA timezone name, e.g. `Europe/Zurich`.
+    Locale:
+      type: string
+      enum: [de-CH, fr-CH, it-CH, en, de, fr, it]
+    Nickname:
+      type: string
+      minLength: 1
+      maxLength: 40
+    Decimal:
+      type: string
+      pattern: '^-?[0-9]{1,10}(\.[0-9]{1,3})?$'
+      description: Decimal number as a string (≤ 3 fractional digits) to avoid float rounding.
+    Progress:
+      type: number
+      minimum: 0
+      maximum: 1
+    Version:
+      type: integer
+      minimum: 1
+    XpTotal:
+      type: integer
+      format: int64
+      minimum: 0
+      maximum: 9007199254740991
+      description: Non-negative XP amount (R-XP-04); safe-integer range so clients never lose precision.
+    XpDelta:
+      type: integer
+      format: int64
+      minimum: -9007199254740991
+      maximum: 9007199254740991
+      description: Signed XP change; negative for revocations and lost gambles.
+    WeekStart:
+      type: string
+      enum: [monday, sunday, saturday]
+      default: monday
+      description: First day of week-based habit periods (R-QST-09).
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+
+    # ── problems ──
+    Problem:
+      type: object
+      required: [type, title, status, request_id]
+      properties:
+        type: { type: string, pattern: '^urn:questline:problem:[a-z0-9-]+$' }
+        title: { type: string, maxLength: 120 }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail: { type: string, maxLength: 500 }
+        instance: { type: string, maxLength: 300 }
+        request_id: { $ref: '#/components/schemas/Uuid' }
+      additionalProperties: true
+    ValidationProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [errors]
+          properties:
+            errors:
+              type: array
+              maxItems: 50
+              items:
+                type: object
+                additionalProperties: false
+                required: [pointer, message]
+                properties:
+                  pointer: { type: string, maxLength: 200, description: JSON Pointer into the request body/query. }
+                  message: { type: string, maxLength: 200, description: Static message; never echoes the submitted value. }
+    VersionConflictProblem:
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          required: [current_version]
+          properties:
+            current_version: { $ref: '#/components/schemas/Version' }
+    ConflictProblem:
+      description: Problem of a `409` that is either a version conflict (then `current_version` is required) or a state conflict.
+      allOf:
+        - $ref: '#/components/schemas/Problem'
+        - type: object
+          if:
+            type: object
+            required: [type]
+            properties:
+              type: { const: 'urn:questline:problem:version-conflict' }
+          then:
+            type: object
+            required: [current_version]
+            properties:
+              current_version: { $ref: '#/components/schemas/Version' }
+
+    # ── auth ──
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, privacy_policy_version, age_confirmed]
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+        password: { $ref: '#/components/schemas/Password' }
+        timezone: { $ref: '#/components/schemas/Timezone' }
+        locale: { $ref: '#/components/schemas/Locale' }
+        privacy_policy_version:
+          type: string
+          pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+          description: Version of the privacy policy/terms the user accepted (A-14).
+        age_confirmed:
+          type: boolean
+          const: true
+          description: Self-declaration that the user is at least 13 years old (R-AUTH-11, Q-23); no date of birth is collected.
+    EmailRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+    TokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: { $ref: '#/components/schemas/OpaqueToken' }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, client]
+      properties:
+        email: { $ref: '#/components/schemas/Email' }
+        password: { $ref: '#/components/schemas/Password' }
+        client: { $ref: '#/components/schemas/Client' }
+        device_label:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Optional user-chosen label shown in the session list (Q-09).
+    Client:
+      type: string
+      enum: [ios, android]
+    TokenPair:
+      type: object
+      additionalProperties: false
+      required: [token_type, access_token, access_expires_in, refresh_token, refresh_expires_in, session_id]
+      properties:
+        token_type: { type: string, const: Bearer }
+        access_token: { $ref: '#/components/schemas/OpaqueToken' }
+        access_expires_in: { type: integer, maximum: 900, description: 'Seconds (≤ 900).' }
+        refresh_token: { $ref: '#/components/schemas/OpaqueToken' }
+        refresh_expires_in: { type: integer, description: 'Seconds.' }
+        session_id: { $ref: '#/components/schemas/Uuid' }
+
+    # ── account ──
+    Account:
+      type: object
+      additionalProperties: false
+      required: [id, email, nickname, timezone, locale, week_start, email_verified, created_at, xp_total, level, version]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        email: { $ref: '#/components/schemas/Email' }
+        nickname:
+          oneOf:
+            - $ref: '#/components/schemas/Nickname'
+            - type: 'null'
+        timezone: { $ref: '#/components/schemas/Timezone' }
+        locale: { $ref: '#/components/schemas/Locale' }
+        week_start: { $ref: '#/components/schemas/WeekStart' }
+        email_verified: { type: boolean }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        xp_total: { $ref: '#/components/schemas/XpTotal' }
+        level: { type: integer, minimum: 1 }
+        version: { $ref: '#/components/schemas/Version' }
+    AccountUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        nickname:
+          oneOf:
+            - $ref: '#/components/schemas/Nickname'
+            - type: 'null'
+        timezone: { $ref: '#/components/schemas/Timezone' }
+        locale: { $ref: '#/components/schemas/Locale' }
+        week_start: { $ref: '#/components/schemas/WeekStart' }
+    AccountDeletionScheduled:
+      type: object
+      additionalProperties: false
+      required: [deletion_scheduled_for]
+      properties:
+        deletion_scheduled_for:
+          allOf: [{ $ref: '#/components/schemas/Timestamp' }]
+          description: Request time + 30 days; the account is hard-deleted then unless the user logs in before (R-PRIV-06).
+    Session:
+      type: object
+      additionalProperties: false
+      required: [id, client, device_label, created_at, last_used_at, current]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        client: { $ref: '#/components/schemas/Client' }
+        device_label:
+          oneOf:
+            - { type: string, maxLength: 64 }
+            - type: 'null'
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        last_used_at: { $ref: '#/components/schemas/Timestamp' }
+        current: { type: boolean, description: True for the session making the request. }
+    ConsentType:
+      type: string
+      enum: [goal_content]
+    ConsentVersion:
+      type: string
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    Consent:
+      type: object
+      additionalProperties: false
+      required: [type, version, granted_at, withdrawn_at]
+      properties:
+        type: { $ref: '#/components/schemas/ConsentType' }
+        version: { $ref: '#/components/schemas/ConsentVersion' }
+        granted_at: { $ref: '#/components/schemas/Timestamp' }
+        withdrawn_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+
+    # ── achievements ──
+    AchievementStatus:
+      type: string
+      enum: [active, paused, completed]
+      description: '`completed` is set only by the system on unlock and is read-only; there is no manual archiving (R-ACH-07).'
+    AchievementClientStatus:
+      type: string
+      enum: [active, paused]
+      description: Statuses a client may request; pausing resets the achievement and resuming starts a new attempt (R-ACH-06).
+    Rank:
+      type: string
+      enum: [unranked, bronze, silver, gold, platinum, emerald, diamond, champion]
+      description: Rank of a completed achievement by execution score (R-RANK-02); `unranked` below 55.
+    ExecutionScore:
+      type: number
+      minimum: 0
+      maximum: 100
+      description: Server-computed execution score of the attempt that unlocked the achievement, two decimals (R-RANK-01).
+    AchievementCreate:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 2000 }
+        motivation: { type: string, maxLength: 2000 }
+        category: { type: string, maxLength: 60 }
+        target_date: { $ref: '#/components/schemas/LocalDate' }
+        is_private: { type: boolean, default: false }
+    AchievementUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        description:
+          oneOf: [{ type: string, maxLength: 2000 }, { type: 'null' }]
+        motivation:
+          oneOf: [{ type: string, maxLength: 2000 }, { type: 'null' }]
+        category:
+          oneOf: [{ type: string, maxLength: 60 }, { type: 'null' }]
+        target_date:
+          oneOf: [{ $ref: '#/components/schemas/LocalDate' }, { type: 'null' }]
+        is_private: { type: boolean }
+        status: { $ref: '#/components/schemas/AchievementClientStatus' }
+    Achievement:
+      type: object
+      description: An achievement (strict — no other properties).
+      allOf: [{ $ref: '#/components/schemas/AchievementBase' }]
+      unevaluatedProperties: false
+    AchievementBase:
+      type: object
+      description: Fields of an achievement; reused by `Achievement` and `AchievementDetail`, which forbid other properties via `unevaluatedProperties`.
+      required: [id, title, description, motivation, category, target_date, status, is_private, attempt, progress, xp_required_total, xp_earned, rank, execution_score, completed_at, created_at, updated_at, version]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, maxLength: 120 }
+        description: { oneOf: [{ type: string, maxLength: 2000 }, { type: 'null' }] }
+        motivation: { oneOf: [{ type: string, maxLength: 2000 }, { type: 'null' }] }
+        category: { oneOf: [{ type: string, maxLength: 60 }, { type: 'null' }] }
+        target_date: { oneOf: [{ $ref: '#/components/schemas/LocalDate' }, { type: 'null' }] }
+        status: { $ref: '#/components/schemas/AchievementStatus' }
+        is_private: { type: boolean }
+        attempt:
+          type: integer
+          minimum: 1
+          description: 1-based; incremented each time the achievement is resumed after a pause (pause = reset, R-ACH-06).
+        progress: { $ref: '#/components/schemas/Progress' }
+        xp_required_total:
+          allOf: [{ $ref: '#/components/schemas/XpTotal' }]
+          description: Sum of the effective XP (base × duration factor) of the required quests (R-ACH-03).
+        xp_earned:
+          allOf: [{ $ref: '#/components/schemas/XpTotal' }]
+          description: XP currently credited through this achievement in the current attempt (quest completions and rank bonus; gamble settlements are listed under its gambles).
+        rank:
+          oneOf: [{ $ref: '#/components/schemas/Rank' }, { type: 'null' }]
+          description: Set by the system on unlock (R-RANK-02); null while not completed.
+        execution_score:
+          oneOf: [{ $ref: '#/components/schemas/ExecutionScore' }, { type: 'null' }]
+          description: Set by the system on unlock (R-RANK-01); null while not completed.
+        completed_at: { oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }] }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        version: { $ref: '#/components/schemas/Version' }
+    AchievementDetail:
+      type: object
+      description: An achievement with its quests (strict — no other properties).
+      allOf:
+        - $ref: '#/components/schemas/AchievementBase'
+        - type: object
+          required: [quests]
+          properties:
+            quests:
+              type: array
+              maxItems: 50
+              items: { $ref: '#/components/schemas/Quest' }
+      unevaluatedProperties: false
+    AchievementPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/Achievement' }
+        next_cursor:
+          oneOf: [{ $ref: '#/components/schemas/Cursor' }, { type: 'null' }]
+
+    # ── quests ──
+    QuestType:
+      type: string
+      enum: [one_time, habit, target]
+    QuestSize:
+      type: string
+      enum: [S, M, L]
+      description: Base XP 10 / 25 / 50; the effective `xp` also applies the duration factor (R-XP-02).
+    HabitPeriod:
+      type: string
+      enum: [day, week]
+    HabitConfig:
+      type: object
+      additionalProperties: false
+      required: [period, times_per_period, period_count]
+      properties:
+        period: { $ref: '#/components/schemas/HabitPeriod' }
+        times_per_period: { type: integer, minimum: 1, maximum: 50 }
+        period_count: { type: integer, minimum: 1, maximum: 520 }
+        start_date:
+          allOf: [{ $ref: '#/components/schemas/LocalDate' }]
+          description: Defaults to today in the account timezone; must not be in the past (`422`) because back-dated check-ins never count (R-CHK-04). A new `start_date` restarts a quest in state `needs_restart` (R-QST-04). The first period of a weekly habit runs from `start_date` to the end of the first full week (7–13 days, Q-33).
+    TargetConfig:
+      type: object
+      additionalProperties: false
+      required: [start_value, target_value]
+      properties:
+        start_value: { $ref: '#/components/schemas/Decimal' }
+        target_value: { $ref: '#/components/schemas/Decimal' }
+        unit: { type: string, maxLength: 20 }
+    QuestCreate:
+      type: object
+      additionalProperties: false
+      required: [title, type, size]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        notes: { type: string, maxLength: 2000 }
+        type: { $ref: '#/components/schemas/QuestType' }
+        size: { $ref: '#/components/schemas/QuestSize' }
+        is_required: { type: boolean, default: true }
+        position: { type: integer, minimum: 0, maximum: 1000, description: Defaults to last. }
+        prerequisite_quest_id: { $ref: '#/components/schemas/Uuid' }
+        habit: { $ref: '#/components/schemas/HabitConfig' }
+        target: { $ref: '#/components/schemas/TargetConfig' }
+      description: '`habit` is required iff `type = habit`; `target` is required iff `type = target` (checked semantically → 422).'
+    QuestUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        notes: { oneOf: [{ type: string, maxLength: 2000 }, { type: 'null' }] }
+        size: { $ref: '#/components/schemas/QuestSize' }
+        is_required: { type: boolean }
+        position: { type: integer, minimum: 0, maximum: 1000 }
+        prerequisite_quest_id: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        habit: { $ref: '#/components/schemas/HabitConfig' }
+        target: { $ref: '#/components/schemas/TargetConfigUpdate' }
+    TargetConfigUpdate:
+      type: object
+      additionalProperties: false
+      required: [start_value, target_value]
+      description: '`TargetConfig` in an update: an omitted `unit` keeps the stored one, `null` removes it (Q-41).'
+      properties:
+        start_value: { $ref: '#/components/schemas/Decimal' }
+        target_value: { $ref: '#/components/schemas/Decimal' }
+        unit: { oneOf: [{ type: string, maxLength: 20 }, { type: 'null' }] }
+    QuestState:
+      type: string
+      enum: [locked, available, needs_restart, completed]
+      description: '`needs_restart` — a closed habit period had fewer than `times_per_period` counting check-ins; progress is 0 and check-ins are refused until the quest is restarted (R-QST-04).'
+    Streak:
+      type: object
+      additionalProperties: false
+      required: [current, best, period]
+      properties:
+        current: { type: integer, minimum: 0 }
+        best: { type: integer, minimum: 0 }
+        period: { $ref: '#/components/schemas/HabitPeriod' }
+    CurrentPeriod:
+      type: object
+      additionalProperties: false
+      description: |
+        The open period of a running habit (Q-35), computed by the server: a day for daily habits; for weekly habits a
+        calendar week from the week start the run began with (Q-34) — except the first period, which runs from
+        `start_date` to the end of the first full week (7–13 days, Q-33). A period that has not begun yet (a future
+        `start_date`) is shown with 0 check-ins.
+      required: [start, end, check_ins, required_check_ins]
+      properties:
+        start: { $ref: '#/components/schemas/LocalDate' }
+        end:
+          allOf: [{ $ref: '#/components/schemas/LocalDate' }]
+          description: Last day of the period (inclusive).
+        check_ins:
+          type: integer
+          minimum: 0
+          description: Counting check-ins of the current attempt in this period (R-CHK-04).
+        required_check_ins:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Check-ins needed to meet the period (`times_per_period`); fewer when it closes reset the quest (R-QST-04).
+    Quest:
+      type: object
+      additionalProperties: false
+      required: [id, achievement_id, title, notes, type, size, xp, duration_factor, is_required, position, prerequisite_quest_id, state, progress, reset_count, habit, target, current_value, streak, current_period, completed_at, created_at, updated_at, version]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        achievement_id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string, maxLength: 120 }
+        notes: { oneOf: [{ type: string, maxLength: 2000 }, { type: 'null' }] }
+        type: { $ref: '#/components/schemas/QuestType' }
+        size: { $ref: '#/components/schemas/QuestSize' }
+        xp:
+          type: integer
+          minimum: 1
+          description: Effective XP = round(base size XP × `duration_factor`) (R-QST-01, R-XP-02).
+        duration_factor:
+          type: number
+          minimum: 1
+          description: 1 for one_time and target quests; habit quests by span in days — ≤ 28 → 1, 29–56 → 1.5, 57–112 → 2, ≥ 113 → 3 (R-XP-02).
+        is_required: { type: boolean }
+        position: { type: integer, minimum: 0 }
+        prerequisite_quest_id: { oneOf: [{ $ref: '#/components/schemas/Uuid' }, { type: 'null' }] }
+        state: { $ref: '#/components/schemas/QuestState' }
+        progress: { $ref: '#/components/schemas/Progress' }
+        reset_count:
+          type: integer
+          minimum: 0
+          description: Habit resets in the current attempt of the achievement (R-QST-04, R-RANK-01); always 0 for one_time and target quests.
+        habit: { oneOf: [{ $ref: '#/components/schemas/HabitConfig' }, { type: 'null' }] }
+        target: { oneOf: [{ $ref: '#/components/schemas/TargetConfig' }, { type: 'null' }] }
+        current_value: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }], description: Target quests only. }
+        streak: { oneOf: [{ $ref: '#/components/schemas/Streak' }, { type: 'null' }], description: Habit quests only. }
+        current_period:
+          oneOf: [{ $ref: '#/components/schemas/CurrentPeriod' }, { type: 'null' }]
+          description: Habit quests whose run is open (Q-35); null for one_time and target quests, a completed habit and a habit in state `needs_restart`.
+        completed_at: { oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }] }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        version: { $ref: '#/components/schemas/Version' }
+
+    # ── check-ins ──
+    CheckInCreate:
+      type: object
+      additionalProperties: false
+      required: [local_date]
+      properties:
+        local_date: { $ref: '#/components/schemas/LocalDate' }
+        value: { $ref: '#/components/schemas/Decimal' }
+        note: { type: string, maxLength: 500 }
+    CheckIn:
+      type: object
+      additionalProperties: false
+      required: [id, quest_id, local_date, attempt, counts_for_progress, value, note, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        quest_id: { $ref: '#/components/schemas/Uuid' }
+        local_date: { $ref: '#/components/schemas/LocalDate' }
+        attempt:
+          type: integer
+          minimum: 1
+          description: Attempt of the achievement when the check-in was made; check-ins of earlier attempts are history.
+        counts_for_progress:
+          type: boolean
+          description: True only if `local_date` was today (account timezone) at creation; back-dated check-ins never count (R-CHK-04).
+        value: { oneOf: [{ $ref: '#/components/schemas/Decimal' }, { type: 'null' }] }
+        note: { oneOf: [{ type: string, maxLength: 500 }, { type: 'null' }] }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    CheckInPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/CheckIn' }
+        next_cursor:
+          oneOf: [{ $ref: '#/components/schemas/Cursor' }, { type: 'null' }]
+    Effects:
+      type: object
+      description: Result of a mutation that may change progress, XP, unlock state, rank and gamble outcome (strict — no other properties).
+      allOf: [{ $ref: '#/components/schemas/EffectsBase' }]
+      unevaluatedProperties: false
+    EffectsBase:
+      type: object
+      description: Fields of `Effects`; reused by `CheckInResult`.
+      required: [quest, achievement, xp_delta, xp_total, level, achievement_unlocked, achievement_relocked, rank, execution_score, gamble]
+      properties:
+        quest: { oneOf: [{ $ref: '#/components/schemas/Quest' }, { type: 'null' }], description: Null when the quest was deleted. }
+        achievement: { $ref: '#/components/schemas/Achievement' }
+        xp_delta: { $ref: '#/components/schemas/XpDelta' }
+        xp_total: { $ref: '#/components/schemas/XpTotal' }
+        level: { type: integer, minimum: 1 }
+        achievement_unlocked: { type: boolean }
+        achievement_relocked: { type: boolean }
+        rank:
+          oneOf: [{ $ref: '#/components/schemas/Rank' }, { type: 'null' }]
+          description: Rank awarded by an unlock caused by this mutation; null otherwise (a re-lock removes the rank, R-RANK-04).
+        execution_score:
+          oneOf: [{ $ref: '#/components/schemas/ExecutionScore' }, { type: 'null' }]
+          description: Execution score computed by an unlock caused by this mutation; null otherwise.
+        gamble:
+          oneOf: [{ $ref: '#/components/schemas/GambleOutcome' }, { type: 'null' }]
+          description: Gamble settled or reverted by this mutation; null if none.
+    CheckInResult:
+      type: object
+      description: Effects of a new check-in plus the check-in itself (strict — no other properties).
+      allOf:
+        - $ref: '#/components/schemas/EffectsBase'
+        - type: object
+          required: [check_in]
+          properties:
+            check_in: { $ref: '#/components/schemas/CheckIn' }
+      unevaluatedProperties: false
+
+    # ── gambles ──
+    GambleStatus:
+      type: string
+      enum: [pending, won, lost]
+    GambleLossReason:
+      type: string
+      enum: [target_date_passed, habit_reset, paused, deleted]
+    GamblePlaceRequest:
+      type: object
+      additionalProperties: false
+      description: Empty or omitted; the stake and every other gamble field are computed server-side (R-AUTHZ-04, T-17).
+    Gamble:
+      type: object
+      additionalProperties: false
+      required: [id, attempt, stake, status, loss_reason, placed_at, settled_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        attempt:
+          type: integer
+          minimum: 1
+          description: Attempt of the achievement during which the gamble was placed.
+        stake:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 9007199254740991
+          description: XP above the threshold of the user's level at placement, computed server-side (R-GMB-01).
+        status: { $ref: '#/components/schemas/GambleStatus' }
+        loss_reason: { oneOf: [{ $ref: '#/components/schemas/GambleLossReason' }, { type: 'null' }] }
+        placed_at: { $ref: '#/components/schemas/Timestamp' }
+        settled_at: { oneOf: [{ $ref: '#/components/schemas/Timestamp' }, { type: 'null' }] }
+    GamblePage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/Gamble' }
+        next_cursor:
+          oneOf: [{ $ref: '#/components/schemas/Cursor' }, { type: 'null' }]
+    GambleOutcome:
+      type: object
+      additionalProperties: false
+      required: [gamble_id, outcome, xp_delta, loss_reason]
+      properties:
+        gamble_id: { $ref: '#/components/schemas/Uuid' }
+        outcome:
+          type: string
+          enum: [won, lost, reverted]
+          description: '`reverted` — an undo re-locked the achievement and the gamble won by that unlock is pending again (R-ACH-05).'
+        xp_delta: { $ref: '#/components/schemas/XpDelta' }
+        loss_reason: { oneOf: [{ $ref: '#/components/schemas/GambleLossReason' }, { type: 'null' }] }
+
+    # ── stats ──
+    Stats:
+      type: object
+      additionalProperties: false
+      required: [xp_total, level, xp_to_next_level, xp_by_day, achievements, badges, best_streaks, gambles]
+      properties:
+        xp_total: { $ref: '#/components/schemas/XpTotal' }
+        level: { type: integer, minimum: 1 }
+        xp_to_next_level: { $ref: '#/components/schemas/XpTotal' }
+        xp_by_day:
+          type: array
+          maxItems: 366
+          items:
+            type: object
+            additionalProperties: false
+            required: [date, xp]
+            properties:
+              date: { $ref: '#/components/schemas/LocalDate' }
+              xp: { $ref: '#/components/schemas/XpDelta' }
+        achievements:
+          type: object
+          additionalProperties: false
+          required: [active, paused, completed, completed_by_rank]
+          properties:
+            active: { type: integer, minimum: 0 }
+            paused: { type: integer, minimum: 0 }
+            completed: { type: integer, minimum: 0 }
+            completed_by_rank:
+              type: object
+              additionalProperties: false
+              required: [unranked, bronze, silver, gold, platinum, emerald, diamond, champion]
+              properties:
+                unranked: { type: integer, minimum: 0 }
+                bronze: { type: integer, minimum: 0 }
+                silver: { type: integer, minimum: 0 }
+                gold: { type: integer, minimum: 0 }
+                platinum: { type: integer, minimum: 0 }
+                emerald: { type: integer, minimum: 0 }
+                diamond: { type: integer, minimum: 0 }
+                champion: { type: integer, minimum: 0 }
+        badges:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, kind, rank, achievement_id, achievement_title, awarded_at]
+            properties:
+              id: { $ref: '#/components/schemas/Uuid' }
+              kind: { type: string, enum: [achievement_rank] }
+              rank: { $ref: '#/components/schemas/Rank' }
+              achievement_id: { $ref: '#/components/schemas/Uuid' }
+              achievement_title: { type: string, maxLength: 120 }
+              awarded_at: { $ref: '#/components/schemas/Timestamp' }
+        best_streaks:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [quest_id, quest_title, period, best, current]
+            properties:
+              quest_id: { $ref: '#/components/schemas/Uuid' }
+              quest_title: { type: string, maxLength: 120 }
+              period: { $ref: '#/components/schemas/HabitPeriod' }
+              best: { type: integer, minimum: 0 }
+              current: { type: integer, minimum: 0 }
+        gambles:
+          type: object
+          additionalProperties: false
+          required: [won, lost]
+          description: Gamble record across all achievements (R-STA-01).
+          properties:
+            won: { type: integer, minimum: 0 }
+            lost: { type: integer, minimum: 0 }
+
+    # ── export ──
+    ExportDocument:
+      type: object
+      required: [format, version, generated_at, account, consents, sessions, achievements, xp_events, badges, audit_events]
+      properties:
+        format: { type: string, const: questline-export }
+        version: { type: integer, const: 1 }
+        generated_at: { $ref: '#/components/schemas/Timestamp' }
+        account: { type: object }
+        consents: { type: array, items: { type: object } }
+        sessions: { type: array, items: { type: object } }
+        achievements: { type: array, items: { type: object } }
+        xp_events: { type: array, items: { type: object } }
+        badges: { type: array, items: { type: object } }
+        audit_events: { type: array, items: { type: object } }
+      description: Full shape in docs/data-model.md §6; detailed sub-schemas are added in M4.

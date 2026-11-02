@@ -8,7 +8,7 @@ Security, privacy and test-driven development are core requirements of this proj
 
 ## Status
 
-**M2 – Accounts & sessions** is in progress (M1 – Walking skeleton is done, [report](docs/reports/M1-status-report.md)).
+**M4 – Privacy rights** is in progress (M3 – Core domain is done, [report](docs/reports/M3-status-report.md)).
 See [`docs/PROGRESS.md`](docs/PROGRESS.md)
 for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for architecture decisions.
 
@@ -19,7 +19,7 @@ for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for archi
 | [docs/requirements.md](docs/requirements.md) | Restated requirements, assumptions, open questions |
 | [docs/architecture.md](docs/architecture.md) | Architecture, folder structure, cross-cutting concerns |
 | [docs/data-model.md](docs/data-model.md) | PostgreSQL data model incl. encryption and ownership scoping |
-| [openapi/openapi.yaml](openapi/openapi.yaml) | OpenAPI 3.1 contract (written first, enforced by contract tests) |
+| [openapi/openapi.yaml](openapi/openapi.yaml) | OpenAPI 3.1 contract (written first, enforced by contract tests); frozen as `0.3.0` on 2026-11-02 — it only grows, each change approved by the PM ([snapshot](openapi/frozen/openapi-0.3.0.yaml)) |
 | [docs/security/threat-model.md](docs/security/threat-model.md) | STRIDE threat model: threat → mitigation → test |
 | [docs/privacy/data-inventory.md](docs/privacy/data-inventory.md) | Data inventory (purpose, legal basis, retention, location) |
 | [docs/privacy/dpia.md](docs/privacy/dpia.md) | DPIA draft |
