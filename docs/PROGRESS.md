@@ -10,7 +10,7 @@ Updated after every completed task (date, task, tests, commit). Newest entries a
 | M1 | Walking skeleton | DONE | `master` (direct pushes, ADR-0001 as amended) | [docs/reports/M1-status-report.md](reports/M1-status-report.md) |
 | M2 | Accounts & sessions | DONE | `master` | [docs/reports/M2-status-report.md](reports/M2-status-report.md) |
 | M3 | Core domain | DONE | `master` | [docs/reports/M3-status-report.md](reports/M3-status-report.md) |
-| M4 | Privacy rights | not started | – | – |
+| M4 | Privacy rights | IN PROGRESS | `master` | – |
 | M5 | Auth hardening | not started | – | – |
 | M6 | Hardening & handover | not started | – | – |
 
@@ -168,4 +168,26 @@ after 2026-11-04.
 | 2026-10-30 | **M3 REVIEW** — status report `docs/reports/M3-status-report.md`: every M3 deliverable done and green; all exit criteria met — 38 of 40 operations implemented (export and deletion are M4), domain branch coverage 100 %, the ownership matrix green, the stats correct against 13 seeded scenarios. A full Stryker run on the final code: 99.0 % (domain 100 %, crypto 96.6 %, every file ≥ 92 %); 1 676 tests, coverage 99.0 % / 97.6 %; e2e 11/11 locally on the final code; 222 deliberate faults in M3, all caught; CI red twice (#50, #68, both in the e2e job, both fixed within the next pushes), green since #69. **Waiting for the PM's "go" for M4** and the decisions listed in the report: confirm A-34…A-43; **O-09** — a pending gamble can be won without the work by deleting the last open required quest, making it a bonus or lowering an open target (recommended: refuse those changes while a gamble is pending, as for the target date, A-26); **O-10** — start the mobile app after this review, in parallel with M4–M6 (contract freeze `0.3.0`, a local mail catcher and `client-security.md` first, about 1–2 days) | n/a (report); Stryker, e2e and cross-reference check run on the final code | `c7dfcc7` |
 | 2026-10-30 | M3 review with the PM, part 1: **Q-44** (O-09) — while a gamble is pending, a change that would complete its achievement without a check-in (deleting the last open required quest, making it a bonus, lowering an open target to what was reached) is refused with `409 gamble-pending`, as for the target date (A-26); recorded in `requirements.md` §6.5 and the M3 report addendum; to be built before M4. **Paused after M3** at the PM's request: O-10 (when the app starts), A-34…A-43 and the "go" for M4 stay open; M3 stays in REVIEW | n/a (docs); cross-reference check | `bd488a6` |
 | 2026-11-02 | **CI red since 2026-10-31 (runs #83–#85), only the dependency scan** — noticed when preparing the M4 handoff (work was paused): two advisories published on 2026-10-30 evening, both Medium and both in dev-only packages — GHSA-3g3m-2fjr-6pw4 (`glob` 10.5.0 keeps walking after an `AbortSignal`; under testcontainers' archiver and the SBOM tool) and GHSA-g3hv-75wg-m249 (`minimatch` 5.1.9, 9.0.9 and 10.2.6 amplify attacker-supplied patterns; under ESLint, typescript-eslint, Stryker and the archiver). Neither ships (`npm ls --omit=dev` finds neither; Trivy on the image clean) and no tool here globs patterns or directories that users control. The fixes exist only as new majors (`glob` 14.0.2, `minimatch` 11.0.1, published 2026-10-27), which every parent excludes (`^10`, `^5`, `~10.2`); forcing them would break the tools. **Accepted by the PM** as exceptions in `osv-scanner.toml` until **2026-11-30** with their reasons, then re-check for parent updates; reported in the M3 report addendum (exceptions register) | osv-scanner with the CI image locally: 5 findings filtered, no issues | `45c7af9` |
-| 2026-11-02 | M3 closed: the PM's "go" for M4. A-34…A-43 accepted (`requirements.md` §5); **Q-45** (O-10) — the mobile app starts now, in parallel with M4–M6: before M4's own work the core contract is frozen as `0.3.0` (afterwards only additive changes, each approved), a mail catcher joins the local Compose stack (TLS stays mandatory, E-12) and `docs/client-security.md` comes forward from M6; staging waits for O-01; the app has its own team, plan and budget. Aligned: requirements §6.5 and §7, plan (summary, change log 2026-11-02, M4 6.5–9.5 d, M6 5.5–8.5 d, total 53–75), threat model (client guidance in M4), M3 report addendum part 2; milestone table: M3 DONE | n/a (docs); cross-reference check | this commit |
+| 2026-11-02 | M3 closed: the PM's "go" for M4. A-34…A-43 accepted (`requirements.md` §5); **Q-45** (O-10) — the mobile app starts now, in parallel with M4–M6: before M4's own work the core contract is frozen as `0.3.0` (afterwards only additive changes, each approved), a mail catcher joins the local Compose stack (TLS stays mandatory, E-12) and `docs/client-security.md` comes forward from M6; staging waits for O-01; the app has its own team, plan and budget. Aligned: requirements §6.5 and §7, plan (summary, change log 2026-11-02, M4 6.5–9.5 d, M6 5.5–8.5 d, total 53–75), threat model (client guidance in M4), M3 report addendum part 2; milestone table: M3 DONE | n/a (docs); cross-reference check | `b82c79d` |
+
+## M4 – Privacy rights
+
+Goal: the data-subject rights end to end — the export (`GET /v1/me/export`: complete against the data inventory,
+recent re-authentication, 2 per 24 h, audited), account deletion (`DELETE /v1/me`: immediate deactivation with every
+session revoked and a notice with the deadline; reactivation by a password login within 30 days), the hard delete
+after 30 days with crypto-shredding and the tombstone in the same transaction, and a deactivated account that no
+endpoint but login accepts and that gets no email (A-22, E-13); 40 of 40 operations implemented. First the M3 review
+follow-ups: the Q-44 gamble guard, the contract frozen as `0.3.0`, a mail catcher in the local Compose stack with the
+e2e user journey, and `docs/client-security.md` (Q-45). Scope: `docs/plan.md` → M4. All commits are pushed directly to
+`master`.
+
+Task order (arrows are real dependencies): follow-ups first — `m4-q44-gamble-guard` → `m4-contract-freeze` (the PM
+chooses how it is enforced); `m4-mail-catcher` (the PM approves the image) → `m4-e2e-journey`; `m4-client-security` ·
+then M4's own work: `m4-export-contract` (the `ExportDocument` sub-schemas, proposed to the PM after the freeze) →
+`m4-export`; `m4-deletion` → `m4-deactivation`, `m4-hard-delete` · `m4-docs` (DPIA, data inventory, threat model, test
+strategy; after export, deactivation and hard delete) → report · `m4-node-26-13` on or after 2026-11-04 ·
+`m4-osv-exceptions` before 2026-11-30 (`glob`, `minimatch`).
+
+| Date | Task | Tests | Commit |
+|------|------|-------|--------|
+| 2026-11-02 | Kickoff after the PM's "go" (decisions Q-44, Q-45 and A-34…A-43 in `bd488a6` and `b82c79d`): milestone table M4 IN PROGRESS, 14 tasks after this one with their dependencies (above). Baseline: 1 676 tests in 113 files, coverage 99.0 % / 97.6 %, Stryker 99.0 % (domain 100 %, `platform/crypto` 96.6 %), 38 of 40 operations implemented (`exportData` and `deleteAccount` listed in `test/contract/not-yet-implemented.ts`), contract `0.2.9-draft` | n/a (plan); CI runs #87 (push) and #88 (nightly) green in all 7 jobs | this commit |
