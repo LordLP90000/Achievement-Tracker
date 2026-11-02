@@ -356,7 +356,9 @@ purge job (worker). No `dek_version`: like `email_outbox.payload_enc`, it lives 
 | `created_at` | timestamptz NOT NULL | |
 
 Sent rows are deleted immediately; dead letters after 7 days. A link email whose token no longer works (used,
-replaced by a newer one or expired) is deleted unsent (D-05); notices are always sent.
+replaced by a newer one or expired) is deleted unsent (D-05); notices are always sent. An email whose
+`created_at` lies after its account's `deactivated_at` is deleted unsent as well, except `account_deleted_notice`
+(A-22, Q-46): the API queues none, and the worker makes sure.
 
 #### `rate_limit_buckets` (UNLOGGED, no user relation)
 

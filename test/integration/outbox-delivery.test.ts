@@ -4,13 +4,16 @@ import { createDatabase, inTransaction } from '../../src/platform/db/database.ts
 import { createOutboxDelivery, OUTBOX_DELIVERY, type OutboxLimits } from '../../src/platform/email/delivery.ts';
 import { claimNextEmail, enqueueEmail, recordFailedAttempt } from '../../src/platform/email/outbox-repository.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
+import { renderEmail } from '../../src/platform/email/templates.ts';
 import { startAccountsApp, TEST_PASSWORD, type AccountsApp, type TestAccount } from '../helpers/accounts-app.ts';
+import { contractInject } from '../helpers/contract.ts';
 import { FakeEmailSender, MAILBOX_BUSY, NO_SUCH_MAILBOX, RELAY_DOWN, tokenIn } from '../helpers/fake-email-sender.ts';
+import { bearer } from '../helpers/goals.ts';
 import { LogCapture } from '../helpers/log-capture.ts';
 
 const LINK_BASE = 'https://app.questline.test';
 const MINUTE_MS = 60_000;
-const NOTHING = { sent: 0, retried: 0, dead: 0, outdated: 0, paused: false };
+const NOTHING = { sent: 0, retried: 0, dead: 0, outdated: 0, withheld: 0, paused: false };
 
 /** Times in epoch milliseconds: Drizzle replaces the shared client's timestamp parsers. */
 interface OutboxRow {
@@ -424,5 +427,51 @@ describe('outbox delivery', () => {
       'Bestätigen Sie Ihre E-Mail-Adresse',
       'Bestätigen Sie Ihre E-Mail-Adresse',
     ]);
+  });
+
+  it('sends what was queued until an account’s deletion and its deletion notice, and withholds what was queued after it [A-22, Q-46]', async () => {
+    const account = await ctx.account();
+    const login = await ctx.post('/v1/auth/login', { email: account.email, password: account.password, client: 'ios' });
+    await ctx.admin.sql`delete from email_outbox`;
+    // At the instant of the deletion but before it: a notice of what happened while the account was active.
+    await register(account.email);
+    const deleted = await contractInject(ctx.app, {
+      method: 'DELETE',
+      url: '/v1/me',
+      headers: bearer(login.json<{ access_token: string }>().access_token),
+    });
+    expect(deleted.statusCode).toBe(202);
+    ctx.clock.advance({ seconds: 1 });
+    // Afterwards, as a code path that forgot A-22 would queue them.
+    const [key] = await ctx.worker.sql<{ wrapped_dek: Buffer; kek_id: string; kek_version: number }[]>`
+      select wrapped_dek, kek_id, kek_version from user_keys where user_id = ${account.userId}`;
+    const wrapped = {
+      blob: key?.wrapped_dek ?? Buffer.alloc(0),
+      kekId: key?.kek_id ?? '',
+      kekVersion: key?.kek_version ?? 0,
+    };
+    await ctx.dataKeys.withKey(account.userId, wrapped, (dataKey) =>
+      inTransaction(createDatabase(ctx.admin), async (tx) => {
+        for (const template of ['password_changed_notice', 'account_deleted_notice'] as const) {
+          const payload = { to: account.email, locale: 'de-CH' };
+          await enqueueEmail(tx, dataKey, { userId: account.userId, template, payload }, ctx.clock.now());
+        }
+      }),
+    );
+
+    expect(await delivery().deliverDue()).toEqual({ ...NOTHING, sent: 3, withheld: 1 });
+
+    const subject = (template: 'registration_notice' | 'account_deleted_notice') =>
+      renderEmail({ template }, 'de-CH').subject;
+    expect(sender.sent.map((message) => message.subject).sort()).toEqual(
+      [subject('registration_notice'), subject('account_deleted_notice'), subject('account_deleted_notice')].sort(),
+    );
+    expect(await outbox()).toEqual([]);
+    expect(logs.records()).toContainEqual(
+      expect.objectContaining({
+        msg: 'email withheld: the account is pending deletion',
+        template: 'password_changed_notice',
+      }),
+    );
   });
 });

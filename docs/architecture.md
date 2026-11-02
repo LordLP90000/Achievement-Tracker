@@ -184,7 +184,9 @@ its response (headers and body, encrypted with the user's data key) in the same 
   counts the attempt and leases the row for 5 min (`next_attempt_at`), so an email whose worker died is retried when
   the lease ends and a crash loop still reaches the attempt limit. The payload is decrypted with the user's data key
   and rendered from fixed templates (`platform/email/templates.ts`). A link email is sent only while its token still
-  works — a replaced, used or expired link is deleted unsent (D-05) — while security notices are always sent. After
+  works — a replaced, used or expired link is deleted unsent (D-05) — while security notices are always sent. An
+  email queued after its account asked for deletion is deleted unsent too, except the deletion notice (A-22, Q-46);
+  one queued before still goes out, so the owner hears of an address or password change that preceded it. After
   sending, the row is deleted; a failure is retried after 1, 2, 4 … 64 min and dead-lettered after the 8th attempt
   (dead letters keep the encrypted payload for 7 days); a permanent refusal of the recipient or message, or an
   unreadable payload, is dead-lettered at once. A failure of the relay itself pauses all delivery for 60 s, so a

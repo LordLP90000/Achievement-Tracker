@@ -8,6 +8,7 @@ open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.
 2026-10-29: A-26…A-28 accepted with the PM's "go" for M2. 2026-10-29 (M2 review, the PM's "go" for M3): A-02 as
 refined and A-29…A-33 accepted; decisions Q-30…Q-32 (§6.3) close O-05, O-06 and O-07; A-34 and A-35 proposed.
 Later on 2026-10-29: Q-33…Q-38 on habit periods, undo, habit edits and locked habits (§6.4); A-36…A-38 proposed.
+2026-11-02 (M4): Q-46 refines A-22 (§6.6); open items O-11 and O-12 for the M4 review.
 
 ## 1. Product summary
 
@@ -217,7 +218,7 @@ Unchanged from v1 except R-SUP-04, adapted to ADR-0013. SMTP credentials and the
 | A-19 | Emails contain no goal content; links use a base URL from config. |
 | A-20 | **Gamble settlement for a missed `target_date`** runs daily after local midnight in the user's timezone; an unlock on the target date itself counts as on time. |
 | A-21 | **Habit period closing** is evaluated lazily on read/write and by the daily job, so a reset is detected even if the user does not open the app (needed for gamble losses). |
-| A-22 | **Deactivated accounts** (pending deletion) cannot use any endpoint except login (which reactivates after password check and re-verifies nothing else); their emails are not sent; their data is excluded from nothing (it is simply retained encrypted). |
+| A-22 | **Deactivated accounts** (pending deletion) cannot use any endpoint except login (which reactivates after password check and re-verifies nothing else); their emails are not sent — refined by Q-46: nothing caused after the deletion request goes out but the deletion notice, while emails queued before it still do; their data is excluded from nothing (it is simply retained encrypted). |
 | A-23 | `week_start` change does not retroactively re-bucket already closed periods (with Q-34 a running habit keeps its week start altogether). |
 | A-24 | The PM's own hosting must satisfy H-1…H-7 in `docs/hosting-options.md`; until named, deployment artefacts stay provider-neutral (Docker image + Compose). |
 | A-25 | SMTP sender uses `nodemailer` with TLS required (STARTTLS or implicit TLS), credentials from 1Password/env, per-account send limit 3/h, outbox dedupe. |
@@ -318,6 +319,12 @@ the emails) stays open until launch.
 | Q-44 | **No gamble won without the work (O-09):** while a gamble is pending, a change that would complete its achievement without a check-in — deleting the last open required quest, making it a bonus, or lowering an open target quest's target to what was already reached — is refused with `409 urn:questline:problem:gamble-pending`, as a change of the target date is (A-26); every other edit goes through. An additive contract change (descriptions; the slug exists). Not chosen: accepting it as a change of the goal; letting such a change lose the gamble. To be built before M4. |
 | Q-45 | **The mobile app starts now (O-10, 2026-11-02),** in parallel with M4–M6. Before M4's own work: the core contract is frozen as `0.3.0` — afterwards only additive changes, each with the PM's approval; a mail catcher joins the local Compose stack, so a sign-up can be verified locally (TLS stays mandatory, E-12); `docs/client-security.md` is brought forward from M6. A shared staging server waits for O-01; the app's export and deletion screens wait for M4, passkeys and 2FA for M5. The app is outside this backend plan, with its own team, plan and budget. Not chosen: starting the app after M6. |
 
+### 6.6 Decisions during M4 (PM, 2026-11-02)
+
+| ID | Decision |
+|----|----------|
+| Q-46 | **Emails of an account pending deletion (A-22):** nothing caused after the deletion request is sent except the deletion notice — the API queues nothing for such an account, and the worker withholds anything queued after the request; what was queued before it still goes out, so the owner hears of an address or password change even when the account was deleted seconds later (E-13). Links die with their tokens either way. Not chosen: withholding every email but the notice, which would let someone who knows the password change the address and delete the account without the owner ever being told. |
+
 ## 7. Open items (non-blocking)
 
 | ID | Item | Needed by |
@@ -333,6 +340,7 @@ the emails) stays open until launch.
 | O-09 | **A pending gamble won without the work** (found while building quest edits and deletion): while a gamble is pending, deleting the last open required quest, making it a bonus, or lowering an open target quest's target to what was already reached completes the achievement and wins the gamble — the win pays at most the remaining required XP (Q-31), but the likely loss is avoided. Options and recommendation in the M3 report: refuse those changes with `409 gamble-pending` while a gamble is pending, as for the target date (A-26) | **closed 2026-10-30** → Q-44 |
 | O-10 | **When the mobile app starts** (asked by the PM on 2026-10-30). Recommendation in the M3 report: right after the M3 review, in parallel with M4–M6 — the core contract frozen as `0.3.0` (additive changes only afterwards), a mail catcher in the local Compose stack and `client-security.md` (from M6) first; a shared staging server needs O-01; the app needs its own team, plan and budget | **closed 2026-11-02** → Q-45 |
 | O-11 | **A pending gamble made easy to win** (found while building Q-44, 2026-11-02): Q-44 refuses a quest edit or deletion that completes the gamble's achievement by itself, but while a gamble is pending the user can still delete or demote every open required quest but one and lower that one's target to just above the value reached, then win with a single check-in. The win pays at most the remaining required XP (Q-31), but the stake is not lost although the original goal was not reached. Options in the M4 report: accept it as a change of the goal; while a gamble is pending, refuse every change that reduces the remaining work (deleting or demoting an open required quest, lowering an open target); or let such a change lose the gamble | M4 review |
+| O-12 | **Recovering an account deleted by someone else** (found while building Q-46, 2026-11-02): someone who knows the password can change it and then delete the account. The owner is told both (Q-46), but cannot get the account back: forgot-password emails nothing to an account pending deletion (A-22), and only a login with the password reactivates it, so after 30 days it is deleted. Options in the M4 report: accept it (support restores nothing; the owner registers again); or let a password reset within the 30 days reactivate the account, since the reset link proves control of the address — though then whoever controls the address can also undo a deletion the owner wanted | M4 review |
 
 ## 8. Traceability
 

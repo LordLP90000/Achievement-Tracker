@@ -4,7 +4,7 @@ import { encryptText } from '../crypto/field-cipher.ts';
 import type { WrappedKey } from '../crypto/key-wrapper.ts';
 import type { Database, Transaction } from '../db/database.ts';
 import { increment } from '../db/expressions.ts';
-import { emailOutbox, oneTimeTokens, userKeys } from '../db/schema/index.ts';
+import { emailOutbox, oneTimeTokens, userKeys, users } from '../db/schema/index.ts';
 
 /**
  * The email outbox (ADR-0009, data-model §3.5): a request only queues an email in its own transaction; the worker
@@ -61,6 +61,9 @@ export interface ClaimedEmail {
   readonly attempts: number;
   /** The user's wrapped data key; missing only if the account lost it. */
   readonly key: WrappedKey | undefined;
+  readonly createdAt: Date;
+  /** Since when the account is pending deletion (R-PRIV-06), if it is. */
+  readonly accountDeactivatedAt: Date | null;
 }
 
 /**
@@ -75,10 +78,13 @@ export async function claimNextEmail(tx: Transaction, now: Date, leaseUntil: Dat
       template: emailOutbox.template,
       payloadEnc: emailOutbox.payloadEnc,
       attempts: emailOutbox.attempts,
+      createdAt: emailOutbox.createdAt,
       key: { blob: userKeys.wrappedDek, kekId: userKeys.kekId, kekVersion: userKeys.kekVersion },
+      accountDeactivatedAt: users.deactivatedAt,
     })
     .from(emailOutbox)
     .leftJoin(userKeys, eq(userKeys.userId, emailOutbox.userId))
+    .leftJoin(users, eq(users.id, emailOutbox.userId))
     .where(and(isNull(emailOutbox.sentAt), isNull(emailOutbox.deadAt), lte(emailOutbox.nextAttemptAt, now)))
     .orderBy(asc(emailOutbox.nextAttemptAt), asc(emailOutbox.createdAt))
     .limit(1)
@@ -96,6 +102,8 @@ export async function claimNextEmail(tx: Transaction, now: Date, leaseUntil: Dat
     payloadEnc: row.payloadEnc,
     attempts: row.attempts + 1,
     key: row.key ?? undefined,
+    createdAt: row.createdAt,
+    accountDeactivatedAt: row.accountDeactivatedAt,
   };
 }
 

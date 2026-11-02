@@ -21,6 +21,7 @@ import { isLinkTemplate, linkFor, renderEmail, type LinkTemplate } from './templ
  * The worker side of the outbox (ADR-0009, ADR-0014, architecture §4.7). Each email is claimed with a lease, composed
  * from its encrypted payload, sent, and then deleted, retried with exponential backoff, or dead-lettered. A link
  * email is sent only while its single-use token still works (D-05): a replaced, used or expired link is dropped.
+ * An email queued after its account asked for deletion is withheld, except the deletion notice (A-22, Q-46).
  * A relay failure pauses all delivery for a while, so a broken relay is not hammered (D-07).
  */
 
@@ -60,6 +61,8 @@ export interface DeliveryRound {
   readonly dead: number;
   /** Link emails dropped because their link no longer works. */
   readonly outdated: number;
+  /** Emails dropped because they were queued after their account asked for deletion (A-22, Q-46). */
+  readonly withheld: number;
   /** Delivery is paused after a relay failure. */
   readonly paused: boolean;
 }
@@ -87,13 +90,23 @@ type Composed =
   | { readonly kind: 'message'; readonly message: EmailMessage; readonly token?: TokenReference }
   | { readonly kind: 'invalid'; readonly code: 'payload_unreadable' | 'payload_invalid' };
 
-type Outcome = 'sent' | 'retried' | 'dead' | 'outdated';
+type Outcome = 'sent' | 'retried' | 'dead' | 'outdated' | 'withheld';
 
 interface Delivered {
   readonly outcome: Outcome;
   /** The relay itself failed: pause all delivery. */
   readonly pause: boolean;
 }
+
+/**
+ * A-22 as decided with Q-46: nothing caused while the account is pending deletion goes out but the deletion notice.
+ * What was queued before the deletion still does — the owner must hear of an address or password change even if
+ * the account was deleted right after it.
+ */
+const isWithheld = (email: ClaimedEmail): boolean =>
+  email.accountDeactivatedAt !== null &&
+  email.createdAt.getTime() > email.accountDeactivatedAt.getTime() &&
+  email.template !== 'account_deleted_notice';
 
 export function createOutboxDelivery(
   deps: OutboxDeliveryDependencies,
@@ -150,6 +163,11 @@ export function createOutboxDelivery(
   }
 
   async function deliver(email: ClaimedEmail): Promise<Delivered> {
+    if (isWithheld(email)) {
+      await deleteEmail(deps.db, email.id);
+      deps.logger.info({ template: email.template }, 'email withheld: the account is pending deletion');
+      return { outcome: 'withheld', pause: false };
+    }
     const composed = await compose(email);
     if (composed.kind === 'invalid') return { outcome: await fail(email, composed.code, true), pause: false };
     if (composed.token !== undefined && !(await isOneTimeTokenUsable(deps.db, composed.token, deps.clock.now()))) {
@@ -172,7 +190,7 @@ export function createOutboxDelivery(
 
   return {
     async deliverDue() {
-      const counts = { sent: 0, retried: 0, dead: 0, outdated: 0 };
+      const counts = { sent: 0, retried: 0, dead: 0, outdated: 0, withheld: 0 };
       if (deps.clock.now().getTime() < pausedUntil) return { ...counts, paused: true };
       for (let index = 0; index < limits.maxPerRound; index += 1) {
         const now = deps.clock.now();
