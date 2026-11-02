@@ -80,8 +80,8 @@ relay (O-02).
 
 ## 6. Guard test specification (R-PRIV-08)
 
-`test/privacy/data-inventory-guard.test.ts` (implemented in M2 for steps 1–5 and 7; step 6 follows with the export
-service in M4):
+`test/privacy/data-inventory-guard.test.ts` (implemented in M2 for steps 1–5 and 7) and `test/privacy/export.test.ts`
+(step 6, with the export service in M4):
 
 1. Connects to the migrated test database and lists every table/column in schema `public` (ignoring `drizzle.*`).
 2. Loads `docs/privacy/data-inventory.yaml`.
@@ -89,7 +89,9 @@ service in M4):
 4. For every column with `personal: true`: requires `export: included | excluded-with-reason` and
    `deletion: cascade | purge-job | consent-withdrawal | not-applicable-with-reason`.
 5. Cross-checks `deletion: cascade` columns against the actual FK graph from `users` (ON DELETE CASCADE path exists).
-6. Cross-checks `export: included` tables against the keys produced by the export service on a seeded account.
+6. Cross-checks `export: included` tables against the keys produced by the export service on a seeded account: every
+   record holds exactly the included columns (`user_id` aside, which is `account.id`), each with the stored value,
+   decrypted; a table with included columns has a section in the export, and no other table does.
 7. Exceptions must carry `approved_by: PM` and a date.
 
 Additionally (M2): the YAML is parsed strictly, so a misspelled key fails instead of silently dropping a rule;
@@ -107,3 +109,4 @@ be named in a shrink-only list in the test.
 | 2026-10-29 (M2 review) | PM decision Q-31 (rank and gamble integrity): new column `achievements.deadline_enc` (C6, encrypted like `target_date`): the earliest target date in effect during the current attempt, used for lateness and Champion (A-35); derived from the target date the user already entered, so no new kind of personal data. `gambles` now allows one pending gamble per user instead of per achievement (an index, no new data). |
 | 2026-10-29 (M3, Q-34) | New column `quests.habit_week_start` (C6): the account's week start copied into a weekly habit when it starts or restarts, so a later change of the setting does not move its periods. A copy of an existing setting; no new kind of personal data. |
 | 2026-10-29 (M3, R-STR-01) | New column `quests.habit_best_streak` (C7): the longest streak of the quest's ended runs, derived from its check-ins before a restart replaces the run's start date; shown as the best streak and in the stats. Derived behavioural data like `reset_count`; no new kind of personal data. |
+| 2026-11-02 (M4, R-PRIV-05) | The export (`GET /v1/me/export`) is built, and step 6 of the guard holds it against this inventory: every `included` column of every exported table, decrypted. No new data or column. For it, the API reads the user's own audit events (C8, migration 0008): read access under RLS, for the user in context only. |

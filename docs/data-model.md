@@ -428,7 +428,7 @@ row is added here and in the test. Cascading deletes need no grant (they run as 
 | `sessions` | SELECT, INSERT, UPDATE | SELECT, DELETE | RLS |
 | `session_tokens` | SELECT, INSERT, UPDATE, DELETE | SELECT, DELETE | ⟂ lookup by token hash; a composite FK `(session_id, user_id)` → `sessions(id, user_id)` keeps its user equal to the session's |
 | `consents` | SELECT, INSERT, UPDATE | — | RLS |
-| `audit_events` | INSERT (own user, or NULL for unknown accounts) | SELECT, DELETE | RLS; the API cannot read audit events |
+| `audit_events` | SELECT (own user, for the export; migration 0008), INSERT (own user, or NULL for unknown accounts) | SELECT, DELETE | RLS; the API reads only the user in context's events and changes none |
 | `email_outbox` | INSERT | SELECT, UPDATE, DELETE | RLS |
 | `rate_limit_buckets` | SELECT, INSERT, UPDATE | SELECT, DELETE | ⟂ no user relation; UNLOGGED |
 | `deleted_user_tombstones` | — | SELECT, INSERT, DELETE | ⟂ no user relation |
@@ -482,18 +482,31 @@ delete policies on completed achievements and the ledger (§4). Code: `deleteGoa
 
 ## 6. Export document (R-PRIV-05) — shape
 
+The contract's `ExportDocument` (0.3.1, approved by the PM) defines every record; each is closed and lists every
+column that `docs/privacy/data-inventory.yaml` marks `included`, named after the column without `_enc`, decrypted,
+`null` where empty — `test/privacy/export.test.ts` holds the export against the inventory (step 6 of its guard).
+Abridged:
+
 ```json
 {
   "format": "questline-export",
   "version": 1,
-  "generated_at": "2026-10-22T10:00:00Z",
-  "account": { "id": "…", "email": "…", "nickname": "…", "timezone": "…", "locale": "…", "week_start": "monday", "age_confirmed": true, "created_at": "…", "email_verified_at": "…", "privacy_policy_version": "…", "deactivated_at": null },
-  "consents": [ { "type": "goal_content", "version": "…", "granted_at": "…", "withdrawn_at": null } ],
-  "sessions": [ { "id": "…", "client": "ios", "device_label": "…", "created_at": "…", "last_used_at": "…", "revoked_at": null } ],
-  "achievements": [ { "id": "…", "title": "…", "target_date": "…", "status": "completed", "attempt": 1, "rank": "gold", "execution_score": 78.5, "gambles": [ … ], "quests": [ { "id": "…", "…": "…", "reset_count": 0, "check_ins": [ { "…": "…", "attempt": 1, "counts_for_progress": true } ] } ] } ],
-  "xp_events": [ … ], "badges": [ … ], "audit_events": [ … ]
+  "generated_at": "2026-11-02T10:00:00.000Z",
+  "account": { "id": "…", "email": "…", "nickname": null, "timezone": "Europe/Zurich", "locale": "de-CH", "week_start": "monday", "age_confirmed": true, "privacy_policy_version": "2026-10-01", "email_verified_at": "…", "password_changed_at": "…", "deactivated_at": null, "created_at": "…", "updated_at": "…", "version": 2 },
+  "consents": [ { "id": "…", "type": "goal_content", "version": "2026-10-01", "granted_at": "…", "withdrawn_at": null } ],
+  "sessions": [ { "id": "…", "client": "ios", "device_label": "…", "created_at": "…", "last_used_at": "…", "last_reauth_at": "…", "absolute_expires_at": "…", "revoked_at": null, "revoked_reason": null } ],
+  "achievements": [ { "id": "…", "title": "…", "description": null, "target_date": "2026-11-30", "deadline": "2026-11-30", "status": "completed", "attempt": 1, "rank": "gold", "execution_score": 78.5, "…": "…",
+                      "gambles": [ { "id": "…", "achievement_id": "…", "stake": 150, "status": "won", "…": "…" } ],
+                      "quests": [ { "id": "…", "type": "habit", "habit_period": "day", "reset_count": 0, "habit_best_streak": 3, "…": "…",
+                                    "check_ins": [ { "id": "…", "local_date": "2026-10-30", "attempt": 1, "counts_for_progress": true, "value": null, "note": "…" } ] } ] } ],
+  "xp_events": [ { "id": "…", "kind": "quest_completed", "amount": 25, "quest_id": "…", "achievement_id": "…", "gamble_id": null, "local_date": "…", "created_at": "…" } ],
+  "badges": [ { "id": "…", "achievement_id": "…", "kind": "achievement_rank", "rank": "gold", "awarded_at": "…" } ],
+  "audit_events": [ { "id": "…", "event_type": "export_requested", "session_id": "…", "ip_prefix": "203.0.113.0/24", "client": null, "outcome": "success", "metadata": {}, "created_at": "…" } ]
 }
 ```
 
-Hashes (password, tokens) and wrapped keys are **not** exported (they are not personal data the user can use and
-exporting them would weaken security); the data inventory documents this exception.
+Hashes (password, tokens), wrapped keys and key versions are **not** exported (they are not personal data the user
+can use and exporting them would weaken security), nor the account's ID in every record (it is `account.id`) or
+bookkeeping (stored idempotent responses, the email outbox, the daily evaluation); the data inventory gives each
+reason. The export reads as of now (A-21): what time alone changed is stored first, as by every read. Its children
+of the unlimited archive (Q-40) are read by their parents' IDs in batches of 1 000 (`src/modules/privacy/export-repository.ts`).

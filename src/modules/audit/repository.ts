@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { and, eq, gt } from 'drizzle-orm';
 import type { Transaction } from '../../platform/db/database.ts';
 import { auditEvents } from '../../platform/db/schema/index.ts';
 
@@ -20,7 +21,8 @@ export type AuditEventType =
   | 'email_change_requested'
   | 'email_changed'
   | 'consent_granted'
-  | 'consent_withdrawn';
+  | 'consent_withdrawn'
+  | 'export_requested';
 
 export interface AuditEvent {
   /** `null` only for events about unknown accounts; otherwise the transaction's user context must be this user. */
@@ -34,7 +36,24 @@ export interface AuditEvent {
   readonly metadata?: Readonly<Record<string, string>>;
 }
 
-/** Appends an event. The API may only insert (no SELECT grant), so nothing is read back. */
+/** Appends an event in the transaction of the change it records, so both commit or neither does. */
 export async function recordAuditEvent(tx: Transaction, event: AuditEvent, now: Date): Promise<void> {
   await tx.insert(auditEvents).values({ id: randomUUID(), ...event, createdAt: now });
+}
+
+/**
+ * When the user's events of a type happened after `since`. The API reads only the user in context (RLS,
+ * migration 0008): the export shows them, and counts its own for its rolling limit (D-09).
+ */
+export async function auditEventTimes(
+  tx: Transaction,
+  userId: string,
+  eventType: AuditEventType,
+  since: Date,
+): Promise<Date[]> {
+  const rows = await tx
+    .select({ createdAt: auditEvents.createdAt })
+    .from(auditEvents)
+    .where(and(eq(auditEvents.userId, userId), eq(auditEvents.eventType, eventType), gt(auditEvents.createdAt, since)));
+  return rows.map((row) => row.createdAt);
 }

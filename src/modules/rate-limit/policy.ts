@@ -64,3 +64,25 @@ export function afterFailure(state: BucketState, backoff: Backoff, now: Date): B
 export function afterSuccess(state: BucketState, now: Date): BucketState {
   return { ...state, failures: 0, blockedUntil: null, updatedAt: now };
 }
+
+/** At most `limit` events in any span of `windowMs`. */
+export interface SlidingWindow {
+  readonly limit: number;
+  readonly windowMs: number;
+}
+
+/**
+ * A rolling window over the recorded events, for limits that must hold across any span — unlike the buckets, whose
+ * keys change every UTC day. 0 when one more event may happen at `now`; otherwise the milliseconds until enough of the
+ * recent events have left the window. An event stamped after `now` (another instance's clock running ahead) counts as
+ * recent.
+ */
+export function slidingWindowWait(window: SlidingWindow, events: readonly Date[], now: Date): number {
+  const since = now.getTime() - window.windowMs;
+  const recent = events
+    .map((event) => event.getTime())
+    .filter((time) => time > since)
+    .sort((a, b) => a - b);
+  const mustLeave = recent[recent.length - window.limit];
+  return mustLeave === undefined ? 0 : mustLeave - since;
+}

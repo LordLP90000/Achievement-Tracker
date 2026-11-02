@@ -19,7 +19,7 @@ for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for archi
 | [docs/requirements.md](docs/requirements.md) | Restated requirements, assumptions, open questions |
 | [docs/architecture.md](docs/architecture.md) | Architecture, folder structure, cross-cutting concerns |
 | [docs/data-model.md](docs/data-model.md) | PostgreSQL data model incl. encryption and ownership scoping |
-| [openapi/openapi.yaml](openapi/openapi.yaml) | OpenAPI 3.1 contract (written first, enforced by contract tests); frozen as `0.3.0` on 2026-11-02 — it only grows, each change approved by the PM ([snapshot](openapi/frozen/openapi-0.3.0.yaml)) |
+| [openapi/openapi.yaml](openapi/openapi.yaml) | OpenAPI 3.1 contract (written first, enforced by contract tests); frozen since `0.3.0` (2026-11-02) — it only grows, each change approved by the PM ([snapshot](openapi/frozen/openapi.yaml)) |
 | [docs/security/threat-model.md](docs/security/threat-model.md) | STRIDE threat model: threat → mitigation → test |
 | [docs/privacy/data-inventory.md](docs/privacy/data-inventory.md) | Data inventory (purpose, legal basis, retention, location) |
 | [docs/privacy/dpia.md](docs/privacy/dpia.md) | DPIA draft |

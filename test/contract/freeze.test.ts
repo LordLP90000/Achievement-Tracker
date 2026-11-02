@@ -8,28 +8,30 @@ import { NOT_YET_IMPLEMENTED } from './not-yet-implemented.ts';
 type Tree = Record<string, unknown>;
 
 /**
- * The core contract is frozen as 0.3.0 (Q-45): afterwards it only grows, each addition approved by the PM.
- * `openapi/frozen/openapi-0.3.0.yaml` is `openapi/openapi.yaml` as it was frozen, byte for byte.
+ * The core contract is frozen since 0.3.0 (Q-45): afterwards it only grows, each addition approved by the PM.
+ * `openapi/frozen/openapi.yaml` is `openapi/openapi.yaml` as last frozen, byte for byte: 0.3.0, renewed as 0.3.1 when
+ * `exportData` was implemented and joined the freeze.
  */
-const FROZEN = parse(readFileSync(new URL('../../openapi/frozen/openapi-0.3.0.yaml', import.meta.url), 'utf8')) as Tree;
+const FROZEN = parse(readFileSync(new URL('../../openapi/frozen/openapi.yaml', import.meta.url), 'utf8')) as Tree;
+const FROZEN_VERSION = '0.3.1';
 
 /**
- * Outside the freeze until M4 implements them, with their schemas `ExportDocument` and `AccountDeletionScheduled`
- * (PM, 2026-11-02). Shrink-only: an implemented operation joins the freeze, and the snapshot is then renewed from the
- * contract of that day, once that contract has passed this check against the old snapshot.
+ * Outside the freeze until M4 implements it, with its schema `AccountDeletionScheduled` (PM, 2026-11-02).
+ * Shrink-only: an implemented operation joins the freeze, and the snapshot is then renewed from the contract of that
+ * day, once that contract has passed this check against the old snapshot.
  */
-const OUTSIDE_FREEZE: ReadonlySet<string> = new Set(['exportData', 'deleteAccount']);
+const OUTSIDE_FREEZE: ReadonlySet<string> = new Set(['deleteAccount']);
 
 const nodeAt = (tree: Tree, ...keys: readonly string[]): Tree =>
   keys.reduce<Tree>((node, key) => node[key] as Tree, tree);
 
-describe('the core contract, frozen as 0.3.0 [Q-45, ADR-0010]', () => {
-  it('keeps every operation, parameter, response, property and value of 0.3.0 and requires nothing new', () => {
+describe('the core contract, frozen since 0.3.0 [Q-45, ADR-0010]', () => {
+  it('keeps every operation, parameter, response, property and value it froze and requires nothing new', () => {
     expect(breakingChanges(FROZEN, spec, OUTSIDE_FREEZE)).toEqual([]);
   });
 
-  it('compares against the snapshot of version 0.3.0', () => {
-    expect(nodeAt(FROZEN, 'info')['version']).toBe('0.3.0');
+  it('compares against the snapshot of the last frozen version', () => {
+    expect(nodeAt(FROZEN, 'info')['version']).toBe(FROZEN_VERSION);
   });
 
   it('notices when the contract loses something it froze', () => {

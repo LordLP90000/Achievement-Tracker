@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createDatabaseClient, type DatabaseClient } from '../../src/platform/db/client.ts';
+import { createDatabaseClient, withUserContext, type DatabaseClient } from '../../src/platform/db/client.ts';
 import { createTestDatabase, type TestDatabase } from '../helpers/database.ts';
 
 const INSUFFICIENT_PRIVILEGE = { code: '42501' };
@@ -13,7 +13,7 @@ const PRIVILEGES = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFEREN
  */
 const EXPECTED_GRANTS: Readonly<Record<string, { readonly app: string[]; readonly worker: string[] }>> = {
   achievements: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'UPDATE'] },
-  audit_events: { app: ['INSERT'], worker: ['SELECT', 'DELETE'] },
+  audit_events: { app: ['SELECT', 'INSERT'], worker: ['SELECT', 'DELETE'] },
   badges: { app: ['SELECT', 'INSERT', 'DELETE'], worker: ['SELECT', 'INSERT', 'DELETE'] },
   check_ins: { app: ['SELECT', 'INSERT', 'DELETE'], worker: ['SELECT'] },
   consents: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: [] },
@@ -98,6 +98,35 @@ describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {
       select has_schema_privilege('public', 'public', 'CREATE') as allowed`;
 
     expect(row?.allowed).toBe(false);
+  });
+
+  it('lets the app role read only the audit events of the user in context, for the export, and change none [R-PRIV-05, R-LOG-03]', async () => {
+    const [owner, other] = [randomUUID(), randomUUID()];
+    for (const userId of [owner, other]) {
+      await migrator.sql`
+        insert into users (id, email_enc, email_blind_index, password_hash, timezone, locale, age_confirmed,
+                           privacy_policy_version, password_changed_at, created_at, updated_at)
+        values (${userId}, ${Buffer.from([0])}, ${randomBytes(32)}, 'x', 'Europe/Zurich', 'de-CH', true, '1', now(), now(),
+                now())`;
+      await withUserContext(
+        app,
+        userId,
+        (tx) => tx`
+          insert into audit_events (id, user_id, event_type, outcome, created_at)
+          values (${randomUUID()}, ${userId}, 'login_succeeded', 'success', now())`,
+      );
+    }
+
+    const seen = await withUserContext(app, owner, (tx) => tx<{ user_id: string }[]>`select user_id from audit_events`);
+    const [unbound] = await app.sql<{ count: string }[]>`select count(*) from audit_events`;
+    expect(seen.map((row) => row.user_id)).toEqual([owner]);
+    expect(unbound?.count).toBe('0');
+    await expect(
+      withUserContext(app, owner, (tx) => tx`update audit_events set outcome = 'failure'`),
+    ).rejects.toMatchObject(INSUFFICIENT_PRIVILEGE);
+    await expect(withUserContext(app, owner, (tx) => tx`delete from audit_events`)).rejects.toMatchObject(
+      INSUFFICIENT_PRIVILEGE,
+    );
   });
 
   it('grants each role exactly the documented privileges on every table (least privilege)', async () => {

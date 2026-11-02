@@ -231,7 +231,7 @@ describe('container smoke test', () => {
     for (const value of [email, password]) expect(logs.stdout + logs.stderr).not.toContain(value);
   });
 
-  it('takes a new user from sign-up through the emailed link to their stats: the app journey [Q-45, R-AUTH-02]', async () => {
+  it('takes a new user from sign-up through the emailed link to their stats and data export: the app journey [Q-45, R-PRIV-05]', async () => {
     const email = `journey-${randomBytes(6).toString('hex')}@example.test`;
     const password = acceptedPassword();
     const today = zurichDate(new Date());
@@ -273,14 +273,22 @@ describe('container smoke test', () => {
     });
     const unlock = await checkIn(questIds[1]);
     const stats = await api('/v1/me/stats', { token: accessToken });
+    // The login above was the password entry the export needs (R-AUTH-06).
+    const exported = await api('/v1/me/export', { token: accessToken });
 
     expect(
-      [registered, verified, login, consent, achievement, firstCheckIn, gamble, unlock, stats].map((r) => r.status),
-    ).toEqual([202, 204, 200, 201, 201, 201, 201, 201, 200]);
+      [registered, verified, login, consent, achievement, firstCheckIn, gamble, unlock, stats, exported].map(
+        (r) => r.status,
+      ),
+    ).toEqual([202, 204, 200, 201, 201, 201, 201, 201, 200, 200]);
     expect(await gamble.json()).toMatchObject({ status: 'pending', stake: xpAboveLevel(25) });
     // Within 7 × 24 h of its creation an unlock pays no rank bonus and the win pays nothing (A-34).
     expect(await unlock.json()).toMatchObject({ achievement_unlocked: true, gamble: { outcome: 'won', xp_delta: 0 } });
     expect(await stats.json()).toMatchObject({ xp_total: 50, gambles: { won: 1, lost: 0 } });
+    expect(await exported.json()).toMatchObject({
+      account: { email },
+      achievements: [{ title: 'Run a half marathon', status: 'completed', gambles: [{ status: 'won' }] }],
+    });
     const logs = await compose('logs', '--no-color');
     for (const value of [email, password, token]) expect(logs.stdout + logs.stderr).not.toContain(value);
   });

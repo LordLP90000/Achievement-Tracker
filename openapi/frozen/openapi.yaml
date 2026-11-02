@@ -1,16 +1,16 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.3.0
+  version: 0.3.1
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
     Q-01…Q-24 in `docs/requirements.md` v2. Enforced by contract tests (ADR-0010).
     **Frozen as 0.3.0 on 2026-11-02 (Q-45):** from then on the contract only grows — new operations, optional
     parameters and properties, new responses and values — and every change needs the PM's approval;
-    `test/contract/freeze.test.ts` compares it with the snapshot `openapi/frozen/openapi-0.3.0.yaml`. Clients should
-    ignore properties and enum values they do not know yet. `exportData`, `deleteAccount` and their schemas join
-    the freeze when M4 implements them.
+    `test/contract/freeze.test.ts` compares it with the snapshot `openapi/frozen/openapi.yaml`, which is renewed
+    when an implemented operation joins the freeze (0.3.1: `exportData`). Clients should ignore properties and enum
+    values they do not know yet. `deleteAccount` and its schema join the freeze when M4 implements it.
     0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
     0.2.2 (2026-10-29): `429` documented on every authenticated operation (Q-30); gamble rules for parallel stakes
     and for the size of wins and losses (Q-31).
@@ -28,6 +28,8 @@ info:
     0.2.10 (2026-11-02): while a gamble is pending, a quest edit or deletion that would complete its achievement
     without a check-in → `409 gamble-pending` (Q-44).
     0.3.0 (2026-11-02): the core contract is frozen (Q-45); no operation changed.
+    0.3.1 (2026-11-02): the export document in detail — every record closed and complete against the data inventory
+    — and the export's rolling limit of 2 per 24 hours (R-PRIV-05; approved by the PM; `exportData` joins the freeze).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -572,7 +574,11 @@ paths:
       tags: [privacy]
       operationId: exportData
       summary: Export all personal data as JSON (access & portability)
-      description: Requires recent re-authentication; limited to 2 per 24 h; audit-logged.
+      description: |
+        Requires the password entered within the last 10 minutes (R-AUTH-06): otherwise `403`. At most 2 exports in any
+        24 hours, a rolling window (D-09): the 3rd → `429` with `Retry-After` until the oldest of them is 24 hours old.
+        Each export is audit-logged (`export_requested`, R-LOG-03). The document holds every stored field of the
+        account, decrypted, as the data inventory lists them (`ExportDocument`); the archive has no limit (Q-40).
       responses:
         '200':
           description: Export document.
@@ -1966,16 +1972,293 @@ components:
     # ── export ──
     ExportDocument:
       type: object
+      additionalProperties: false
       required: [format, version, generated_at, account, consents, sessions, achievements, xp_events, badges, audit_events]
+      description: |
+        Every stored field of the account, decrypted (R-PRIV-05). Each record lists every column that the data
+        inventory (`docs/privacy/data-inventory.yaml`) marks `included`, named after the column without `_enc`, and
+        `null` where empty. Not exported: the password hash, tokens, wrapped keys and key versions, the account's ID in
+        every record (it is `account.id`), and bookkeeping (stored idempotent responses, the email outbox, the daily
+        evaluation). Gambles and quests are listed with their achievement, check-ins with their quest.
       properties:
         format: { type: string, const: questline-export }
         version: { type: integer, const: 1 }
         generated_at: { $ref: '#/components/schemas/Timestamp' }
-        account: { type: object }
-        consents: { type: array, items: { type: object } }
-        sessions: { type: array, items: { type: object } }
-        achievements: { type: array, items: { type: object } }
-        xp_events: { type: array, items: { type: object } }
-        badges: { type: array, items: { type: object } }
-        audit_events: { type: array, items: { type: object } }
-      description: Full shape in docs/data-model.md §6; detailed sub-schemas are added in M4.
+        account: { $ref: '#/components/schemas/ExportAccount' }
+        consents:
+          type: array
+          items: { $ref: '#/components/schemas/ExportConsent' }
+        sessions:
+          type: array
+          description: Device sessions, revoked and expired ones until they are deleted 7 days later.
+          items: { $ref: '#/components/schemas/ExportSession' }
+        achievements:
+          type: array
+          items: { $ref: '#/components/schemas/ExportAchievement' }
+        xp_events:
+          type: array
+          description: The XP ledger; the events of deleted quests, achievements and gambles keep their amount without the reference.
+          items: { $ref: '#/components/schemas/ExportXpEvent' }
+        badges:
+          type: array
+          items: { $ref: '#/components/schemas/ExportBadge' }
+        audit_events:
+          type: array
+          description: Security events of the last 90 days (R-LOG-03), this export's own included.
+          items: { $ref: '#/components/schemas/ExportAuditEvent' }
+    ExportAccount:
+      type: object
+      additionalProperties: false
+      required: [id, email, nickname, timezone, locale, week_start, age_confirmed, privacy_policy_version, email_verified_at, password_changed_at, deactivated_at, created_at, updated_at, version]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        email: { $ref: '#/components/schemas/Email' }
+        nickname:
+          oneOf:
+            - $ref: '#/components/schemas/Nickname'
+            - type: 'null'
+        timezone: { $ref: '#/components/schemas/Timezone' }
+        locale: { $ref: '#/components/schemas/Locale' }
+        week_start: { $ref: '#/components/schemas/WeekStart' }
+        age_confirmed: { type: boolean }
+        privacy_policy_version: { type: string, pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }
+        email_verified_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        password_changed_at: { $ref: '#/components/schemas/Timestamp' }
+        deactivated_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        version: { $ref: '#/components/schemas/Version' }
+    ExportConsent:
+      type: object
+      additionalProperties: false
+      required: [id, type, version, granted_at, withdrawn_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        type: { $ref: '#/components/schemas/ConsentType' }
+        version: { $ref: '#/components/schemas/ConsentVersion' }
+        granted_at: { $ref: '#/components/schemas/Timestamp' }
+        withdrawn_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+    ExportSession:
+      type: object
+      additionalProperties: false
+      required: [id, client, device_label, created_at, last_used_at, last_reauth_at, absolute_expires_at, revoked_at, revoked_reason]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        client: { $ref: '#/components/schemas/Client' }
+        device_label:
+          oneOf:
+            - { type: string, maxLength: 64 }
+            - type: 'null'
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        last_used_at: { $ref: '#/components/schemas/Timestamp' }
+        last_reauth_at: { $ref: '#/components/schemas/Timestamp' }
+        absolute_expires_at: { $ref: '#/components/schemas/Timestamp' }
+        revoked_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        revoked_reason:
+          oneOf:
+            - type: string
+              enum: [logout, logout_all, user_revoked, password_changed, password_reset, refresh_reuse, expired, account_deleted, session_limit]
+            - type: 'null'
+    ExportAchievement:
+      type: object
+      additionalProperties: false
+      required: [id, title, description, motivation, category, target_date, deadline, status, is_private, attempt, completed_at, execution_score, rank, created_at, updated_at, version, gambles, quests]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        title: { type: string }
+        description: { type: ['string', 'null'] }
+        motivation: { type: ['string', 'null'] }
+        category: { type: ['string', 'null'] }
+        target_date:
+          oneOf:
+            - $ref: '#/components/schemas/LocalDate'
+            - type: 'null'
+        deadline:
+          oneOf:
+            - $ref: '#/components/schemas/LocalDate'
+            - type: 'null'
+          description: The earliest target date in effect during the current attempt, used for lateness and Champion (A-35).
+        status: { $ref: '#/components/schemas/AchievementStatus' }
+        is_private: { type: boolean }
+        attempt: { type: integer, minimum: 1 }
+        completed_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        execution_score:
+          oneOf:
+            - $ref: '#/components/schemas/ExecutionScore'
+            - type: 'null'
+        rank:
+          oneOf:
+            - $ref: '#/components/schemas/Rank'
+            - type: 'null'
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        version: { $ref: '#/components/schemas/Version' }
+        gambles:
+          type: array
+          items: { $ref: '#/components/schemas/ExportGamble' }
+        quests:
+          type: array
+          items: { $ref: '#/components/schemas/ExportQuest' }
+    ExportGamble:
+      type: object
+      additionalProperties: false
+      required: [id, achievement_id, attempt, stake, status, loss_reason, placed_at, settled_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        achievement_id: { $ref: '#/components/schemas/Uuid' }
+        attempt: { type: integer, minimum: 1 }
+        stake: { $ref: '#/components/schemas/XpTotal' }
+        status: { $ref: '#/components/schemas/GambleStatus' }
+        loss_reason:
+          oneOf:
+            - $ref: '#/components/schemas/GambleLossReason'
+            - type: 'null'
+        placed_at: { $ref: '#/components/schemas/Timestamp' }
+        settled_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+    ExportQuest:
+      type: object
+      additionalProperties: false
+      required: [id, achievement_id, position, type, size, is_required, prerequisite_quest_id, title, notes, unit, start_value, target_value, habit_period, habit_times_per_period, habit_period_count, habit_start_date, habit_week_start, reset_count, habit_best_streak, needs_restart, completed_at, created_at, updated_at, version, check_ins]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        achievement_id: { $ref: '#/components/schemas/Uuid' }
+        position: { type: integer, minimum: 0 }
+        type: { $ref: '#/components/schemas/QuestType' }
+        size: { $ref: '#/components/schemas/QuestSize' }
+        is_required: { type: boolean }
+        prerequisite_quest_id:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        title: { type: string }
+        notes: { type: ['string', 'null'] }
+        unit: { type: ['string', 'null'] }
+        start_value:
+          oneOf:
+            - $ref: '#/components/schemas/Decimal'
+            - type: 'null'
+        target_value:
+          oneOf:
+            - $ref: '#/components/schemas/Decimal'
+            - type: 'null'
+        habit_period:
+          oneOf:
+            - $ref: '#/components/schemas/HabitPeriod'
+            - type: 'null'
+        habit_times_per_period: { type: ['integer', 'null'], minimum: 1 }
+        habit_period_count: { type: ['integer', 'null'], minimum: 1 }
+        habit_start_date:
+          oneOf:
+            - $ref: '#/components/schemas/LocalDate'
+            - type: 'null'
+        habit_week_start:
+          oneOf:
+            - $ref: '#/components/schemas/WeekStart'
+            - type: 'null'
+        reset_count: { type: integer, minimum: 0 }
+        habit_best_streak: { type: integer, minimum: 0 }
+        needs_restart: { type: boolean }
+        completed_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+        version: { $ref: '#/components/schemas/Version' }
+        check_ins:
+          type: array
+          items: { $ref: '#/components/schemas/ExportCheckIn' }
+    ExportCheckIn:
+      type: object
+      additionalProperties: false
+      required: [id, quest_id, local_date, attempt, counts_for_progress, value, note, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        quest_id: { $ref: '#/components/schemas/Uuid' }
+        local_date: { $ref: '#/components/schemas/LocalDate' }
+        attempt: { type: integer, minimum: 1 }
+        counts_for_progress: { type: boolean }
+        value:
+          oneOf:
+            - $ref: '#/components/schemas/Decimal'
+            - type: 'null'
+        note: { type: ['string', 'null'] }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    ExportXpEvent:
+      type: object
+      additionalProperties: false
+      required: [id, kind, amount, quest_id, achievement_id, gamble_id, local_date, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        kind:
+          type: string
+          enum: [quest_completed, quest_uncompleted, rank_bonus, rank_bonus_revoked, gamble_won, gamble_lost, gamble_reverted, pause_revoked, quest_deleted, achievement_deleted, xp_floor]
+        amount: { $ref: '#/components/schemas/XpDelta' }
+        quest_id:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        achievement_id:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        gamble_id:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        local_date: { $ref: '#/components/schemas/LocalDate' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    ExportBadge:
+      type: object
+      additionalProperties: false
+      required: [id, achievement_id, kind, rank, awarded_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        achievement_id: { $ref: '#/components/schemas/Uuid' }
+        kind: { type: string, enum: [achievement_rank] }
+        rank: { $ref: '#/components/schemas/Rank' }
+        awarded_at: { $ref: '#/components/schemas/Timestamp' }
+    ExportAuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, event_type, session_id, ip_prefix, client, outcome, metadata, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        event_type:
+          type: string
+          enum: [login_succeeded, login_failed, logout, session_revoked, refresh_reuse_detected, password_changed, password_reset_requested, password_reset_completed, email_change_requested, email_changed, email_verified, consent_granted, consent_withdrawn, export_requested, account_deleted, account_reactivated, reauth_succeeded, reauth_failed, rate_limited]
+        session_id:
+          oneOf:
+            - $ref: '#/components/schemas/Uuid'
+            - type: 'null'
+        ip_prefix:
+          type: ['string', 'null']
+          description: The client's network only — IPv4 /24, IPv6 /48 — never its address (C8).
+        client:
+          oneOf:
+            - $ref: '#/components/schemas/Client'
+            - type: 'null'
+        outcome: { type: string, enum: [success, failure] }
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+          description: Short reason codes only, never user input.
+        created_at: { $ref: '#/components/schemas/Timestamp' }

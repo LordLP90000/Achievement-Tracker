@@ -57,6 +57,13 @@
       "when": 1793391162341,
       "tag": "0007_goal_evaluations",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793642391009,
+      "tag": "0008_export_reads_audit_events",
+      "breakpoints": true
     }
   ]
 }

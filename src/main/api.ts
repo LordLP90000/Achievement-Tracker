@@ -10,6 +10,7 @@ import { createAchievementsService } from '../modules/achievements/service.ts';
 import { createCheckInsService } from '../modules/check-ins/service.ts';
 import { createConsentsService } from '../modules/consents/service.ts';
 import { createGamblesService } from '../modules/gambles/service.ts';
+import { createExportService } from '../modules/privacy/export-service.ts';
 import { createQuestsService } from '../modules/quests/service.ts';
 import { createRateLimiter } from '../modules/rate-limit/limiter.ts';
 import { createSessionsService } from '../modules/sessions/service.ts';
@@ -67,6 +68,7 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
     rateLimiter: createRateLimiter({ ...shared, rateLimitKey: keys.rateLimitKey }),
     sessions: createSessionsService(shared),
     stats: createStatsService(shared),
+    exports: createExportService(shared),
   };
   const app = buildApp({ http: config.http, logger, readiness: databaseReadiness(database), services });
   try {

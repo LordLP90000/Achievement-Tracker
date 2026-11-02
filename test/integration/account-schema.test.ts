@@ -264,7 +264,7 @@ describe('account tables', () => {
     else await expect(attempt).rejects.toMatchObject(outcome === 'check' ? CHECK_VIOLATION : INVALID_TEXT);
   });
 
-  it('lets the API record audit events for unknown accounts, but never read them or write them for another user', async () => {
+  it('lets the API record audit events for unknown accounts, read only its own user’s — for the export — and never write them for another user [R-PRIV-05]', async () => {
     const { userId } = await seedAccount();
     const other = await seedAccount();
 
@@ -272,9 +272,14 @@ describe('account tables', () => {
     await expect(appInsert(userId, 'audit_events', rows.auditEvent(other.userId))).rejects.toMatchObject(
       INSUFFICIENT_PRIVILEGE,
     );
-    await expect(withUserContext(app, userId, (tx) => tx`select count(*) from audit_events`)).rejects.toMatchObject(
-      INSUFFICIENT_PRIVILEGE,
+    await appInsert(other.userId, 'audit_events', rows.auditEvent(other.userId));
+
+    const seen = await withUserContext(
+      app,
+      userId,
+      (tx) => tx<{ user_id: string | null }[]>`select user_id from audit_events`,
     );
+    expect(seen.map((row) => row.user_id)).toEqual([userId]);
   });
 
   it('stores delivery errors as codes only, never as free text that could hold an address', async () => {

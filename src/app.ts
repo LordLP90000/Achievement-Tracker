@@ -17,6 +17,8 @@ import { gamblesRoutes } from './modules/gambles/routes.ts';
 import type { GamblesService } from './modules/gambles/service.ts';
 import type { ConsentsService } from './modules/consents/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
+import type { ExportService } from './modules/privacy/export-service.ts';
+import { privacyRoutes } from './modules/privacy/routes.ts';
 import { questsRoutes } from './modules/quests/routes.ts';
 import type { QuestsService } from './modules/quests/service.ts';
 import { registerRequestLimits } from './modules/rate-limit/http.ts';
@@ -41,6 +43,7 @@ export interface AppServices {
   readonly checkIns: CheckInsService;
   readonly consents: ConsentsService;
   readonly emailChanges: EmailChangeService;
+  readonly exports: ExportService;
   readonly gambles: GamblesService;
   readonly passwords: PasswordsService;
   readonly profiles: ProfileService;
@@ -99,6 +102,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(checkInsRoutes, { checkIns: deps.services.checkIns });
       void v1.register(gamblesRoutes, { gambles: deps.services.gambles });
       void v1.register(statsRoutes, { stats: deps.services.stats });
+      void v1.register(privacyRoutes, { exports: deps.services.exports });
       done();
     },
     { prefix: API_PREFIX },

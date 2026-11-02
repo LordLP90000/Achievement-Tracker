@@ -1,8 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parse } from 'yaml';
-import { z } from 'zod';
 import { createDatabaseClient, type DatabaseClient } from '../../src/platform/db/client.ts';
+import { inventorySchema, rawInventory, type Inventory } from '../helpers/data-inventory.ts';
 import { createTestDatabase, type TestDatabase } from '../helpers/database.ts';
 
 /**
@@ -11,43 +9,7 @@ import { createTestDatabase, type TestDatabase } from '../helpers/database.ts';
  */
 const NOT_YET_MIGRATED: string[] = [];
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const deletionSchema = z.enum(['cascade', 'purge-job', 'consent-withdrawal', 'not-applicable']);
-const exportSchema = z.enum(['included', 'excluded']);
-const approval = {
-  approved_by: z.literal('PM').optional(),
-  approved_on: z.string().regex(ISO_DATE).optional(),
-};
-const columnSchema = z.strictObject({
-  category: z.string().regex(/^C(?:[1-9]|1[0-5])$/),
-  personal: z.boolean(),
-  encrypted: z.boolean().optional(),
-  export: exportSchema.optional(),
-  export_reason: z.string().min(3).optional(),
-  deletion: deletionSchema.optional(),
-  deletion_reason: z.string().min(3).optional(),
-  retention: z.string().min(3).optional(),
-  ...approval,
-});
-const tableSchema = z.strictObject({
-  user_relation: z.string().min(1),
-  deletion: deletionSchema.optional(),
-  deletion_reason: z.string().min(3).optional(),
-  retention: z.string().min(3).optional(),
-  ...approval,
-  columns: z.record(z.string(), columnSchema),
-});
-/** Strict: a misspelled key (`exprot: excluded`) fails instead of silently dropping a rule. */
-const inventorySchema = z.strictObject({
-  version: z.number().int(),
-  updated: z.string().regex(ISO_DATE),
-  defaults: z.strictObject({ export: exportSchema, deletion: deletionSchema, retention: z.string().min(3) }),
-  tables: z.record(z.string(), tableSchema),
-});
-
-type Inventory = z.infer<typeof inventorySchema>;
-
-const raw: unknown = parse(readFileSync('docs/privacy/data-inventory.yaml', 'utf8'));
+const raw = rawInventory();
 
 /** docs/privacy/data-inventory.md §6: the inventory must describe the real schema exactly [R-PRIV-08]. */
 describe('data-inventory guard', () => {

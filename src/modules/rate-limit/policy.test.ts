@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { afterFailure, afterSuccess, blockedFor, freshBucket, takeToken, type BucketState } from './policy.ts';
+import {
+  afterFailure,
+  afterSuccess,
+  blockedFor,
+  freshBucket,
+  slidingWindowWait,
+  takeToken,
+  type BucketState,
+} from './policy.ts';
 
 const T0 = new Date('2026-10-29T12:00:00Z');
 const at = (ms: number) => new Date(T0.getTime() + ms);
@@ -88,5 +96,27 @@ describe('progressive backoff after failures [D-04]', () => {
     const many: BucketState = { ...freshBucket(0, T0), failures: 1_000_000 };
 
     expect(afterFailure(many, backoff, T0).failures).toBe(1_000_000);
+  });
+});
+
+describe('sliding window: at most n events in any span [R-PRIV-05, D-09]', () => {
+  const HOUR = 3_600_000;
+  const twicePerDay = { limit: 2, windowMs: 24 * HOUR };
+
+  it('lets events through until the window holds the limit', () => {
+    expect(slidingWindowWait(twicePerDay, [], T0)).toBe(0);
+    expect(slidingWindowWait(twicePerDay, [at(-HOUR)], T0)).toBe(0);
+  });
+
+  it('then waits until the earliest event that must go leaves the window, not until a calendar day ends', () => {
+    expect(slidingWindowWait(twicePerDay, [at(-2 * HOUR), at(-HOUR)], T0)).toBe(22 * HOUR);
+    expect(slidingWindowWait(twicePerDay, [at(-HOUR), at(-2 * HOUR)], T0)).toBe(22 * HOUR);
+    expect(slidingWindowWait(twicePerDay, [at(-3 * HOUR), at(-2 * HOUR), at(-HOUR)], T0)).toBe(22 * HOUR);
+  });
+
+  it('forgets an event exactly one window old, and counts one stamped after now (a clock ahead) as recent', () => {
+    expect(slidingWindowWait(twicePerDay, [at(-24 * HOUR), at(-HOUR)], T0)).toBe(0);
+    expect(slidingWindowWait(twicePerDay, [at(-24 * HOUR + 1), at(-HOUR)], T0)).toBe(1);
+    expect(slidingWindowWait(twicePerDay, [at(-HOUR), at(HOUR)], T0)).toBe(23 * HOUR);
   });
 });
