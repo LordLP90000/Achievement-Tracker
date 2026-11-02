@@ -13,10 +13,10 @@ amended on 2026-10-22).
 | M1 Walking skeleton | repo, tooling, Docker, CI gates, config/secrets, health, Testcontainers + contract harness | 4–6 | "go" (Q-20 Node 26, Q-21 RLS, Q-22 housekeeping are decided) |
 | M2 Accounts & sessions | crypto platform, registration/verification/login/refresh/reset, sessions, re-auth, consent, audit, rate limiting, outbox/worker, email adapter | 10–14 | none: built against local stand-ins for the SMTP relay and the Connect server (Q-27); O-02/O-03 needed before M6 (Q-02/03/06/07/09/14/15/23 are decided) |
 | M3 Core domain | domain engine (+ Stryker), achievements/quests/check-ins, field encryption, idempotency, concurrency, stats, ownership tests for every endpoint | 13–17 (+1 for Q-30/Q-31, 2026-10-29) | none: O-05 (Q-32), O-06 (Q-31) and O-07 (Q-30) were decided at the M2 review on 2026-10-29; A-26…A-28 accepted (Q-04/05/08/12/16/17/18/24 are decided) |
-| M4 Privacy rights | export, deletion + crypto-shredding + tombstones, consent withdrawal effects, retention jobs, data-inventory guard test; first the M3 review follow-ups (Q-44, Q-45) | 6.5–9.5 (5–7 + 1.5–2.5 for Q-44/Q-45, 2026-11-02) | – (Q-10/11/13 are decided) |
+| M4 Privacy rights | export, deletion + crypto-shredding + tombstones, consent withdrawal effects, retention jobs, data-inventory guard test; first the M3 review follow-ups (Q-44, Q-45) | 6.5–9.5 (5–7 + 1.5–2.5 for Q-44/Q-45, 2026-11-02) + 1 after its review (Q-47/Q-48) | – (Q-10/11/13 are decided) |
 | M5 Auth hardening | passkeys (WebAuthn), optional TOTP 2FA, recovery codes, step-up | 7–10 | approval of WebAuthn library dependency; RP ID/domain (Q-19) |
 | M6 Hardening & handover | DAST (ZAP) + load/limits (k6) on staging, deployment config for the chosen provider, runbooks (ops, key rotation, restore drill, breach), API docs, DP-expert review package (`client-security.md` moved to M4, Q-45) | 5.5–8.5 | O-01 hosting named (accounts/credentials for staging), O-04 consent and policy texts, budget |
-| **Total** | | **53–75** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log; +1 on 2026-10-29 for Q-30/Q-31; +1–2 on 2026-11-02 for Q-44/Q-45) | |
+| **Total** | | **54–76** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log; +1 on 2026-10-29 for Q-30/Q-31; +1–2 on 2026-11-02 for Q-44/Q-45; +1 at the M4 review for Q-47/Q-48) | |
 
 ## Change log 2026-10-22 — impact of the PM's decisions (Q-01…Q-24)
 
@@ -44,6 +44,14 @@ Risk buffer: +15 % recommended for unknowns in external interfaces (1Password Co
 |----------|--------|--------------|
 | Q-44 no gamble won without the work | `409 gamble-pending` for three quest changes while a gamble is pending; additive contract text | M4 +0.5 d (first) |
 | Q-45 the mobile app starts now | contract frozen as `0.3.0`; a mail catcher in the local Compose stack; `docs/client-security.md` moved from M6 | M4 +1–2 d (before M4's own work), M6 −0.5 d |
+
+## Change log 2026-11-02 — M4 review (Q-47…Q-49)
+
+| Decision | Impact | Effort delta |
+|----------|--------|--------------|
+| Q-47 no work taken away while a gamble is pending | `409 gamble-pending` for quest changes that lower what the achievement's open required quests ask for; additive contract text | M4 +0.5 d (before M5) |
+| Q-48 a password reset reactivates an account pending deletion | forgot-password and reset for accounts pending deletion, the worker sends their reset links, the deletion notice's copy; additive contract text | M4 +0.5 d (before M5) |
+| Q-49 dependency exceptions extended to 2027-01-31 | `osv-scanner.toml`; re-checked at every milestone | – |
 
 ## M1 — Walking skeleton (4–6 days)
 
