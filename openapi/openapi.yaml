@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.3.1
+  version: 0.3.2
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -9,8 +9,8 @@ info:
     **Frozen as 0.3.0 on 2026-11-02 (Q-45):** from then on the contract only grows — new operations, optional
     parameters and properties, new responses and values — and every change needs the PM's approval;
     `test/contract/freeze.test.ts` compares it with the snapshot `openapi/frozen/openapi.yaml`, which is renewed
-    when an implemented operation joins the freeze (0.3.1: `exportData`). Clients should ignore properties and enum
-    values they do not know yet. `deleteAccount` and its schema join the freeze when M4 implements it.
+    when an implemented operation joins the freeze (0.3.1: `exportData`, 0.3.2: `deleteAccount`). Clients should
+    ignore properties and enum values they do not know yet. Since 0.3.2 every operation is frozen.
     0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
     0.2.2 (2026-10-29): `429` documented on every authenticated operation (Q-30); gamble rules for parallel stakes
     and for the size of wins and losses (Q-31).
@@ -30,6 +30,8 @@ info:
     0.3.0 (2026-11-02): the core contract is frozen (Q-45); no operation changed.
     0.3.1 (2026-11-02): the export document in detail — every record closed and complete against the data inventory
     — and the export's rolling limit of 2 per 24 hours (R-PRIV-05; approved by the PM; `exportData` joins the freeze).
+    0.3.2 (2026-11-02): `deleteAccount` implemented as described and frozen with `AccountDeletionScheduled`; no
+    operation changed.
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.

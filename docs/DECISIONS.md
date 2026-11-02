@@ -210,7 +210,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   property no longer always present (rules in `test/helpers/contract-freeze.ts`, each tested in
   `contract-freeze.test.ts`). Formats, patterns, bounds and conditional rules are not compared. `exportData` and
   `deleteAccount` (with `ExportDocument` and `AccountDeletionScheduled`) stay outside until M4 implements them; the
-  snapshot is then renewed from the contract of that day, once it passed the check — as `0.3.1` with the export.
+  snapshot is then renewed from the contract of that day, once it passed the check — as `0.3.1` with the export and
+  as `0.3.2` with the deletion, since when every operation is frozen.
   Chosen by the PM over oasdiff, which would have added a tool to CI.
 
 ## ADR-0011 · Timezone handling with `Intl` only; `local_date` stored per check-in

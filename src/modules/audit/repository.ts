@@ -22,7 +22,8 @@ export type AuditEventType =
   | 'email_changed'
   | 'consent_granted'
   | 'consent_withdrawn'
-  | 'export_requested';
+  | 'export_requested'
+  | 'account_deleted';
 
 export interface AuditEvent {
   /** `null` only for events about unknown accounts; otherwise the transaction's user context must be this user. */

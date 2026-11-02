@@ -17,6 +17,7 @@ import { gamblesRoutes } from './modules/gambles/routes.ts';
 import type { GamblesService } from './modules/gambles/service.ts';
 import type { ConsentsService } from './modules/consents/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
+import type { DeletionService } from './modules/privacy/deletion-service.ts';
 import type { ExportService } from './modules/privacy/export-service.ts';
 import { privacyRoutes } from './modules/privacy/routes.ts';
 import { questsRoutes } from './modules/quests/routes.ts';
@@ -42,6 +43,7 @@ export interface AppServices {
   readonly achievements: AchievementsService;
   readonly checkIns: CheckInsService;
   readonly consents: ConsentsService;
+  readonly deletions: DeletionService;
   readonly emailChanges: EmailChangeService;
   readonly exports: ExportService;
   readonly gambles: GamblesService;
@@ -102,7 +104,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(checkInsRoutes, { checkIns: deps.services.checkIns });
       void v1.register(gamblesRoutes, { gambles: deps.services.gambles });
       void v1.register(statsRoutes, { stats: deps.services.stats });
-      void v1.register(privacyRoutes, { exports: deps.services.exports });
+      void v1.register(privacyRoutes, { exports: deps.services.exports, deletions: deps.services.deletions });
       done();
     },
     { prefix: API_PREFIX },

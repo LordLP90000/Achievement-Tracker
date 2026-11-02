@@ -25,6 +25,7 @@ export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
     delete: unavailable,
   },
   checkIns: { create: unavailable, list: unavailable, undo: unavailable },
+  deletions: { requestDeletion: unavailable },
   passwords: { change: unavailable, requestReset: unavailable, reset: unavailable },
   emailChanges: { request: unavailable, confirm: unavailable },
   exports: { export: unavailable },

@@ -10,17 +10,18 @@ type Tree = Record<string, unknown>;
 /**
  * The core contract is frozen since 0.3.0 (Q-45): afterwards it only grows, each addition approved by the PM.
  * `openapi/frozen/openapi.yaml` is `openapi/openapi.yaml` as last frozen, byte for byte: 0.3.0, renewed as 0.3.1 when
- * `exportData` was implemented and joined the freeze.
+ * `exportData` and as 0.3.2 when `deleteAccount` was implemented and joined the freeze.
  */
 const FROZEN = parse(readFileSync(new URL('../../openapi/frozen/openapi.yaml', import.meta.url), 'utf8')) as Tree;
-const FROZEN_VERSION = '0.3.1';
+const FROZEN_VERSION = '0.3.2';
 
 /**
- * Outside the freeze until M4 implements it, with its schema `AccountDeletionScheduled` (PM, 2026-11-02).
- * Shrink-only: an implemented operation joins the freeze, and the snapshot is then renewed from the contract of that
- * day, once that contract has passed this check against the old snapshot.
+ * Operations not frozen yet: none since `deleteAccount` joined with 0.3.2 (PM, 2026-11-02: implemented operations
+ * join the freeze). Shrink-only: an operation here must still be unimplemented; once implemented it joins the
+ * freeze, and the snapshot is then renewed from the contract of that day, once that contract has passed this check
+ * against the old snapshot.
  */
-const OUTSIDE_FREEZE: ReadonlySet<string> = new Set(['deleteAccount']);
+const OUTSIDE_FREEZE: ReadonlySet<string> = new Set<string>();
 
 const nodeAt = (tree: Tree, ...keys: readonly string[]): Tree =>
   keys.reduce<Tree>((node, key) => node[key] as Tree, tree);

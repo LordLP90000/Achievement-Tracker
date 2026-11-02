@@ -7,5 +7,4 @@ export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   // M2 — accounts & sessions
   // M3 — core domain
   // M4 — privacy rights
-  'deleteAccount',
 ]);

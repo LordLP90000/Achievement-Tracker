@@ -11,6 +11,7 @@ import { createAchievementsService } from '../../src/modules/achievements/servic
 import { createCheckInsService } from '../../src/modules/check-ins/service.ts';
 import { createConsentsService } from '../../src/modules/consents/service.ts';
 import { createGamblesService } from '../../src/modules/gambles/service.ts';
+import { createDeletionService } from '../../src/modules/privacy/deletion-service.ts';
 import { createExportService } from '../../src/modules/privacy/export-service.ts';
 import { createQuestsService } from '../../src/modules/quests/service.ts';
 import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
@@ -141,6 +142,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
         achievements: createAchievementsService(shared),
         checkIns: createCheckInsService(shared),
         consents: createConsentsService(shared),
+        deletions: createDeletionService(shared),
         emailChanges: createEmailChangeService(shared),
         exports: createExportService(shared),
         gambles: createGamblesService(shared),

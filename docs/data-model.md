@@ -466,6 +466,10 @@ ledger amounts that are 0 or have the wrong sign. Tested in `test/integration/go
 
 1. **Request** (`DELETE /v1/me`, re-auth): sets `users.deactivated_at`, revokes every session and token, writes
    an audit event, sends a notice email with the reactivation deadline. No other endpoint accepts the account.
+   One transaction under the account row's lock (`src/modules/privacy/deletion-service.ts`): every session of the
+   user ends (reason `account_deleted`, tokens deleted), every one-time token is deleted — used ones too, so no
+   emailed link answers any more — and the audit event and the notice commit with it. A request whose session ended
+   meanwhile (a simultaneous deletion from another device) changes nothing and gets `401`.
 2. **Reactivation**: a successful `POST /v1/auth/login` within 30 days clears `deactivated_at` (audited).
 3. **Hard delete** (worker job, daily): for every user with `deactivated_at < now − 30 days`,
    `DELETE FROM users WHERE id = $1` inside one transaction removes, via `ON DELETE CASCADE`: `user_keys`

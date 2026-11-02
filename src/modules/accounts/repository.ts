@@ -222,6 +222,11 @@ export async function deleteUnusedOneTimeTokens(tx: Transaction, userId: string)
   await tx.delete(oneTimeTokens).where(and(eq(oneTimeTokens.userId, userId), isNull(oneTimeTokens.usedAt)));
 }
 
+/** Voids every link of the user, used ones too: a replayed verification link no longer answers either (E-13). */
+export async function deleteOneTimeTokens(tx: Transaction, userId: string): Promise<void> {
+  await tx.delete(oneTimeTokens).where(eq(oneTimeTokens.userId, userId));
+}
+
 /**
  * Moves the account to a new, verified address. Runs in a savepoint: if the address was registered meanwhile, the
  * unique blind index refuses it and `false` is returned with the outer transaction still usable.

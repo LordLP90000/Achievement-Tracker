@@ -90,10 +90,12 @@ describe('container smoke test', () => {
     readonly body?: unknown;
     /** Sends a fresh `Idempotency-Key`, as every create needs. */
     readonly create?: boolean;
+    /** Otherwise GET without a body and POST with one. */
+    readonly method?: 'DELETE';
   }
-  const api = (path: string, { token, body, create = false }: Request = {}) =>
+  const api = (path: string, { token, body, create = false, method }: Request = {}) =>
     fetch(`${baseUrl}${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
+      method: method ?? (body === undefined ? 'GET' : 'POST'),
       headers: {
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
@@ -231,7 +233,7 @@ describe('container smoke test', () => {
     for (const value of [email, password]) expect(logs.stdout + logs.stderr).not.toContain(value);
   });
 
-  it('takes a new user from sign-up through the emailed link to their stats and data export: the app journey [Q-45, R-PRIV-05]', async () => {
+  it('takes a new user from sign-up through the emailed link to their stats, data export and account deletion: the app journey [Q-45, R-PRIV-05, R-PRIV-06]', async () => {
     const email = `journey-${randomBytes(6).toString('hex')}@example.test`;
     const password = acceptedPassword();
     const today = zurichDate(new Date());
@@ -275,6 +277,8 @@ describe('container smoke test', () => {
     const stats = await api('/v1/me/stats', { token: accessToken });
     // The login above was the password entry the export needs (R-AUTH-06).
     const exported = await api('/v1/me/export', { token: accessToken });
+    const deleted = await api('/v1/me', { token: accessToken, method: 'DELETE' });
+    const afterDeletion = await api('/v1/me', { token: accessToken });
 
     expect(
       [registered, verified, login, consent, achievement, firstCheckIn, gamble, unlock, stats, exported].map(
@@ -289,6 +293,12 @@ describe('container smoke test', () => {
       account: { email },
       achievements: [{ title: 'Run a half marathon', status: 'completed', gambles: [{ status: 'won' }] }],
     });
+    // Deactivated at once, every session ended, and the owner told the deadline by email (R-PRIV-06, E-13).
+    expect([deleted.status, afterDeletion.status]).toEqual([202, 401]);
+    const { deletion_scheduled_for: deadline } = (await deleted.json()) as { deletion_scheduled_for: string };
+    expect(Math.abs(Date.parse(deadline) - (Date.now() + 30 * DAY_MS))).toBeLessThan(60_000);
+    const texts = await Promise.all((await mailsTo(email, 2)).map(mailText));
+    expect(texts.filter((text) => text.includes('in 30 Tagen'))).toHaveLength(1);
     const logs = await compose('logs', '--no-color');
     for (const value of [email, password, token]) expect(logs.stdout + logs.stderr).not.toContain(value);
   });
