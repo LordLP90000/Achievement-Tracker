@@ -198,7 +198,9 @@ its response (headers and body, encrypted with the user's data key) in the same 
   share one schedule and a failing job is retried after its interval instead of every minute. The work and its
   `job_runs` row commit together; a failure rolls the work back and is recorded with an error class only
   (`pg_57014`). Retention jobs (`modules/privacy/retention.ts`, hourly, R-PRIV-07) delete in batches of 1 000 (at
-  most 100 per run): unverified accounts after 7 d (cascade), used or expired one-time tokens, session token
+  most 100 per run): unverified accounts after 7 d (cascade), accounts 30 d after their deletion request (R-PRIV-06:
+  cascade with the wrapped data key, a tombstone in the same transaction, `deactivated_at` checked again at the
+  delete; 100 accounts per batch, at most 10 batches per run), used or expired one-time tokens, session token
   generations whose refresh token expired (rotated ones are kept until then for reuse detection; revocation deletes
   a session's tokens at once), sessions 7 d after revocation, absolute expiry or the end of their refresh lifetime,
   audit events after 90 d, rate-limit buckets untouched for 24 h, idempotency records when their 24 h are over (M3),
@@ -209,8 +211,7 @@ its response (headers and body, encrypted with the user's data key) in the same 
   run and none after 5 s, so the scheduler's waiting transaction never reaches its idle timeout. Each user runs in
   their own transaction under their goal lock with their context set: the goal engine syncs those achievements (a
   missed period resets the habit, a passed target date loses the gamble), then records the day and the next due
-  instant. A failing user is logged with an error class only and stays due. The hard delete of deactivated accounts
-  after 30 days with tombstone follows in M4 (R-PRIV-06).
+  instant. A failing user is logged with an error class only and stays due.
 - Email sending is the worker's only outbound call: `SmtpEmailSender` (`nodemailer`, TLS required — STARTTLS on
   587 or implicit TLS on 465, ADR-0014). Tests use `FakeEmailSender`, which exposes delivered messages (so tests
   can extract verification links), and a local SMTP test server for the real sender.

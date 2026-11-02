@@ -25,7 +25,7 @@ amended on 2026-10-22).
 | Q-04/Q-17 habit reset, pause = reset, attempts, no archiving | New `attempt`/`reset_count`/`needs_restart` columns, `counts_for_progress`; effects engine handles resets and pause revocation; daily job closes periods | M3 +2 d |
 | Q-05 ranks, execution score, duration factor, ×3 level curve, gambles | New `gambles` table, rank/score fields, badge rank, XP `bigint`; new endpoint to place a gamble; settlement job; many new domain tests | M3 +4–5 d |
 | Q-08 back-dated check-ins are history only | `counts_for_progress` flag; simpler streak repair logic | M3 ±0 |
-| Q-11 30-day deletion grace | `deactivated_at`, login reactivation, daily hard-delete job | M4 +1 d |
+| Q-11 30-day deletion grace | `deactivated_at`, login reactivation, hourly hard-delete job | M4 +1 d |
 | Q-18 week-start setting | `users.week_start`, period helpers parameterised | M3 +0.5 d |
 | Q-02 1Password Connect KEK source | Connect client + startup checks (no SDK) | M2 +1 d |
 | Q-03 custom SMTP | `nodemailer` sender + local SMTP test server | M2 +0.5 d |

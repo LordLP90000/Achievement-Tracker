@@ -60,6 +60,7 @@ describe('retention jobs', () => {
 
     expect(jobs.map((job) => job.name)).toEqual([
       'purge_unverified_accounts',
+      'purge_deleted_accounts',
       'purge_one_time_tokens',
       'purge_session_tokens',
       'purge_sessions',
@@ -99,6 +100,33 @@ describe('retention jobs', () => {
 
     expect(await owned(unverified.userId)).toEqual([0, 0, 0, 0]);
     expect((await owned(verified.userId))[0]).toBe(1);
+  });
+
+  it('deletes accounts 30 days after their deletion request, each with a tombstone, and keeps active ones [R-PRIV-06, Q-13]', async () => {
+    const [deleted, active] = [await ctx.account(), await ctx.account()];
+    const pair = await login(deleted);
+    const request = await contractInject(ctx.app, {
+      method: 'DELETE',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${pair.access_token}` },
+    });
+    expect(request.statusCode).toBe(202);
+    const accounts = async () =>
+      (await ctx.admin.sql<{ id: string }[]>`select id from users where id in (${deleted.userId}, ${active.userId})`)
+        .map((row) => row.id)
+        .sort();
+
+    ctx.clock.advance({ milliseconds: 30 * MS.day - 1 });
+    expect(await run('purge_deleted_accounts')).toBe(0);
+    ctx.clock.advance({ milliseconds: 1 });
+    expect(await run('purge_deleted_accounts')).toBe(1);
+
+    expect(await accounts()).toEqual([active.userId]);
+    const tombstones = await ctx.admin.sql<{ user_id: string; deleted_ms: number }[]>`
+      select user_id, extract(epoch from deleted_at)::float8 * 1000 as deleted_ms from deleted_user_tombstones`;
+    expect(tombstones.map((row) => ({ ...row }))).toEqual([
+      { user_id: deleted.userId, deleted_ms: ctx.clock.now().getTime() },
+    ]);
   });
 
   it('deletes used one-time tokens at once and unused ones when they expire', async () => {
@@ -258,8 +286,8 @@ describe('retention jobs', () => {
 
     const outcomes = await scheduler.runDue();
 
-    expect(outcomes.map((outcome) => outcome.outcome)).toEqual(Array(10).fill('succeeded'));
+    expect(outcomes.map((outcome) => outcome.outcome)).toEqual(Array(11).fill('succeeded'));
     expect(outcomes[0]).toEqual({ job: 'purge_unverified_accounts', outcome: 'succeeded', processed: 1 });
-    expect((await ctx.admin.sql`select 1 from job_runs where status = 'succeeded'`).length).toBe(10);
+    expect((await ctx.admin.sql`select 1 from job_runs where status = 'succeeded'`).length).toBe(11);
   });
 });

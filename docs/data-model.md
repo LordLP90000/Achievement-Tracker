@@ -473,12 +473,16 @@ ledger amounts that are 0 or have the wrong sign. Tested in `test/integration/go
    emailed link answers any more — and the audit event and the notice commit with it. A request whose session ended
    meanwhile (a simultaneous deletion from another device) changes nothing and gets `401`.
 2. **Reactivation**: a successful `POST /v1/auth/login` within 30 days clears `deactivated_at` (audited).
-3. **Hard delete** (worker job, daily): for every user with `deactivated_at < now − 30 days`,
-   `DELETE FROM users WHERE id = $1` inside one transaction removes, via `ON DELETE CASCADE`: `user_keys`
+3. **Hard delete** (retention job `purge_deleted_accounts`, hourly): every user with `deactivated_at ≤ now − 30
+   days` — the instant from which login refuses the account — is deleted with `DELETE FROM users`, which removes,
+   via `ON DELETE CASCADE`: `user_keys`
    (crypto-shredding), `one_time_tokens`, `sessions` → `session_tokens`, `consents`, `achievements` → (`gambles`,
    `badges`, `quests` → `check_ins`), `xp_events`, `audit_events`, `idempotency_keys`, `email_outbox`. The same
    transaction inserts the tombstone (Q-13). The data-inventory guard test asserts that **every** table with a
-   user relation is reached by this cascade and appears in the export.
+   user relation is reached by this cascade and appears in the export. The delete checks `deactivated_at` again
+   on each row, so an account a login reactivated meanwhile stays, and only rows actually deleted get a tombstone.
+   An account takes its whole goal archive with it, so a run deletes at most 1 000 accounts, 100 per statement
+   (`src/modules/privacy/retention.ts`); a larger backlog follows an hour later.
 
 Consent withdrawal (Q-10) deletes only the goal-content subtree (`achievements` → `gambles`, `badges`, `quests` →
 `check_ins`, plus `xp_events` and the stored responses in `idempotency_keys`, which hold goal content for up to 24 h)

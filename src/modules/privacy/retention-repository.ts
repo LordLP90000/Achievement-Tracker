@@ -36,6 +36,32 @@ export function deleteUnverifiedAccounts(tx: Transaction, createdBefore: Date, l
   );
 }
 
+/**
+ * Accounts whose deletion was requested at or before `requestedBefore` (R-PRIV-06), each with everything it owns —
+ * its wrapped data key too (crypto-shredding). The request time is checked again as each row is deleted, so an
+ * account reactivated meanwhile by a login stays; only the accounts actually deleted get a tombstone, in the same
+ * transaction (Q-13).
+ */
+export async function deleteDeactivatedAccounts(
+  tx: Transaction,
+  cutoff: { readonly requestedBefore: Date; readonly now: Date },
+  limit: number,
+): Promise<number> {
+  const due = lte(users.deactivatedAt, cutoff.requestedBefore);
+  const batch = tx.select({ id: users.id }).from(users).where(due).limit(limit);
+  const deleted = await tx
+    .delete(users)
+    .where(and(inArray(users.id, batch), due))
+    .returning({ id: users.id });
+  if (deleted.length > 0) {
+    await tx
+      .insert(deletedUserTombstones)
+      .values(deleted.map(({ id }) => ({ userId: id, deletedAt: cutoff.now })))
+      .onConflictDoNothing();
+  }
+  return deleted.length;
+}
+
 /** One-time tokens that were used or have expired (R-AUTH-03). */
 export function deleteSpentOneTimeTokens(tx: Transaction, now: Date, limit: number): Promise<number> {
   return deleteBatch(
