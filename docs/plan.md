@@ -13,10 +13,10 @@ amended on 2026-10-22).
 | M1 Walking skeleton | repo, tooling, Docker, CI gates, config/secrets, health, Testcontainers + contract harness | 4–6 | "go" (Q-20 Node 26, Q-21 RLS, Q-22 housekeeping are decided) |
 | M2 Accounts & sessions | crypto platform, registration/verification/login/refresh/reset, sessions, re-auth, consent, audit, rate limiting, outbox/worker, email adapter | 10–14 | none: built against local stand-ins for the SMTP relay and the Connect server (Q-27); O-02/O-03 needed before M6 (Q-02/03/06/07/09/14/15/23 are decided) |
 | M3 Core domain | domain engine (+ Stryker), achievements/quests/check-ins, field encryption, idempotency, concurrency, stats, ownership tests for every endpoint | 13–17 (+1 for Q-30/Q-31, 2026-10-29) | none: O-05 (Q-32), O-06 (Q-31) and O-07 (Q-30) were decided at the M2 review on 2026-10-29; A-26…A-28 accepted (Q-04/05/08/12/16/17/18/24 are decided) |
-| M4 Privacy rights | export, deletion + crypto-shredding + tombstones, consent withdrawal effects, retention jobs, data-inventory guard test | 5–7 | – (Q-10/11/13 are decided) |
+| M4 Privacy rights | export, deletion + crypto-shredding + tombstones, consent withdrawal effects, retention jobs, data-inventory guard test; first the M3 review follow-ups (Q-44, Q-45) | 6.5–9.5 (5–7 + 1.5–2.5 for Q-44/Q-45, 2026-11-02) | – (Q-10/11/13 are decided) |
 | M5 Auth hardening | passkeys (WebAuthn), optional TOTP 2FA, recovery codes, step-up | 7–10 | approval of WebAuthn library dependency; RP ID/domain (Q-19) |
-| M6 Hardening & handover | DAST (ZAP) + load/limits (k6) on staging, deployment config for the chosen provider, runbooks (ops, key rotation, restore drill, breach), API docs, `client-security.md`, DP-expert review package | 6–9 | O-01 hosting named (accounts/credentials for staging), O-04 consent and policy texts, budget |
-| **Total** | | **52–73** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log; +1 on 2026-10-29 for Q-30/Q-31) | |
+| M6 Hardening & handover | DAST (ZAP) + load/limits (k6) on staging, deployment config for the chosen provider, runbooks (ops, key rotation, restore drill, breach), API docs, DP-expert review package (`client-security.md` moved to M4, Q-45) | 5.5–8.5 | O-01 hosting named (accounts/credentials for staging), O-04 consent and policy texts, budget |
+| **Total** | | **53–75** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log; +1 on 2026-10-29 for Q-30/Q-31; +1–2 on 2026-11-02 for Q-44/Q-45) | |
 
 ## Change log 2026-10-22 — impact of the PM's decisions (Q-01…Q-24)
 
@@ -37,6 +37,13 @@ architecture, cross-reference fixes — see `docs/PROGRESS.md`). O-06 (rank/gamb
 2026-10-29 (Q-31, the full package): M3 +1 day together with Q-30 (`429` on every authenticated operation).
 
 Risk buffer: +15 % recommended for unknowns in external interfaces (1Password Connect, SMTP relay) and Node 26 native-module prebuilds.
+
+## Change log 2026-11-02 — M3 review (Q-44, Q-45)
+
+| Decision | Impact | Effort delta |
+|----------|--------|--------------|
+| Q-44 no gamble won without the work | `409 gamble-pending` for three quest changes while a gamble is pending; additive contract text | M4 +0.5 d (first) |
+| Q-45 the mobile app starts now | contract frozen as `0.3.0`; a mail catcher in the local Compose stack; `docs/client-security.md` moved from M6 | M4 +1–2 d (before M4's own work), M6 −0.5 d |
 
 ## M1 — Walking skeleton (4–6 days)
 
@@ -85,13 +92,18 @@ operation; encryption-at-rest test; consent guard.
 Exit criteria: every operation in `openapi.yaml` implemented and exercised; domain branch coverage ≥ 95 %;
 ownership test matrix green; `GET /v1/me/stats` correct against seeded scenarios.
 
-## M4 — Privacy rights (5–7 days)
+## M4 — Privacy rights (6.5–9.5 days)
+
+First, the M3 review follow-ups: the Q-44 gamble guard; the contract frozen as `0.3.0` (Q-45); a mail catcher in the
+local Compose stack; `docs/client-security.md` (MASVS-aligned, moved from M6).
 
 Deliverables: export (complete, re-auth, rate-limited, audited), account deletion (30-day deactivation with
 reactivation by login, then cascade, DEK destruction, tombstone, re-registration possible), consent withdrawal
 deleting goal content, retention jobs (deactivated accounts 30 d, audit 90 d, idempotency 24 h, tombstones 35 d,
 dead letters 7 d, sessions 7 d), data-inventory guard test, export-completeness test, deletion-completeness test,
-DPIA update.
+DPIA update. Already done in earlier milestones: the data-inventory guard (M2), every retention job but the
+deactivated accounts (M2; the idempotency purge in M3), reactivation by login within the 30 days (M2), consent
+withdrawal deleting goal content (M3).
 
 ## M5 — Auth hardening (7–10 days)
 
@@ -101,13 +113,14 @@ re-authentication with passkey/TOTP, session list showing auth method, audit eve
 Dependency decision for the PM: `@simplewebauthn/server` (vetted, widely used) vs. implementing WebAuthn
 verification ourselves (not recommended — "never implement crypto yourself").
 
-## M6 — Hardening & handover (6–9 days)
+## M6 — Hardening & handover (5.5–8.5 days)
 
 Deliverables: staging deployment on the chosen provider (IaC in `deploy/`), ZAP API scan with the OpenAPI spec and
 zero high findings, k6 tests proving limits and backoff under load, restore drill with tombstone replay, key
 rotation runbook (KEK re-wrap, blind-index key re-index), breach-notification runbook (FDPIC / GDPR 72 h),
-operations runbook, API reference (Redoc build of the spec), `docs/client-security.md` (MASVS-aligned), review
-package for the data-protection expert (DPIA, inventory, threat model, processors, test evidence).
+operations runbook, API reference (Redoc build of the spec), review
+package for the data-protection expert (DPIA, inventory, threat model, processors, test evidence). (`docs/client-security.md`
+moved to M4, Q-45.)
 
 ## Cross-cutting schedule risks
 

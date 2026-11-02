@@ -170,3 +170,14 @@ accounts, no emails to accounts pending deletion (A-22). First Node 26.13.0 (on 
   Testcontainers do not accept yet.
 - **Exceptions register** (accepted by the PM): both advisories in `osv-scanner.toml` until **2026-11-30**, each
   with its reason; then re-check whether the parent packages accept the fixed versions.
+- **"Go" for M4.** A-34…A-43 accepted as proposed (`docs/requirements.md` §5).
+- **Q-45 (O-10):** the mobile app starts now, in parallel with M4–M6. Before M4's own work: the core contract is
+  frozen as `0.3.0` (afterwards only additive changes, each with the PM's approval), a mail catcher joins the local
+  Compose stack (TLS stays mandatory) and `docs/client-security.md` comes forward from M6. A shared staging server
+  waits for O-01. The app has its own team, plan and budget.
+
+**Impact**: M4 6.5–9.5 days (+1.5–2.5 for Q-44 and Q-45, done first), M6 5.5–8.5 (`client-security.md` moved),
+total 53–75. Aligned in the same commit: requirements (§5, §6.5, §7), plan (summary, change log, M4 and M6), threat
+model (the client guidance now in M4).
+
+**Status**: M3 is **DONE** (closed with the PM's "go" for M4 on 2026-11-02).
