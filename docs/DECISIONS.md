@@ -404,3 +404,68 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   UI only on 127.0.0.1 and a foreign `Host` refused; the journey from sign-up through the emailed link to the stats;
   no address, password or token in any container log), `test/scripts/dev-mail-certificate.test.ts`,
   `test/helpers/tls-certificate.test.ts`.
+
+## ADR-0019 · Passkeys, TOTP, recovery codes and step-up (M5)
+
+- **Status:** proposed (2026-11-04). Approved already: the library (Q-50) and the relying-party ID as a production
+  setting (Q-51); the contract additions below wait for the PM.
+- **Context:** M5 adds passkeys and optional TOTP 2FA to email and password (R-AUTH-01, plan M5). The contract is
+  frozen (Q-45): new operations and additive changes only, each approved. What stays: no enumeration (R-AUTH-07),
+  the 10-minute re-authentication for sensitive operations (R-AUTH-06), rate limits and backoff (R-AUTH-08, S-01),
+  secrets stored as hashes (R-AUTH-03) or encrypted with the user's data key (R-ENC-01), audit events (R-LOG-03),
+  notices without links (A-33), no admin endpoints (requirements §2.8).
+- **Decision:**
+  - **Passkeys**, verified by `@simplewebauthn/server` (Q-50), imported only by `src/platform/webauthn/` (a
+    dependency-cruiser rule, like `nodemailer`). Attestation `none`; discoverable credentials and user verification
+    required; ES256, EdDSA and RS256. The relying-party ID and the allowed origins come from configuration (Q-51).
+    Challenges: 32 random bytes, single use, 5 minutes, stored as SHA-256 hashes; a response finds its challenge by
+    the challenge it signed.
+    - Sign-in without an address: `POST /auth/passkey/options` (public) returns request options without a
+      credential list, so nothing about any account is revealed (R-AUTH-07); `POST /auth/passkey/login`
+      `{ credential, client, device_label? }` → token pair, a session with `auth_method: passkey`. The
+      authenticator's user handle (the account ID, set at registration) names the account; the credential must be
+      that account's, its signature must verify with user verification, and its signature counter must grow unless
+      the authenticator always reports 0 — a counter that does not grow means a possibly cloned credential: refused
+      and audited. Every failure is the same `401 invalid-credentials`. A passkey sign-in needs no TOTP code (it is
+      already two factors: the device and its PIN or biometrics) and, like a password login, reactivates an account
+      pending deletion within its 30 days (R-PRIV-06).
+    - Managing them, signed in and re-authenticated within 10 minutes: `POST /me/passkeys/options` (creation
+      options: user handle = account ID, name = the address, existing credentials excluded), `POST /me/passkeys`
+      `{ credential, name? }` → `201 Passkey`, `GET /me/passkeys`, `DELETE /me/passkeys/{passkeyId}`. At most 10 per
+      account (`422 limit-reached`). Stored: credential ID, public key, counter, backup state, transports, the name
+      (optional, ≤ 50 characters, encrypted), created and last used.
+  - **TOTP**, RFC 6238 on `node:crypto`'s HMAC-SHA1 in `src/platform/crypto/totp.ts`, tested against the RFC's
+    vectors — no new dependency: 6 digits, 30-second steps, one step of clock drift either way, no code accepted
+    twice (the last accepted step is stored). The 160-bit secret is encrypted with the user's data key.
+    - Enrolment, re-authenticated: `POST /me/totp` → the secret, once, as base32 and an `otpauth://` URI;
+      `POST /me/totp/confirm` `{ code }` → TOTP on, and **10 recovery codes**, shown once; `POST /me/recovery-codes`
+      → 10 new codes, the old ones void; `DELETE /me/totp` → off, codes deleted. Recovery codes have 80 bits each
+      (`XXXX-XXXX-XXXX-XXXX`, Crockford base32), are stored as SHA-256 hashes and work once.
+    - Login with TOTP on: after the correct password `POST /auth/login` answers **`202`**
+      `{ second_factor_token, expires_in, methods }` instead of tokens — only someone who knows the password learns
+      that TOTP is on, as with `email-not-verified` (I-05); `POST /auth/login/second-factor`
+      `{ second_factor_token, totp_code | recovery_code, client, device_label? }` → token pair (`auth_method:
+      password_totp` or `password_recovery_code`). The token (`ql_sf_…`, its hash stored) lives 5 minutes and takes
+      at most 5 wrong codes; wrong codes also count against the account's backoff, as wrong passwords do (S-01).
+  - **Step-up**: `POST /auth/reauth` also accepts `{ passkey: credential }` (with a challenge from
+    `POST /auth/passkey/options`; the credential must be the session user's); with TOTP on, a password needs
+    `totp_code` or `recovery_code` as well, else `401 urn:questline:problem:second-factor-required`.
+  - **Visible**: `GET /me` shows `two_factor_enabled` and `recovery_codes_left`; `GET /me/sessions` each session's
+    `auth_method`; the export gains `passkeys` and `two_factor` (no key, secret or hash); new audit events
+    (`passkey_added`, `passkey_removed`, `passkey_clone_suspected`, `totp_enabled`, `totp_disabled`,
+    `recovery_codes_generated`, `recovery_code_used`, `second_factor_failed`); one new notice without a link,
+    `sign_in_methods_changed_notice`, after every change of passkeys, TOTP or recovery codes.
+  - **Unchanged**: the password stays — a passkey is another way in, not a replacement; a password reset keeps TOTP
+    and passkeys, so a taken-over mailbox alone does not remove the second factor.
+- **Consequences:** contract `0.4.0` with 11 new operations, kept outside the freeze until implemented, and additive
+  changes to `login`, `reauthenticate`, `Account`, `Session` and the export; migration 0009 (`passkeys`,
+  `webauthn_challenges`, `totp_secrets`, `recovery_codes`, `second_factor_challenges`, `sessions.auth_method`);
+  production settings `WEBAUTHN_RP_ID` and `WEBAUTHN_ORIGINS`; a software authenticator in `test/helpers` for real
+  ceremonies. Public challenge creation writes a row: per-network rate limits, 5-minute expiry and the hourly purge
+  bound it. **An account whose authenticator is lost with no recovery code left is locked out** — no admin endpoint
+  can help; its erasure then needs a request to the controller, handled by hand (GDPR Art. 17). The app must tell the
+  user to keep the codes.
+- **Tests:** the RFC 6238 vectors and properties, recovery codes, registration and sign-in end to end with the
+  software authenticator (a forged signature, a wrong origin or RP ID, a reused, expired or foreign challenge, a
+  counter rollback, another account's credential), login with a second factor, step-up, enumeration, rate limits,
+  and the generated contract and security suites for every new operation.

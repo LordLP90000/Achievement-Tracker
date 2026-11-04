@@ -8,8 +8,8 @@ Security, privacy and test-driven development are core requirements of this proj
 
 ## Status
 
-**M4 – Privacy rights** is in review ([report](docs/reports/M4-status-report.md)); M3 – Core domain is done
-([report](docs/reports/M3-status-report.md)). See [`docs/PROGRESS.md`](docs/PROGRESS.md)
+**M5 – Auth hardening** is in progress (M4 – Privacy rights is done, [report](docs/reports/M4-status-report.md)).
+See [`docs/PROGRESS.md`](docs/PROGRESS.md)
 for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for architecture decisions.
 
 ## Documentation map
