@@ -242,3 +242,11 @@ dependency, image, external service, processor or cost.
   - the key-rotation, breach and operations runbooks
   - the API reference
   - the review package for the data-protection expert
+
+---
+
+## Addendum 2026-11-04 — Node 26.13.0
+
+- **Node 26.13.0 LTS is done**, in its own commit at 22:39. `.nvmrc` and both images now pin Node 26.13.0, each
+  image by its digest and adopted only once 7 days old. The full suite, e2e (13/13) and Trivy (0 HIGH or CRITICAL,
+  unfixed included) are green on the new image. Nothing is left open from M4.
