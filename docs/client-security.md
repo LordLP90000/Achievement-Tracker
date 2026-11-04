@@ -100,8 +100,8 @@ target values and check-in notes are encrypted at rest on the server — the dev
   deletion and changes of passkeys or TOTP need a re-authentication within the last 10 minutes. Call
   `POST /auth/reauth`, then run the operation; on `403 reauthentication-required` ask again. Never store the password
   to do this silently. Offer the account's passkey first where there is one: `POST /auth/passkey/options`, the
-  platform's passkey API, then `{ passkey }` — no code needed (ADR-0019). With the password and TOTP on, send the
-  app's code (or a recovery code) along with it; `401 second-factor-required` means one was missing — ask for it and
+  platform's passkey API, then `{ passkey }` — no code needed (ADR-0019). With the password and TOTP on (`GET /me`:
+  `two_factor_enabled`), send the app's code (or a recovery code) along with it; `401 second-factor-required` means one was missing — ask for it and
   send both again.
 - **Consent** (R-PRIV-04, Q-10): goal content needs the explicit, unticked `goal_content` consent, given in the app
   with the consent text's version (`POST /me/consents`; text: O-04). Withdrawing it deletes **all** goal content at

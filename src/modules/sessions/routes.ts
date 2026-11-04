@@ -135,6 +135,7 @@ export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app
         device_label: session.deviceLabel,
         created_at: session.createdAt.toISOString(),
         last_used_at: session.lastUsedAt.toISOString(),
+        auth_method: session.authMethod,
         current: session.current,
       })),
     };

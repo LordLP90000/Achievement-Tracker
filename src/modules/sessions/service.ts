@@ -164,6 +164,8 @@ export interface SessionView {
   readonly deviceLabel: string | null;
   readonly createdAt: Date;
   readonly lastUsedAt: Date;
+  /** How it signed in (ADR-0019). */
+  readonly authMethod: AuthMethod;
   readonly current: boolean;
 }
 
@@ -622,6 +624,7 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
                     ),
               createdAt: row.createdAt,
               lastUsedAt: row.lastUsedAt,
+              authMethod: row.authMethod,
               current: row.id === principal.sessionId,
             })),
           ),

@@ -60,6 +60,8 @@ describe('GET and PATCH /v1/me [R-PRIV-01, R-AUTHZ-04, ADR-0008, A-01]', () => {
       created_at: '2026-10-29T12:00:00.000Z',
       xp_total: 0,
       level: 1,
+      two_factor_enabled: false,
+      recovery_codes_left: 0,
       version: 2,
     });
   });

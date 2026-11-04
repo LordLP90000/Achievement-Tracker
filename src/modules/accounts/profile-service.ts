@@ -4,6 +4,7 @@ import { inTransaction, type Database, type Transaction } from '../../platform/d
 import type { Clock } from '../../platform/time/clock.ts';
 import { totalXp } from '../goals/ledger-repository.ts';
 import type { Principal } from '../sessions/guard.ts';
+import { countRecoveryCodes, hasEnabledTotp } from '../sign-in-methods/repository.ts';
 import { emailField, withAccountKey } from './account-mail.ts';
 import { findProfile, updateProfile, type Profile, type ProfileChanges } from './repository.ts';
 import type { AccountUpdate } from './schemas.ts';
@@ -27,6 +28,10 @@ export interface AccountView {
   readonly createdAt: Date;
   /** The XP ledger's total (R-XP-04); the level follows from it. */
   readonly xpTotal: number;
+  /** TOTP is on: a password sign-in or step-up also needs a code (ADR-0019). */
+  readonly twoFactorEnabled: boolean;
+  /** Unused recovery codes; none while TOTP is off. */
+  readonly recoveryCodesLeft: number;
   readonly version: number;
 }
 
@@ -59,6 +64,8 @@ export function createProfileService(deps: ProfileServiceDependencies): ProfileS
     emailVerified: profile.emailVerifiedAt !== null,
     createdAt: profile.createdAt,
     xpTotal: await totalXp(tx, profile.id),
+    twoFactorEnabled: await hasEnabledTotp(tx, profile.id),
+    recoveryCodesLeft: await countRecoveryCodes(tx, profile.id),
     version: profile.version,
   });
 

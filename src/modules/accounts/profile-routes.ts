@@ -26,6 +26,8 @@ function accountJson(account: AccountView) {
     created_at: account.createdAt.toISOString(),
     xp_total: account.xpTotal,
     level: levelForXp(account.xpTotal),
+    two_factor_enabled: account.twoFactorEnabled,
+    recovery_codes_left: account.recoveryCodesLeft,
     version: account.version,
   };
 }

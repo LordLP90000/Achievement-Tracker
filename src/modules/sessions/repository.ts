@@ -224,6 +224,7 @@ export interface SessionRecord {
   readonly deviceLabelEnc: Buffer | null;
   readonly createdAt: Date;
   readonly lastUsedAt: Date;
+  readonly authMethod: AuthMethod;
 }
 
 /** Sessions that can still be used: not revoked, before the absolute expiry, with an unexpired refresh token. */
@@ -239,6 +240,7 @@ export async function listActiveSessions(tx: Transaction, userId: string, now: D
       deviceLabelEnc: sessions.deviceLabelEnc,
       createdAt: sessions.createdAt,
       lastUsedAt: sessions.lastUsedAt,
+      authMethod: sessions.authMethod,
     })
     .from(sessions)
     .where(
@@ -250,7 +252,11 @@ export async function listActiveSessions(tx: Transaction, userId: string, now: D
       ),
     )
     .orderBy(desc(sessions.createdAt));
-  return rows.map((row) => ({ ...row, client: row.client as SessionRecord['client'] }));
+  return rows.map((row) => ({
+    ...row,
+    client: row.client as SessionRecord['client'],
+    authMethod: row.authMethod as AuthMethod,
+  }));
 }
 
 /** Revokes one of the user's live sessions and deletes its tokens; false when there is no such session. */

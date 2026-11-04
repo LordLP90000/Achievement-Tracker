@@ -87,6 +87,7 @@ describe('my sessions and re-authentication [R-AUTH-05, R-AUTH-06, R-AUTHZ-02, Q
           device_label: null,
           created_at: '2026-10-29T12:01:00.000Z',
           last_used_at: '2026-10-29T12:23:00.000Z',
+          auth_method: 'password',
           current: true,
         },
         {
@@ -95,6 +96,7 @@ describe('my sessions and re-authentication [R-AUTH-05, R-AUTH-06, R-AUTHZ-02, Q
           device_label: 'Anna’s iPhone',
           created_at: '2026-10-29T12:00:00.000Z',
           last_used_at: '2026-10-29T12:00:00.000Z',
+          auth_method: 'password',
           current: false,
         },
       ]);
