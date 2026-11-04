@@ -45,4 +45,5 @@ export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
     reauthenticate: unavailable,
   },
   stats: { get: unavailable },
+  totp: { start: unavailable, confirm: unavailable, replaceRecoveryCodes: unavailable, disable: unavailable },
 });

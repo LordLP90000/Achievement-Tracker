@@ -69,6 +69,19 @@ export const Problems = {
   },
   /** R-GMB-01: the XP above the current level's threshold is the stake; at 0 there is nothing to stake. */
   nothingToStake: { status: 422, slug: 'nothing-to-stake', title: 'Nothing to stake' },
+  /** ADR-0019: TOTP is on already, so there is nothing to start or confirm. */
+  totpEnabled: { status: 409, slug: 'totp-enabled', title: 'Two-factor authentication is already on' },
+  /** ADR-0019: TOTP is off, so there is nothing to turn off and no recovery codes to replace. */
+  totpNotEnabled: { status: 409, slug: 'totp-not-enabled', title: 'Two-factor authentication is not on' },
+  /** ADR-0019, Q-53: no secret was started, or it was not confirmed within 24 hours. */
+  totpNotStarted: { status: 409, slug: 'totp-not-started', title: 'Two-factor authentication was not started' },
+  /** ADR-0019: the code is not the authenticator app's current one. */
+  invalidCode: {
+    status: 422,
+    slug: 'invalid-code',
+    title: 'The code is not valid',
+    errors: [{ pointer: '/code', message: "is not the authenticator app's current code" }],
+  },
   /** Use with `extensions: { current_version }` (contract `VersionConflictProblem`). */
   versionConflict: { status: 409, slug: 'version-conflict', title: 'The resource was changed meanwhile' },
   preconditionRequired: { status: 428, slug: 'precondition-required', title: 'If-Match header required' },

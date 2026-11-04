@@ -18,7 +18,8 @@ export type EmailTemplate =
   | 'password_changed_notice'
   | 'email_change_verify'
   | 'email_change_notice'
-  | 'account_deleted_notice';
+  | 'account_deleted_notice'
+  | 'sign_in_methods_changed_notice';
 
 export interface EmailPayload {
   readonly to: string;

@@ -15,8 +15,4 @@ export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   'registerPasskey',
   'createPasskeyRegistrationOptions',
   'deletePasskey',
-  'startTotp',
-  'disableTotp',
-  'confirmTotp',
-  'replaceRecoveryCodes',
 ]);

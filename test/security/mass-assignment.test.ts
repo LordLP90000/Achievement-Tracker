@@ -48,6 +48,7 @@ const FLOWS: Readonly<Record<string, Record<string, unknown>>> = {
   changePassword: { current_password: PASSWORD, new_password: `${PASSWORD} again` },
   requestEmailChange: { new_email: 'mass-next@example.test' },
   confirmEmailChange: { token: TOKEN },
+  confirmTotp: { code: '123456' },
 };
 
 /** What a client would like to set; values the server would never give it. */

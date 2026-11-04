@@ -17,6 +17,7 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
   'password_changed_notice',
   'email_change_notice',
   'account_deleted_notice',
+  'sign_in_methods_changed_notice',
 ];
 
 export type EmailContent =
@@ -142,6 +143,14 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
             'reset it in the Questline app.',
         ],
       },
+      sign_in_methods_changed_notice: {
+        subject: 'The sign-in methods of your account changed',
+        paragraphs: [
+          'A passkey, two-factor authentication or the recovery codes of your Questline account were just changed.',
+          'If this was not you, change your password in the Questline app right away. This signs out every other ' +
+            'device. Then remove any passkey you do not recognise.',
+        ],
+      },
     },
   },
   de: {
@@ -208,6 +217,15 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
             'mehr, setzen Sie es in der Questline-App zurück.',
         ],
       },
+      sign_in_methods_changed_notice: {
+        subject: 'Die Anmeldemethoden Ihres Kontos wurden geändert',
+        paragraphs: [
+          'Bei Ihrem Questline-Konto wurden soeben ein Passkey, die Zwei-Faktor-Authentifizierung oder die ' +
+            'Wiederherstellungscodes geändert.',
+          'Falls Sie das nicht waren, ändern Sie sofort Ihr Passwort in der Questline-App. Dabei werden alle ' +
+            'anderen Geräte abgemeldet. Entfernen Sie danach jeden Passkey, den Sie nicht kennen.',
+        ],
+      },
     },
   },
   fr: {
@@ -272,6 +290,16 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
             "plus, réinitialisez-le dans l'app Questline.",
         ],
       },
+      sign_in_methods_changed_notice: {
+        subject: 'Les méthodes de connexion de votre compte ont été modifiées',
+        paragraphs: [
+          "Une clé d'accès, l'authentification à deux facteurs ou les codes de récupération de votre compte " +
+            "Questline viennent d'être modifiés.",
+          "Si ce n'était pas vous, modifiez immédiatement votre mot de passe dans l'application Questline. Tous " +
+            "les autres appareils seront alors déconnectés. Supprimez ensuite toute clé d'accès que vous ne " +
+            'reconnaissez pas.',
+        ],
+      },
     },
   },
   it: {
@@ -332,6 +360,15 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
             'accede o reimposta la password prima di allora, verrà riattivato.',
           'Se non è stato Lei, acceda subito e modifichi la password. Se la password non funziona più, la reimposti ' +
             "nell'app Questline.",
+        ],
+      },
+      sign_in_methods_changed_notice: {
+        subject: 'I metodi di accesso del Suo account sono stati modificati',
+        paragraphs: [
+          "Una passkey, l'autenticazione a due fattori o i codici di recupero del Suo account Questline sono appena " +
+            'stati modificati.',
+          "Se non è stato Lei, modifichi subito la password nell'app Questline. Tutti gli altri dispositivi " +
+            'verranno così disconnessi. Rimuova poi ogni passkey che non riconosce.',
         ],
       },
     },

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.4.1
+  version: 0.4.2
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -44,6 +44,8 @@ info:
     0.4.1 (2026-11-04): the export shows the sign-in methods — `passkeys`, `two_factor` and each session's
     `auth_method` (ADR-0019, Q-52) — without any secret, key or digest; an unconfirmed TOTP secret is deleted after
     24 hours (Q-53; `startTotp`, `confirmTotp`).
+    0.4.2 (2026-11-04): `startTotp`, `confirmTotp`, `disableTotp` and `replaceRecoveryCodes` implemented as described
+    and frozen; no operation changed.
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.

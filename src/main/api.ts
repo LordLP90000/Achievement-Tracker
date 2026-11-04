@@ -15,6 +15,7 @@ import { createExportService } from '../modules/privacy/export-service.ts';
 import { createQuestsService } from '../modules/quests/service.ts';
 import { createRateLimiter } from '../modules/rate-limit/limiter.ts';
 import { createSessionsService } from '../modules/sessions/service.ts';
+import { createTotpService } from '../modules/sign-in-methods/totp-service.ts';
 import { createStatsService } from '../modules/stats/service.ts';
 import type { ApiConfig } from '../platform/config/config.ts';
 import { createDataKeys } from '../platform/crypto/data-keys.ts';
@@ -71,6 +72,7 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
     stats: createStatsService(shared),
     exports: createExportService(shared),
     deletions: createDeletionService(shared),
+    totp: createTotpService(shared),
   };
   const app = buildApp({ http: config.http, logger, readiness: databaseReadiness(database), services });
   try {

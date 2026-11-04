@@ -27,6 +27,8 @@ import type { RateLimiter } from './modules/rate-limit/limiter.ts';
 import { registerAuthGuard } from './modules/sessions/guard.ts';
 import { sessionsRoutes } from './modules/sessions/routes.ts';
 import type { SessionsService } from './modules/sessions/service.ts';
+import { signInMethodsRoutes } from './modules/sign-in-methods/routes.ts';
+import type { TotpService } from './modules/sign-in-methods/totp-service.ts';
 import { statsRoutes } from './modules/stats/routes.ts';
 import type { StatsService } from './modules/stats/service.ts';
 import { registerErrorHandling } from './platform/http/errors.ts';
@@ -53,6 +55,7 @@ export interface AppServices {
   readonly rateLimiter: RateLimiter;
   readonly sessions: SessionsService;
   readonly stats: StatsService;
+  readonly totp: TotpService;
 }
 
 export interface AppDependencies {
@@ -99,6 +102,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(profileRoutes, { profiles: deps.services.profiles });
       void v1.register(consentsRoutes, { consents: deps.services.consents });
       void v1.register(sessionsRoutes, { sessions: deps.services.sessions, limiter });
+      void v1.register(signInMethodsRoutes, { totp: deps.services.totp });
       void v1.register(achievementsRoutes, { achievements: deps.services.achievements });
       void v1.register(questsRoutes, { quests: deps.services.quests });
       void v1.register(checkInsRoutes, { checkIns: deps.services.checkIns });

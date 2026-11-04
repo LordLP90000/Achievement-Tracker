@@ -16,6 +16,7 @@ import { createExportService } from '../../src/modules/privacy/export-service.ts
 import { createQuestsService } from '../../src/modules/quests/service.ts';
 import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
 import { createSessionsService, type SessionsService } from '../../src/modules/sessions/service.ts';
+import { createTotpService } from '../../src/modules/sign-in-methods/totp-service.ts';
 import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
 import { createStatsService } from '../../src/modules/stats/service.ts';
 import { emailBlindIndex } from '../../src/platform/crypto/blind-index.ts';
@@ -152,6 +153,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
         rateLimiter: options.rateLimits === 'enforced' ? createRateLimiter({ ...shared, rateLimitKey }) : ALLOW_ALL,
         sessions,
         stats: createStatsService(shared),
+        totp: createTotpService(shared),
       },
     });
     return { app: instance, sessions };

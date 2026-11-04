@@ -1,6 +1,7 @@
 import type { Transaction } from '../../platform/db/database.ts';
 import type { ScheduledJob } from '../../platform/jobs/scheduler.ts';
 import { DELETION_GRACE_MS, REFRESH_TOKEN_LIFETIME_MS } from '../sessions/service.ts';
+import { PENDING_TOTP_LIFETIME_MS } from '../sign-in-methods/totp-service.ts';
 import {
   deleteAuditEvents,
   deleteDeactivatedAccounts,
@@ -33,8 +34,8 @@ export const RETENTION = Object.freeze({
   deactivatedAccountMs: DELETION_GRACE_MS,
   /** After revocation, absolute expiry or the last possible refresh. */
   endedSessionMs: 7 * DAY_MS,
-  /** Q-53: a TOTP secret not confirmed within a day was abandoned. */
-  pendingTotpSecretMs: 24 * HOUR_MS,
+  /** Q-53: a TOTP secret not confirmed within a day was abandoned (confirming refuses it from then on). */
+  pendingTotpSecretMs: PENDING_TOTP_LIFETIME_MS,
   auditEventMs: 90 * DAY_MS,
   rateLimitBucketMs: 24 * HOUR_MS,
   deadLetterMs: 7 * DAY_MS,

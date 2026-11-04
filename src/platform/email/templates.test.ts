@@ -21,6 +21,7 @@ const TEMPLATES: readonly EmailTemplate[] = [
   'email_change_verify',
   'email_change_notice',
   'account_deleted_notice',
+  'sign_in_methods_changed_notice',
 ];
 const LINK = 'https://app.questline.test/verify-email#token=ql_vt_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const content = (template: EmailTemplate): EmailContent =>
