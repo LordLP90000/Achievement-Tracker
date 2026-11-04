@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../../src/app.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
+import { issueChallenge, requestOptions } from '../../src/platform/webauthn/webauthn.ts';
 import { contractInject } from '../helpers/contract.ts';
 import { specOperations, type SpecOperation } from '../helpers/openapi.ts';
 import { UNAVAILABLE_SERVICES } from '../helpers/stub-services.ts';
@@ -21,7 +22,17 @@ describe('deny by default [R-AUTHZ-01, ADR-0010]', () => {
       http: { trustProxyHops: 0 },
       logger: createLogger({ service: 'questline-api', level: 'silent' }),
       readiness: () => Promise.resolve(true),
-      services: UNAVAILABLE_SERVICES,
+      services: {
+        ...UNAVAILABLE_SERVICES,
+        // The one public operation without a body reaches its service: it answers as the real one, naming no account.
+        sessions: {
+          ...UNAVAILABLE_SERVICES.sessions,
+          passkeyOptions: () =>
+            Promise.resolve(
+              requestOptions({ rpId: 'questline.test', rpName: 'Questline', origins: [] }, issueChallenge().challenge),
+            ),
+        },
+      },
     });
     app.addHook('onRoute', (route) => {
       if (route.config?.public === true)

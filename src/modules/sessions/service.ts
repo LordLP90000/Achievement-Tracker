@@ -6,12 +6,23 @@ import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts'
 import type { PasswordHasher } from '../../platform/crypto/password.ts';
 import { issueToken, tokenHash } from '../../platform/crypto/tokens.ts';
 import { inTransaction, setUserContext, type Database, type Transaction } from '../../platform/db/database.ts';
+import type { WebAuthnConfig } from '../../platform/config/config.ts';
 import type { Clock } from '../../platform/time/clock.ts';
+import {
+  challengeHash,
+  claimedAssertion,
+  issueChallenge as issueWebauthnChallenge,
+  requestOptions,
+  WEBAUTHN_TIMEOUT_MS,
+  type PasskeyRequestOptions,
+} from '../../platform/webauthn/webauthn.ts';
 import { emailField, withAccountKey } from '../accounts/account-mail.ts';
 import { findAccountById, requireWrappedKey } from '../accounts/repository.ts';
 import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent, type AuditEvent } from '../audit/repository.ts';
 import { queueSignInMethodsNotice } from '../sign-in-methods/notice.ts';
+import { checkPasskeyAssertion } from '../sign-in-methods/passkey-assertion.ts';
+import { consumeAuthenticationChallenge, insertWebauthnChallenge } from '../sign-in-methods/repository.ts';
 import {
   checkSecondFactor,
   secondFactorMethods,
@@ -45,7 +56,7 @@ import {
   type AuthMethod,
   type LoginAccount,
 } from './repository.ts';
-import type { LoginRequest, SecondFactorLoginRequest } from './schemas.ts';
+import type { LoginRequest, PasskeyLoginRequest, SecondFactorLoginRequest } from './schemas.ts';
 
 /** Login and device sessions (R-AUTH-04, -09, -10; R-PRIV-06; Q-29). */
 
@@ -66,6 +77,8 @@ export interface SessionsServiceDependencies {
   readonly hasher: PasswordHasher;
   readonly blindIndexKey: Uint8Array;
   readonly dataKeys: DataKeys;
+  /** The passkey relying party (ADR-0019, Q-51). */
+  readonly webauthn: WebAuthnConfig;
 }
 
 /** The tokens of one session generation, handed to the client once and stored only as hashes. */
@@ -98,10 +111,17 @@ export type SecondFactorLoginResult =
   | { readonly outcome: 'invalid_token' }
   | { readonly outcome: 'invalid_code' };
 
+export type PasskeyLoginResult =
+  { readonly outcome: 'signed_in'; readonly tokens: IssuedTokens } | { readonly outcome: 'invalid_credentials' };
+
 export interface SessionsService extends Authenticator {
   login(request: LoginRequest, context: RequestContext): Promise<LoginResult>;
   /** The backoff subject of a usable second-factor token: its account's normalised address, as the login keys it. */
   secondFactorSubject(token: string): Promise<string | undefined>;
+  /** Request options with a fresh challenge for a passkey sign-in or step-up; they name no account. */
+  passkeyOptions(): Promise<PasskeyRequestOptions>;
+  /** Signs in with a passkey of the account its user handle names (ADR-0019); every failure looks the same. */
+  loginWithPasskey(request: PasskeyLoginRequest, context: RequestContext): Promise<PasskeyLoginResult>;
   /** Completes a login with TOTP on (ADR-0019); a wrong code counts against the token (at most 5) and is audited. */
   loginSecondFactor(request: SecondFactorLoginRequest, context: RequestContext): Promise<SecondFactorLoginResult>;
   /** A new token pair for the session, or `undefined` for an unknown, expired, reused or foreign token. */
@@ -343,6 +363,59 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
         }
         const device = { client: request.client, deviceLabel: request.device_label };
         return { outcome: 'signed_in', tokens: await signIn(tx, current, device, 'password', context, now) };
+      });
+    },
+
+    async passkeyOptions() {
+      const now = deps.clock.now();
+      const { challenge, hash } = issueWebauthnChallenge();
+      await inTransaction(deps.db, (tx) =>
+        insertWebauthnChallenge(
+          tx,
+          {
+            challengeHash: hash,
+            purpose: 'authentication',
+            userId: null,
+            expiresAt: new Date(now.getTime() + WEBAUTHN_TIMEOUT_MS),
+          },
+          now,
+        ),
+      );
+      return requestOptions(deps.webauthn, challenge);
+    },
+
+    async loginWithPasskey(request, context) {
+      const now = deps.clock.now();
+      const claim = claimedAssertion(request.credential);
+      const hash = claim === undefined ? undefined : challengeHash(claim.challenge);
+      if (claim === undefined || hash === undefined) return INVALID_CREDENTIALS;
+      const device = { client: request.client, deviceLabel: request.device_label };
+
+      return inTransaction(deps.db, async (tx): Promise<PasskeyLoginResult> => {
+        // Used up whatever follows; committed with the answer, also a refusal.
+        if (!(await consumeAuthenticationChallenge(tx, hash, now))) return INVALID_CREDENTIALS;
+        // The user handle names the account; under its context another account's credential is not found.
+        await setUserContext(tx, claim.userId);
+        const account = await lockLoginAccount(tx, claim.userId);
+        const usable = account !== undefined && !isGone(account, now) && account.emailVerifiedAt !== null;
+        const check = usable
+          ? await checkPasskeyAssertion(tx, deps.webauthn, request.credential, claim, now)
+          : 'invalid';
+        if (account === undefined || check !== 'verified') {
+          await audit(
+            tx,
+            {
+              userId: account?.id ?? null,
+              eventType: check === 'counter_not_increased' ? 'passkey_clone_suspected' : 'login_failed',
+              outcome: 'failure',
+              ...requestOf(context, device),
+              ...(check === 'counter_not_increased' ? {} : { metadata: { method: 'passkey' } }),
+            },
+            now,
+          );
+          return INVALID_CREDENTIALS;
+        }
+        return { outcome: 'signed_in', tokens: await signIn(tx, account, device, 'passkey', context, now) };
       });
     },
 

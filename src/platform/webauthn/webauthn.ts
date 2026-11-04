@@ -147,9 +147,13 @@ export function challengeHash(challenge: string): Buffer | undefined {
 
 const userHandleOf = (userId: string): string => Buffer.from(userId.replaceAll('-', ''), 'hex').toString('base64url');
 
+/** Every user ID is a v4 UUID (RFC 9562: version 4 in byte 6, variant 0b10 in byte 8); other handles name nobody. */
 function userIdOf(userHandle: unknown): string | undefined {
-  const hex = fromBase64Url(userHandle)?.toString('hex');
-  if (hex?.length !== USER_HANDLE_BYTES * 2) return undefined;
+  const bytes = fromBase64Url(userHandle);
+  if (bytes?.length !== USER_HANDLE_BYTES || bytes.readUInt8(6) >> 4 !== 4 || bytes.readUInt8(8) >> 6 !== 0b10) {
+    return undefined;
+  }
+  const hex = bytes.toString('hex');
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
 }
 

@@ -8,6 +8,4 @@ export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   // M3 — core domain
   // M4 — privacy rights
   // M5 — sign-in methods (ADR-0019)
-  'createPasskeyChallenge',
-  'loginWithPasskey',
 ]);

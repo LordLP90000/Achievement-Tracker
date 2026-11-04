@@ -69,7 +69,7 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
     checkIns: createCheckInsService(shared),
     gambles: createGamblesService(shared),
     rateLimiter: createRateLimiter({ ...shared, rateLimitKey: keys.rateLimitKey }),
-    sessions: createSessionsService(shared),
+    sessions: createSessionsService({ ...shared, webauthn: config.webauthn }),
     stats: createStatsService(shared),
     exports: createExportService(shared),
     deletions: createDeletionService(shared),

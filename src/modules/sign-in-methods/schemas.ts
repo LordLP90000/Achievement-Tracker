@@ -38,6 +38,24 @@ const registrationCredential = z.looseObject({
   }),
 });
 
+/**
+ * `PasskeyAssertion`: the platform's `AuthenticationResponseJSON`, open inside, with the user handle discoverable
+ * credentials always report; verified as a whole by `platform/webauthn`.
+ */
+export const passkeyAssertion = z.looseObject({
+  id: credentialId,
+  rawId: credentialId,
+  type: z.literal('public-key'),
+  authenticatorAttachment: z.enum(['platform', 'cross-platform']).optional(),
+  clientExtensionResults: z.looseObject({}),
+  response: z.looseObject({
+    clientDataJSON: base64url,
+    authenticatorData: base64url,
+    signature: base64url,
+    userHandle: base64url,
+  }),
+});
+
 /** `PasskeyRegistrationRequest`: the result and an optional name (encrypted at rest). */
 export const passkeyRegistrationRequest = z.strictObject({
   credential: registrationCredential,

@@ -52,6 +52,21 @@ const FLOWS: Readonly<Record<string, Record<string, unknown>>> = {
   confirmEmailChange: { token: TOKEN },
   confirmTotp: { code: '123456' },
   loginSecondFactor: { second_factor_token: `ql_sf_${'A'.repeat(43)}`, totp_code: '123456', client: 'ios' },
+  loginWithPasskey: {
+    credential: {
+      id: 'A'.repeat(43),
+      rawId: 'A'.repeat(43),
+      type: 'public-key',
+      clientExtensionResults: {},
+      response: {
+        clientDataJSON: 'e30',
+        authenticatorData: 'A'.repeat(50),
+        signature: 'A'.repeat(96),
+        userHandle: 'A'.repeat(22),
+      },
+    },
+    client: 'ios',
+  },
 };
 
 /** What a client would like to set; values the server would never give it. */

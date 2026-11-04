@@ -6,7 +6,13 @@ import { requestContext } from '../audit/context.ts';
 import { enforce } from '../rate-limit/http.ts';
 import { BACKOFFS, type RateLimiter } from '../rate-limit/limiter.ts';
 import { principalOf } from './guard.ts';
-import { loginRequest, reauthRequest, refreshRequest, secondFactorLoginRequest } from './schemas.ts';
+import {
+  loginRequest,
+  passkeyLoginRequest,
+  reauthRequest,
+  refreshRequest,
+  secondFactorLoginRequest,
+} from './schemas.ts';
 import type { IssuedTokens, SessionsService } from './service.ts';
 
 /** Session endpoints of `openapi/openapi.yaml` (tag `auth`), mounted under `/v1` behind the auth guard. */
@@ -54,6 +60,17 @@ export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app
         methods: challenge.methods,
       });
     }
+    return reply.code(200).send(tokenPair(result.tokens));
+  });
+
+  app.post('/auth/passkey/options', PUBLIC, async (_request, reply) => {
+    return reply.code(200).send(await sessions.passkeyOptions());
+  });
+
+  app.post('/auth/passkey/login', PUBLIC, async (request, reply) => {
+    const body = parseRequest(passkeyLoginRequest, request.body);
+    const result = await sessions.loginWithPasskey(body, requestContext(request));
+    if (result.outcome === 'invalid_credentials') throw new ProblemError(Problems.invalidCredentials);
     return reply.code(200).send(tokenPair(result.tokens));
   });
 

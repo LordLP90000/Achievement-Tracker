@@ -206,3 +206,60 @@ export async function consumeRegistrationChallenge(
     .returning({ id: webauthnChallenges.id });
   return consumed.length > 0;
 }
+
+/** Uses up an unexpired sign-in or step-up challenge (no account) with this hash; `false` when there is none. */
+export async function consumeAuthenticationChallenge(
+  tx: Transaction,
+  challengeHash: Buffer,
+  now: Date,
+): Promise<boolean> {
+  const consumed = await tx
+    .delete(webauthnChallenges)
+    .where(
+      and(
+        eq(webauthnChallenges.challengeHash, challengeHash),
+        isNull(webauthnChallenges.userId),
+        gt(webauthnChallenges.expiresAt, now),
+      ),
+    )
+    .returning({ id: webauthnChallenges.id });
+  return consumed.length > 0;
+}
+
+export interface StoredPasskeyRecord {
+  readonly id: string;
+  readonly credentialId: Buffer;
+  readonly publicKey: Buffer;
+  readonly signCount: number;
+}
+
+/** The account's passkey with this credential ID; another account's is not found. */
+export async function findPasskeyByCredential(
+  tx: Transaction,
+  userId: string,
+  credentialId: Buffer,
+): Promise<StoredPasskeyRecord | undefined> {
+  const [row] = await tx
+    .select({
+      id: passkeys.id,
+      credentialId: passkeys.credentialId,
+      publicKey: passkeys.publicKey,
+      signCount: passkeys.signCount,
+    })
+    .from(passkeys)
+    .where(and(eq(passkeys.userId, userId), eq(passkeys.credentialId, credentialId)));
+  return row;
+}
+
+/** A verified use: the new counter and backup state, and when. */
+export async function recordPasskeyUse(
+  tx: Transaction,
+  passkeyId: string,
+  use: { readonly signCount: number; readonly backedUp: boolean },
+  now: Date,
+): Promise<void> {
+  await tx
+    .update(passkeys)
+    .set({ signCount: use.signCount, backedUp: use.backedUp, lastUsedAt: now })
+    .where(eq(passkeys.id, passkeyId));
+}

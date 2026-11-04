@@ -269,6 +269,16 @@ describe('passkey sign-in [ADR-0019, R-AUTH-01, S-01]', () => {
     ['no user handle', { userHandle: '' }],
     ['a user handle that is not 16 bytes', { userHandle: Buffer.from('anna').toString('base64url') }],
     ['a user handle that is not base64url', { userHandle: `${randomBytes(16).toString('base64')}!` }],
+    // 16 bytes, but no user id this API issues (v4): no account to look up.
+    ['a user handle that is no v4 UUID', { userHandle: Buffer.alloc(16, 7).toString('base64url') }],
+    [
+      'a user handle with the v4 nibble but not its variant',
+      { userHandle: Buffer.from('0707070707074707c707070707070707', 'hex').toString('base64url') },
+    ],
+    [
+      'a user handle with the variant but not the v4 nibble',
+      { userHandle: Buffer.from('07070707070707078707070707070707', 'hex').toString('base64url') },
+    ],
     ['a challenge that is not 32 bytes', { challenge: 'c2hvcnQ' }],
   ])('claims nothing for an assertion with %s', async (_label, settings) => {
     const { passkey } = await registered();

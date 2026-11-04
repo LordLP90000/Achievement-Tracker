@@ -141,7 +141,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
   /** One API instance: its own pool and services on the shared database, keys and clock. */
   const buildInstance = (client: DatabaseClient): { app: FastifyInstance; sessions: SessionsService } => {
     const shared = { db: createDatabase(client), clock, hasher, blindIndexKey, dataKeys: createDataKeys(wrapper) };
-    const sessions = createSessionsService(shared);
+    const sessions = createSessionsService({ ...shared, webauthn: TEST_WEBAUTHN });
     const instance = buildApp({
       http: { trustProxyHops: 0 },
       logger,

@@ -235,8 +235,8 @@ its response (headers and body, encrypted with the user's data key) in the same 
   find, store and consume challenges and passkeys (ADR-0019).
 - Challenges: 32 random bytes, sent as unpadded base64url, stored as their SHA-256; a response finds its challenge
   by the one it signed (`claimedChallenge`, `claimedAssertion` — read before anything is verified, so the caller
-  can consume the challenge and bind the account the user handle names; anything not canonical base64url, or not 32
-  bytes, claims nothing).
+  can consume the challenge and bind the account the user handle names; anything not canonical base64url, a
+  challenge not 32 bytes, or a user handle not the 16 bytes of a v4 UUID — which every user ID is — claims nothing).
 - Options are built here, exactly as the contract describes them (the library's own add members the closed schemas
   refuse): creation with a discoverable credential, user verification required, attestation `none`, EdDSA, ES256
   and RS256, the account's passkeys excluded, the user handle the account ID's 16 bytes; requests without a

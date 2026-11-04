@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { boundedText } from '../../platform/http/validation.ts';
 import { email, opaqueToken, password } from '../accounts/schemas.ts';
-import { totpCode } from '../sign-in-methods/schemas.ts';
+import { passkeyAssertion, totpCode } from '../sign-in-methods/schemas.ts';
 
 /** Request bodies of the session endpoints (`LoginRequest`, refresh), mirroring `openapi/openapi.yaml`. */
 
@@ -43,3 +43,12 @@ export const secondFactorLoginRequest = z
   });
 
 export type SecondFactorLoginRequest = z.output<typeof secondFactorLoginRequest>;
+
+/** `PasskeyLoginRequest` in the contract: the platform's assertion and the device. */
+export const passkeyLoginRequest = z.strictObject({
+  credential: passkeyAssertion,
+  client: z.enum(CLIENTS),
+  device_label: boundedText(1, 64).optional(),
+});
+
+export type PasskeyLoginRequest = z.output<typeof passkeyLoginRequest>;

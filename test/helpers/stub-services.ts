@@ -36,6 +36,8 @@ export const UNAVAILABLE_SERVICES: AppServices = Object.freeze({
   rateLimiter: ALLOW_ALL,
   sessions: {
     login: unavailable,
+    passkeyOptions: unavailable,
+    loginWithPasskey: unavailable,
     secondFactorSubject: unavailable,
     loginSecondFactor: unavailable,
     refresh: unavailable,
