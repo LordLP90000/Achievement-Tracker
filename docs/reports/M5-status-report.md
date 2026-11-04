@@ -11,8 +11,9 @@
 **51 of 51 operations** are implemented, contract-tested and frozen. That is M4's 40 plus M5's 11, with additive
 changes to `login`, `reauthenticate`, `Account`, `Session` and the export, as you approved them with ADR-0019 (Q-52).
 CI stayed green on every push (runs #108–#121). You decided Q-50 and Q-51 at M5's start, and Q-52 and Q-53 during
-it. No decision is needed to close M5. M6 needs the hosting option, the email relay, the Connect details and the
-domain (see *Decisions I need from you*).
+it. No decision is needed to close M5. M6 needs the hosting option, the email relay, the Connect details, the
+domain and a staging budget, and its review package needs your consent and policy texts (see *Decisions I need from
+you*).
 
 ## Done
 
@@ -203,6 +204,8 @@ dependency, image, external service, processor or cost.
 |----|----------|---------|-------------------|
 | O-01, O-02, O-03 | **Before M6's staging work**: your hosting option (Q-01), the SMTP relay operator and the 1Password Connect deployment details | name them; `docs/hosting-options.md` lists what each must provide (H-1…H-7) | Name them by M6's start. Without them, M6 can build everything except the staging deployment and the scans and load tests that run against it |
 | Q-19 | **The production domain**: passkeys and email links need it, and so do the association files the apps need for passkeys | name it, or keep `questline.test` until launch | Name it with the hosting option: it becomes the passkey relying-party ID (Q-51), which can't change later without every passkey being re-created |
+| Budget | **A budget for staging**, which the plan lists for M6's start: staging runs on your host for M6's scans, load tests and restore drill, and can become the app team's shared environment | (a) a monthly budget approved with the hosting option · (b) staging only while M6 runs, then torn down | **(a)** with a single-node database for staging: roughly half of the CHF 200–350 a month that `docs/hosting-options.md` estimates for a highly available setup. Production sizing follows before launch, and every cost still needs your approval first |
+| O-04 | **The consent text and its version, the privacy policy and the controller's identity**, which the plan lists for M6: the data-protection expert's review package needs the policy draft (DPIA §6 and open items 3, 5 and 8). Since M5 the policy must also cover passkeys, TOTP and the lock-out without recovery codes | (a) drafts during M6, final texts before launch · (b) the package goes to the expert without the policy | **(a)**: I can list what the policy must cover from the data inventory and the DPIA, so legal starts from the facts |
 
 ## Scope or plan changes
 
@@ -235,13 +238,13 @@ dependency, image, external service, processor or cost.
 - **Today from 22:35**: Node 26.13.0 LTS, the last M4 task, as one maintenance commit with the e2e suite and Trivy
   run before the push. It doesn't need the review.
 - **After your "go": M6 Hardening & handover (5.5–8.5 engineering days)**:
-  - a staging deployment on your hosting option, which needs O-01…O-03 and the domain
+  - a staging deployment on your hosting option, which needs O-01…O-03, the domain and the budget
   - ZAP against the OpenAPI spec
   - k6 for limits and backoff under load, the public passkey options included
   - the restore drill with tombstone replay
   - the key-rotation, breach and operations runbooks
   - the API reference
-  - the review package for the data-protection expert
+  - the review package for the data-protection expert, with your policy draft (O-04)
 
 ---
 
