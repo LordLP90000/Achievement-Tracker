@@ -338,7 +338,7 @@ the archive has no limit (Q-40).
 │       ├── gambles/
 │       ├── goals/                     # the goal engine: evaluate, reconcile, store — under the user's lock; XP ledger
 │       ├── stats/                     # XP per day, counts, badges, best streaks, gamble record (R-STA-01)
-│       ├── sign-in-methods/           # TOTP and recovery codes (M5; passkeys follow), the owner's notice of every change
+│       ├── sign-in-methods/           # passkeys, TOTP and recovery codes (M5), the owner's notice of every change
 │       ├── audit/
 │       └── privacy/                   # export, deactivation and deletion, retention jobs
 ├── test/

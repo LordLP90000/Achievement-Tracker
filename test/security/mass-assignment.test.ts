@@ -4,6 +4,7 @@ import { startAccountsApp, type AccountsApp } from '../helpers/accounts-app.ts';
 import { contractInject } from '../helpers/contract.ts';
 import { bearer, createAchievement, goalUser, type GoalUser } from '../helpers/goals.ts';
 import { resolveRef, specOperations, type SpecOperation } from '../helpers/openapi.ts';
+import { register, type CreationOptions } from '../helpers/software-authenticator.ts';
 import { NOT_YET_IMPLEMENTED } from '../contract/not-yet-implemented.ts';
 
 const START = '2026-10-29T12:00:00Z';
@@ -21,6 +22,7 @@ const RESOURCES: Readonly<Record<string, string>> = {
   placeGamble: 'Gamble',
   updateQuest: 'Quest',
   createCheckIn: 'CheckIn',
+  registerPasskey: 'Passkey',
 };
 
 /** Accepted fields whose values the server alone sets (R-AUTHZ-04): only a pause or a resume is a client's status. */
@@ -143,6 +145,15 @@ describe('mass assignment [R-AUTHZ-04, T-02, E-04, T-17]', () => {
       }
       case 'createCheckIn':
         return { user, url: `/v1/quests/${questId}/check-ins`, body: { local_date: TODAY } };
+      case 'registerPasskey': {
+        const options = await contractInject(ctx.app, {
+          method: 'POST',
+          url: '/v1/me/passkeys/options',
+          headers: bearer(user.token),
+        });
+        const { credential } = register(options.json<CreationOptions>(), { origin: 'https://questline.test' });
+        return { user, url: '/v1/me/passkeys', body: { credential } };
+      }
       default:
         throw new Error(`no target for ${operationId}`);
     }

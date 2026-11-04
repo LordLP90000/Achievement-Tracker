@@ -10,8 +10,4 @@ export const NOT_YET_IMPLEMENTED: ReadonlySet<string> = new Set([
   // M5 — sign-in methods (ADR-0019)
   'createPasskeyChallenge',
   'loginWithPasskey',
-  'listPasskeys',
-  'registerPasskey',
-  'createPasskeyRegistrationOptions',
-  'deletePasskey',
 ]);

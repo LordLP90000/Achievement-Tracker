@@ -52,6 +52,8 @@ export interface CeremonySettings {
 export interface RegistrationSettings extends CeremonySettings {
   readonly algorithm?: PasskeyAlgorithm;
   readonly credentialIdBytes?: number;
+  /** Registers under this credential ID, as an authenticator registering one credential twice would. */
+  readonly credentialId?: Buffer;
   /** `null` reports none, as some platforms do. */
   readonly transports?: readonly string[] | null;
   readonly count?: 'increment' | 'zero';
@@ -191,7 +193,7 @@ export function register(
   const algorithm = settings.algorithm ?? 'ES256';
   const { privateKey, cose } = keyPair(algorithm);
   const publicKey = encodedKey(cose, settings.publicKeyBytes);
-  const credentialId = randomBytes(settings.credentialIdBytes ?? 32);
+  const credentialId = settings.credentialId ?? randomBytes(settings.credentialIdBytes ?? 32);
   const rpId = settings.rpId ?? options.rp.id;
   const count = settings.count ?? 'increment';
   const counter = count === 'zero' ? 0 : 1;

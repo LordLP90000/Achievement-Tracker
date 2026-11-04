@@ -16,6 +16,7 @@ import { createExportService } from '../../src/modules/privacy/export-service.ts
 import { createQuestsService } from '../../src/modules/quests/service.ts';
 import { createRateLimiter } from '../../src/modules/rate-limit/limiter.ts';
 import { createSessionsService, type SessionsService } from '../../src/modules/sessions/service.ts';
+import { createPasskeysService } from '../../src/modules/sign-in-methods/passkey-service.ts';
 import { createTotpService } from '../../src/modules/sign-in-methods/totp-service.ts';
 import { principalOf, registerAuthGuard } from '../../src/modules/sessions/guard.ts';
 import { createStatsService } from '../../src/modules/stats/service.ts';
@@ -94,6 +95,13 @@ export interface AccountsAppOptions {
 
 export const TEST_PASSWORD = 'purple elephants dance quietly';
 
+/** The relying party of the test apps (Q-51): `questline.test`, its https origin and an Android app. */
+export const TEST_WEBAUTHN = Object.freeze({
+  rpId: 'questline.test',
+  rpName: 'Questline',
+  origins: Object.freeze(['https://questline.test', `android:apk-key-hash:${'A'.repeat(42)}w`]),
+});
+
 export async function startAccountsApp(options: AccountsAppOptions = {}): Promise<AccountsApp> {
   const database = await createTestDatabase();
   const role = (url: string) => createDatabaseClient({ url, applicationName: 'questline-test' });
@@ -154,6 +162,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
         sessions,
         stats: createStatsService(shared),
         totp: createTotpService(shared),
+        passkeys: createPasskeysService({ ...shared, webauthn: TEST_WEBAUTHN }),
       },
     });
     return { app: instance, sessions };

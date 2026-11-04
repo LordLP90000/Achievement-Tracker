@@ -28,6 +28,7 @@ import { registerAuthGuard } from './modules/sessions/guard.ts';
 import { sessionsRoutes } from './modules/sessions/routes.ts';
 import type { SessionsService } from './modules/sessions/service.ts';
 import { signInMethodsRoutes } from './modules/sign-in-methods/routes.ts';
+import type { PasskeysService } from './modules/sign-in-methods/passkey-service.ts';
 import type { TotpService } from './modules/sign-in-methods/totp-service.ts';
 import { statsRoutes } from './modules/stats/routes.ts';
 import type { StatsService } from './modules/stats/service.ts';
@@ -49,6 +50,7 @@ export interface AppServices {
   readonly emailChanges: EmailChangeService;
   readonly exports: ExportService;
   readonly gambles: GamblesService;
+  readonly passkeys: PasskeysService;
   readonly passwords: PasswordsService;
   readonly profiles: ProfileService;
   readonly quests: QuestsService;
@@ -102,7 +104,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
       void v1.register(profileRoutes, { profiles: deps.services.profiles });
       void v1.register(consentsRoutes, { consents: deps.services.consents });
       void v1.register(sessionsRoutes, { sessions: deps.services.sessions, limiter });
-      void v1.register(signInMethodsRoutes, { totp: deps.services.totp });
+      void v1.register(signInMethodsRoutes, { totp: deps.services.totp, passkeys: deps.services.passkeys });
       void v1.register(achievementsRoutes, { achievements: deps.services.achievements });
       void v1.register(questsRoutes, { quests: deps.services.quests });
       void v1.register(checkInsRoutes, { checkIns: deps.services.checkIns });

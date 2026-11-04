@@ -12,11 +12,12 @@ type Tree = Record<string, unknown>;
  * `openapi/frozen/openapi.yaml` is `openapi/openapi.yaml` as last frozen, byte for byte: 0.3.0, renewed as 0.3.1 when
  * `exportData` and as 0.3.2 when `deleteAccount` was implemented and joined the freeze, and since then with every
  * approved change (0.3.3: Q-47, 0.3.4: Q-48, 0.4.0: M5's operations, outside the freeze until implemented, 0.4.1:
- * the export's sign-in methods and Q-53, 0.4.2: the TOTP operations, 0.4.3: the login's second step, implemented),
- * once the contract passed this check against the snapshot before it — so that what a change added is frozen as well.
+ * the export's sign-in methods and Q-53, 0.4.2: the TOTP operations, 0.4.3: the login's second step, 0.4.4: passkey
+ * management, implemented), once the contract passed this check against the snapshot before it — so that what a
+ * change added is frozen as well.
  */
 const FROZEN = parse(readFileSync(new URL('../../openapi/frozen/openapi.yaml', import.meta.url), 'utf8')) as Tree;
-const FROZEN_VERSION = '0.4.3';
+const FROZEN_VERSION = '0.4.4';
 
 /**
  * Operations not frozen yet: M5's (0.4.0, ADR-0019), each until it is implemented — the rule of M4: implemented
@@ -24,14 +25,7 @@ const FROZEN_VERSION = '0.4.3';
  * this list, and the snapshot is renewed from the contract of that day once that contract passed this check against
  * the old snapshot.
  */
-const OUTSIDE_FREEZE: ReadonlySet<string> = new Set([
-  'createPasskeyChallenge',
-  'loginWithPasskey',
-  'listPasskeys',
-  'registerPasskey',
-  'createPasskeyRegistrationOptions',
-  'deletePasskey',
-]);
+const OUTSIDE_FREEZE: ReadonlySet<string> = new Set(['createPasskeyChallenge', 'loginWithPasskey']);
 
 const nodeAt = (tree: Tree, ...keys: readonly string[]): Tree =>
   keys.reduce<Tree>((node, key) => node[key] as Tree, tree);

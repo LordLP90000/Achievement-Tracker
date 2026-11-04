@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, desc, eq, gt, isNotNull, isNull } from 'drizzle-orm';
 import type { Transaction } from '../../platform/db/database.ts';
-import { recoveryCodes, totpSecrets } from '../../platform/db/schema/index.ts';
+import { passkeys, recoveryCodes, totpSecrets, users, webauthnChallenges } from '../../platform/db/schema/index.ts';
 
 /**
- * TOTP secrets and recovery codes (data-model §3.1). Both tables are under row-level security: the transaction must be
- * bound to the account first.
+ * Passkeys, TOTP secrets and recovery codes (data-model §3.1), under row-level security: the transaction must be bound
+ * to the account first. WebAuthn challenges are looked up by hash, before any account is known (⟂).
  */
 
 export interface TotpSecretRecord {
@@ -107,4 +107,102 @@ export async function useRecoveryCode(tx: Transaction, userId: string, codeHash:
 export async function countRecoveryCodes(tx: Transaction, userId: string): Promise<number> {
   const rows = await tx.select({ id: recoveryCodes.id }).from(recoveryCodes).where(eq(recoveryCodes.userId, userId));
   return rows.length;
+}
+
+/** Locks the account row: one change of its sign-in methods at a time, so a limit cannot be overrun. */
+export async function lockAccount(tx: Transaction, userId: string): Promise<void> {
+  await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+}
+
+export interface PasskeyRecord {
+  readonly id: string;
+  readonly credentialId: Buffer;
+  readonly transports: readonly string[];
+  readonly backedUp: boolean;
+  readonly nameEnc: Buffer | null;
+  readonly createdAt: Date;
+  readonly lastUsedAt: Date | null;
+}
+
+/** The account's passkeys, newest first. */
+export async function listPasskeys(tx: Transaction, userId: string): Promise<PasskeyRecord[]> {
+  return tx
+    .select({
+      id: passkeys.id,
+      credentialId: passkeys.credentialId,
+      transports: passkeys.transports,
+      backedUp: passkeys.backedUp,
+      nameEnc: passkeys.nameEnc,
+      createdAt: passkeys.createdAt,
+      lastUsedAt: passkeys.lastUsedAt,
+    })
+    .from(passkeys)
+    .where(eq(passkeys.userId, userId))
+    .orderBy(desc(passkeys.createdAt), desc(passkeys.id));
+}
+
+export interface NewPasskey {
+  readonly id: string;
+  readonly userId: string;
+  readonly credentialId: Buffer;
+  readonly publicKey: Buffer;
+  readonly signCount: number;
+  readonly transports: readonly string[];
+  readonly backedUp: boolean;
+  readonly nameEnc: Buffer | null;
+}
+
+/** Stores the passkey; `false` when its credential is registered already, to this account or another. */
+export async function insertPasskey(tx: Transaction, passkey: NewPasskey, now: Date): Promise<boolean> {
+  const inserted = await tx
+    .insert(passkeys)
+    .values({ ...passkey, transports: [...passkey.transports], createdAt: now })
+    .onConflictDoNothing({ target: passkeys.credentialId })
+    .returning({ id: passkeys.id });
+  return inserted.length > 0;
+}
+
+export async function deletePasskey(tx: Transaction, userId: string, passkeyId: string): Promise<boolean> {
+  const deleted = await tx
+    .delete(passkeys)
+    .where(and(eq(passkeys.userId, userId), eq(passkeys.id, passkeyId)))
+    .returning({ id: passkeys.id });
+  return deleted.length > 0;
+}
+
+export interface NewWebauthnChallenge {
+  readonly challengeHash: Buffer;
+  readonly purpose: 'registration' | 'authentication';
+  /** The account a registration is for; `null` for sign-in and step-up challenges. */
+  readonly userId: string | null;
+  readonly expiresAt: Date;
+}
+
+export async function insertWebauthnChallenge(
+  tx: Transaction,
+  challenge: NewWebauthnChallenge,
+  now: Date,
+): Promise<void> {
+  await tx.insert(webauthnChallenges).values({ id: randomUUID(), ...challenge, createdAt: now });
+}
+
+/** Uses up the account's unexpired registration challenge with this hash; `false` when there is none. */
+export async function consumeRegistrationChallenge(
+  tx: Transaction,
+  challengeHash: Buffer,
+  userId: string,
+  now: Date,
+): Promise<boolean> {
+  const consumed = await tx
+    .delete(webauthnChallenges)
+    .where(
+      and(
+        eq(webauthnChallenges.challengeHash, challengeHash),
+        // Only registration challenges name an account (the table's CHECK).
+        eq(webauthnChallenges.userId, userId),
+        gt(webauthnChallenges.expiresAt, now),
+      ),
+    )
+    .returning({ id: webauthnChallenges.id });
+  return consumed.length > 0;
 }

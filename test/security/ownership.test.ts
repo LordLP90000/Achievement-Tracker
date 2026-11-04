@@ -4,6 +4,7 @@ import { startAccountsApp, type AccountsApp } from '../helpers/accounts-app.ts';
 import { contractInject } from '../helpers/contract.ts';
 import { bearer, createAchievement, goalUser, type GoalUser } from '../helpers/goals.ts';
 import { resolveRef, specOperations, type SpecOperation } from '../helpers/openapi.ts';
+import { register, type CreationOptions } from '../helpers/software-authenticator.ts';
 import { NOT_YET_IMPLEMENTED } from '../contract/not-yet-implemented.ts';
 
 const START = '2026-10-29T12:00:00Z';
@@ -17,6 +18,7 @@ const OWNED = {
   '#/components/parameters/AchievementId': 'achievement',
   '#/components/parameters/QuestId': 'quest',
   '#/components/parameters/CheckInId': 'checkIn',
+  '#/components/parameters/PasskeyId': 'passkey',
 } as const;
 type Owned = (typeof OWNED)[keyof typeof OWNED];
 
@@ -113,6 +115,13 @@ describe('ownership [R-AUTHZ-02, R-AUTHZ-03, T-01, I-04, I-14]', () => {
     records.set('quest', await get(`/v1/quests/${quest.id}`));
     records.set('checkIn', checkIn ?? { id: '' });
     records.set('session', (sessions['items'] as Resource[])[0] ?? { id: '' });
+    const passkeyOptions = await contractInject(ctx.app, {
+      method: 'POST',
+      url: '/v1/me/passkeys/options',
+      headers: bearer(owner.token),
+    });
+    const { credential } = register(passkeyOptions.json<CreationOptions>(), { origin: 'https://questline.test' });
+    records.set('passkey', await created('/v1/me/passkeys', { credential }));
     const tables = await ctx.admin.sql<{ table_name: string }[]>`
       select table_name from information_schema.columns
       where table_schema = 'public' and column_name = 'user_id' order by table_name`;

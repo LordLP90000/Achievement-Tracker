@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.4.3
+  version: 0.4.4
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -48,6 +48,8 @@ info:
     and frozen; no operation changed.
     0.4.3 (2026-11-04): `login` answers `202` with a `second_factor_token` when TOTP is on (`SecondFactorRequired`,
     ADR-0019, Q-52); `loginSecondFactor` implemented as described and frozen.
+    0.4.4 (2026-11-04): `createPasskeyRegistrationOptions`, `registerPasskey`, `listPasskeys` and `deletePasskey`
+    implemented as described and frozen; no operation changed.
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.

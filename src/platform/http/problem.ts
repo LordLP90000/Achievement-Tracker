@@ -82,6 +82,13 @@ export const Problems = {
     title: 'The code is not valid',
     errors: [{ pointer: '/code', message: "is not the authenticator app's current code" }],
   },
+  /** ADR-0019: a registration result that does not verify, for a challenge of this account, as a new passkey. */
+  invalidPasskey: {
+    status: 422,
+    slug: 'invalid-passkey',
+    title: 'The passkey could not be registered',
+    errors: [{ pointer: '/credential', message: 'does not verify as a new passkey for a challenge of this account' }],
+  },
   /** Use with `extensions: { current_version }` (contract `VersionConflictProblem`). */
   versionConflict: { status: 409, slug: 'version-conflict', title: 'The resource was changed meanwhile' },
   preconditionRequired: { status: 428, slug: 'precondition-required', title: 'If-Match header required' },
