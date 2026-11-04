@@ -96,14 +96,21 @@ Rules enforced by lint/tests:
 - Secret strength checks: base64/hex decodes to ≥ 32 bytes, not all identical bytes, not one of the documented
   example values, not equal to another secret.
 - `APP_ENV=production` additionally refuses `KEK_SOURCE=env` (the KEK must come from 1Password Connect, R-ENC-05),
-  `LOG_LEVEL=debug|trace`, missing `TRUST_PROXY_HOPS`, any `DATABASE_URL` without `sslmode=verify-full` and any
-  SMTP setting without TLS.
+  `LOG_LEVEL=debug|trace`, missing `TRUST_PROXY_HOPS`, any `DATABASE_URL` without `sslmode=verify-full`, any
+  SMTP setting without TLS, and a missing `WEBAUTHN_RP_ID` or `WEBAUTHN_ORIGINS` or a reserved or local RP ID
+  (`localhost`, `.test`, `.example`, `.invalid`, `.local`; Q-51).
 - Variables (final list in M1): `APP_ENV`, `PORT`, `LOG_LEVEL`, `TRUST_PROXY_HOPS`, `PUBLIC_LINK_BASE_URL`,
   `DATABASE_URL_APP`, `DATABASE_URL_WORKER`, `DATABASE_URL_MIGRATOR` (migration job only), `KEK_SOURCE`
   (`env` | `onepassword-connect`), `LOCAL_KEK` (dev/test only), `OP_CONNECT_URL`, `OP_CONNECT_TOKEN`,
   `OP_KEK_VAULT_ID`, `OP_KEK_ITEM_ID`, `BLIND_INDEX_KEY`, `RATE_LIMIT_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`
-  (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`. Secrets are injected as environment
+  (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`; since M5 `WEBAUTHN_RP_ID` and
+  `WEBAUTHN_ORIGINS` (API). Secrets are injected as environment
   variables (from 1Password or the host's secret store); only the KEK is fetched from Connect at runtime.
+- The passkey relying party (API, ADR-0019, Q-51): `WEBAUTHN_RP_ID` is a lower-case domain name, not an IP address;
+  `WEBAUTHN_ORIGINS` lists, comma-separated, at most 10 origins: `https://` the RP ID or one of its subdomains,
+  with a port if it is not 443, and `android:apk-key-hash:` with the base64url SHA-256 of an Android app's signing
+  certificate (iOS apps sign in as the site, by their associated domain). Outside production they default to
+  `questline.test` and `https://questline.test`.
 - The worker's email variables (`SMTP_*`, `EMAIL_FROM`, `PUBLIC_LINK_BASE_URL`) are all or none. Outside production,
   none set means email delivery is off and emails stay queued (the integration tests); the local Compose stack sends
   every email to its mail catcher, Mailpit, over implicit TLS with a throw-away certificate that the worker trusts
@@ -222,6 +229,28 @@ its response (headers and body, encrypted with the user's data key) in the same 
   587 or implicit TLS on 465, ADR-0014). Tests use `FakeEmailSender`, which exposes delivered messages (so tests
   can extract verification links), and a local SMTP test server for the real sender.
 
+### 4.8 Passkeys (`platform/webauthn`, M5)
+
+- `webauthn.ts`, the only importer of `@simplewebauthn/server` (dependency-cruiser), knows no database: callers
+  find, store and consume challenges and passkeys (ADR-0019).
+- Challenges: 32 random bytes, sent as unpadded base64url, stored as their SHA-256; a response finds its challenge
+  by the one it signed (`claimedChallenge`, `claimedAssertion` — read before anything is verified, so the caller
+  can consume the challenge and bind the account the user handle names; anything not canonical base64url, or not 32
+  bytes, claims nothing).
+- Options are built here, exactly as the contract describes them (the library's own add members the closed schemas
+  refuse): creation with a discoverable credential, user verification required, attestation `none`, EdDSA, ES256
+  and RS256, the account's passkeys excluded, the user handle the account ID's 16 bytes; requests without a
+  credential list. Timeout and challenge lifetime: 5 minutes.
+- Verification by the library against the configured RP ID and origins (§4.1): the type of ceremony, the challenge,
+  user presence and verification, the offered algorithms, the signature; on top, the credential ID the platform
+  names must be the registered (or stored) one, and a credential ID over 1 023 bytes or a key over 2 048 bytes is
+  refused (the columns' limits). Unknown transports are dropped. The library's counter check is turned off because
+  it runs before the signature check: only a valid signature is judged by its counter, which must grow unless it
+  stayed 0, so a forgery is never mistaken for a clone (`counter_not_increased`).
+- Tests run real ceremonies against a software authenticator written from the spec (`test/helpers`), not with the
+  library: CBOR, authenticator data, `none` and `packed` attestations, ES256, EdDSA, RS256 — and every field a
+  verifier must check bent in turn.
+
 ## 5. Domain engine (`src/domain`)
 
 Pure, exhaustively tested functions:
@@ -297,7 +326,8 @@ the archive has no limit (Q-40).
 │   │   ├── http/
 │   │   ├── jobs/                      # poller (outbox, scheduler tick), scheduler with advisory locks and job_runs
 │   │   ├── logging/
-│   │   └── time/
+│   │   ├── time/
+│   │   └── webauthn/                  # passkey options and verification, the only user of @simplewebauthn/server (M5)
 │   └── modules/
 │       ├── health/
 │       ├── accounts/                  # register, verify, login, refresh, logout, password, email change, reauth, sessions
@@ -311,7 +341,7 @@ the archive has no limit (Q-40).
 │       ├── audit/
 │       └── privacy/                   # export, deactivation and deletion, retention jobs
 ├── test/
-│   ├── helpers/                       # testcontainers harness, app factory, fake clock, fake email, log capture, contract validator
+│   ├── helpers/                       # testcontainers harness, app factory, fake clock, fake email, log capture, contract validator, software passkey authenticator
 │   ├── integration/                   # API + real PostgreSQL
 │   ├── contract/                      # OpenAPI conformance & spec coverage
 │   ├── security/                      # authz/BOLA, auth flows, abuse cases, RLS, headers, log leakage

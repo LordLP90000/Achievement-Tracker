@@ -77,6 +77,9 @@ services:
       LOCAL_KEK: ${LOCAL_KEK:?set LOCAL_KEK in docker/.env}
       BLIND_INDEX_KEY: ${BLIND_INDEX_KEY:?set BLIND_INDEX_KEY in docker/.env}
       RATE_LIMIT_KEY: ${RATE_LIMIT_KEY:?set RATE_LIMIT_KEY in docker/.env}
+      # Passkeys (Q-51): questline.test and https://questline.test unless docker/.env names another domain.
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
+      WEBAUTHN_ORIGINS: ${WEBAUTHN_ORIGINS:-}
     ports:
       - 127.0.0.1:${API_PORT:-3000}:3000
     healthcheck:

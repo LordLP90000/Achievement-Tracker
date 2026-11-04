@@ -32,7 +32,7 @@ one automated test, deterministic tests only.
 | Security | Authz/BOLA for every endpoint (generated from the spec), deny-by-default, auth flows and abuse cases, rate limiting, headers, RLS, DB roles, log leakage, config hardening, mass assignment, injection, prototype pollution | Vitest + Testcontainers | `test/security/**` | s |
 | Privacy | Data-inventory guard, export completeness, deletion completeness (every table), consent gating and withdrawal effects, retention | Vitest + Testcontainers | `test/privacy/**` | s |
 | E2E smoke | Built container image + PostgreSQL + the mail catcher via Docker Compose: register → verify with the emailed link (Mailpit over TLS, ADR-0018) → login → consent → achievement → quests → check-ins → gamble → stats → export → delete (`202`, the old token → `401`, the deletion notice in the mail catcher); container hardening checks (uid ≠ 0, read-only FS, no shell, no package manager) | Vitest over HTTP, Docker | `test/e2e/**` | min |
-| Mutation | Stryker on `src/domain/**` and `src/platform/crypto/**` | `@stryker-mutator/core` + Vitest runner | `stryker.config.mjs` | min (every push; incremental on changed files plus a nightly full run from M3) |
+| Mutation | Stryker on `src/domain/**`, `src/platform/crypto/**` and `src/platform/webauthn/**` (M5) | `@stryker-mutator/core` + Vitest runner | `stryker.config.mjs` | min (every push; incremental on changed files plus a nightly full run from M3) |
 | Non-gating | Timing-uniformity check for enumeration (S-02), load/limit tests (k6), DAST (ZAP API scan with the OpenAPI spec) against staging | nightly / M6 | `test/perf/**`, CI nightly | – |
 
 ## 3. Harness design (`test/helpers`)
@@ -82,6 +82,7 @@ one automated test, deterministic tests only.
 
 | Requirement | Test(s) |
 |-------------|---------|
+| R-AUTH-01 (M5: passkeys, ADR-0019) | `src/platform/webauthn/webauthn.test.ts`: real ceremonies against the software authenticator (`test/helpers/software-authenticator.ts`, written from the spec): registration and sign-in with EdDSA, ES256 and RS256, `none` and `packed` attestation; refused: another origin or an unconfigured subdomain, another RP ID, the wrong ceremony type, another challenge, no user verification or presence, ES384, a forged signature or attestation, another passkey's key or ID, an ID that is not the registered one, a credential ID over 1 023 bytes or a key over 2 048; a counter that did not grow → `counter_not_increased` only for a valid signature (a forgery stays `invalid`), 0 accepted while it stays 0; options exactly as the contract's schemas; claims read only from canonical base64url (a 32-byte challenge, a 16-byte user handle). `config.test.ts`: RP ID and origins (Q-51) — required in production, no reserved or local domain there, https on the RP ID or a subdomain or an Android key hash, at most 10 |
 | R-AUTH-02 | `password-policy.test.ts` (breached list after NFKC, context word, no composition rules); `integration/registration.test.ts`: 11 characters and 11 emoji → 400, 12 characters and 12 emoji OK, 128 OK, 129 → 400 (code points, as JSON Schema counts), breached → 422 before any lookup; `password.test.ts` (Argon2id parameters, NFKC, no truncation) |
 | R-AUTH-03 | `integration/registration.test.ts` (verification): emailed token works once, a replay answers 204 and changes nothing (contract), 30 min + 1 s → 401, superseded by a resend → 401, other token kinds → 401, stored as SHA-256 only (DB assertion); `integration/passwords.test.ts` (reset: `ql_pt_` token emailed, 30 min, hash only, single use, superseded by a newer request, other kinds refused, a weak password does not use it up) |
 | R-AUTH-04 | `integration/refresh.test.ts` (rotation marks the used generation and issues the next; a rotated token coming back revokes the session, deletes its tokens and is audited `refresh_reuse_detected`; two truly concurrent uses — forced by holding the row lock until both wait — yield one 200 and one reuse; access, unknown and malformed tokens refused); `integration/auth-guard.test.ts` (an access token works for 15 minutes, not a second longer) |
@@ -145,7 +146,7 @@ one automated test, deterministic tests only.
 |------|-----------|-------------|
 | Branch coverage `src/domain/**` | ≥ 95 % | Vitest `coverage.thresholds` (per-glob) |
 | Overall coverage (lines/branches/functions) | ≥ 85 % | Vitest thresholds |
-| Mutation score `src/domain/**`, `src/platform/crypto/**` | ≥ 80 % | Stryker `thresholds.break` |
+| Mutation score `src/domain/**`, `src/platform/crypto/**`, `src/platform/webauthn/**` | ≥ 80 % | Stryker `thresholds.break` |
 | Lint / format / import boundaries | 0 errors | ESLint (typescript-eslint strict, `eslint-plugin-regexp`, security rules), Prettier, dependency-cruiser |
 | Typecheck | 0 errors, `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` | `tsc --noEmit` |
 | OpenAPI | lint clean; all operations covered by tests; since `0.3.0` additive changes only (Q-45) | Redocly, spec-coverage test, `contract/freeze.test.ts` |

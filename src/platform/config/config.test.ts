@@ -10,7 +10,10 @@ const productionApiEnv = {
   APP_ENV: 'production',
   TRUST_PROXY_HOPS: '1',
   DATABASE_URL_APP: prodUrl('questline_app'),
+  WEBAUTHN_RP_ID: 'questline.ch',
+  WEBAUTHN_ORIGINS: 'https://questline.ch',
 };
+const ANDROID_ORIGIN = `android:apk-key-hash:${'A'.repeat(42)}w`;
 
 function configErrorOf(fn: () => unknown): ConfigError {
   try {
@@ -31,6 +34,7 @@ describe('loadApiConfig', () => {
       logLevel: 'info',
       http: { host: '127.0.0.1', port: 3000, trustProxyHops: 0 },
       databaseUrl: devUrl,
+      webauthn: { rpId: 'questline.test', rpName: 'Questline', origins: ['https://questline.test'] },
     });
   });
 
@@ -64,6 +68,105 @@ describe('loadApiConfig', () => {
 
     expect(Object.isFrozen(config)).toBe(true);
     expect(Object.isFrozen(config.http)).toBe(true);
+    expect(Object.isFrozen(config.webauthn)).toBe(true);
+    expect(Object.isFrozen(config.webauthn.origins)).toBe(true);
+  });
+
+  describe('passkey relying party [Q-51, ADR-0019]', () => {
+    const env = (webauthn: Record<string, string>) => ({
+      APP_ENV: 'development',
+      DATABASE_URL_APP: devUrl,
+      ...webauthn,
+    });
+
+    it('takes the RP ID and the origins, trimmed and each once, from the environment', () => {
+      const config = loadApiConfig(
+        env({
+          WEBAUTHN_RP_ID: 'questline.ch',
+          WEBAUTHN_ORIGINS: `https://questline.ch, https://app.questline.ch:8443 ,${ANDROID_ORIGIN},https://questline.ch`,
+        }),
+      );
+
+      expect(config.webauthn).toEqual({
+        rpId: 'questline.ch',
+        rpName: 'Questline',
+        origins: ['https://questline.ch', 'https://app.questline.ch:8443', ANDROID_ORIGIN],
+      });
+    });
+
+    it('defaults the origins to the RP ID outside production', () => {
+      expect(loadApiConfig(env({ WEBAUTHN_RP_ID: 'localhost' })).webauthn.origins).toEqual(['https://localhost']);
+    });
+
+    it.each([
+      'a',
+      'a.b',
+      'questline.ch',
+      '123.questline.ch',
+      'questline.a1b.ch',
+      `${'a'.repeat(63)}.ch`,
+      'xn--qustline-b4a.ch',
+      'a-b.c-d.ch',
+    ])('accepts the RP ID %s', (rpId) => {
+      expect(loadApiConfig(env({ WEBAUTHN_RP_ID: rpId })).webauthn.rpId).toBe(rpId);
+    });
+
+    it.each([
+      'Questline.ch',
+      'https://questline.ch',
+      'questline.ch/',
+      'questline.ch.',
+      '192.168.1.10',
+      '1234',
+      'questline..ch',
+      '-questline.ch',
+      'questline-.ch',
+      'questline_app.ch',
+      `${'a'.repeat(64)}.ch`,
+    ])('refuses the RP ID %s', (rpId) => {
+      expect(configErrorOf(() => loadApiConfig(env({ WEBAUTHN_RP_ID: rpId }))).issues).toEqual([
+        'WEBAUTHN_RP_ID: must be a domain name in lower case',
+      ]);
+    });
+
+    it.each([
+      ['plain http', 'http://questline.ch'],
+      ['another site', 'https://evil.ch'],
+      ['a site that only ends like the RP ID', 'https://xquestline.ch'],
+      ['a path', 'https://questline.ch/'],
+      ['credentials', 'https://anna@questline.ch'],
+      ['a query', 'https://questline.ch?app'],
+      ['upper case', 'https://Questline.ch'],
+      ['a default port written out', 'https://questline.ch:443'],
+      ['an Android key hash that is not SHA-256', 'android:apk-key-hash:c2hvcnQ'],
+      ['an Android key hash one character too long', `${ANDROID_ORIGIN}A`],
+      ['an Android key hash one character too short', ANDROID_ORIGIN.slice(0, -1)],
+      ['an Android key hash that is not canonical base64url', `${ANDROID_ORIGIN.slice(0, -1)}x`],
+      ['something before the Android prefix', `x${ANDROID_ORIGIN}`],
+      ['an iOS bundle ID', 'ios:bundle-id:ch.questline'],
+      ['an empty entry', 'https://questline.ch,'],
+    ])('refuses an origin with %s', (_label, origins) => {
+      const error = configErrorOf(() =>
+        loadApiConfig(env({ WEBAUTHN_RP_ID: 'questline.ch', WEBAUTHN_ORIGINS: origins })),
+      );
+
+      expect(error.issues).toEqual([
+        'WEBAUTHN_ORIGINS: each must be https://<the RP ID or a subdomain>[:port] or android:apk-key-hash:<SHA-256, base64url>',
+      ]);
+    });
+
+    it('accepts 10 origins and refuses more', () => {
+      const origins = (count: number) =>
+        Array.from({ length: count }, (_, index) => `https://app${String(index)}.questline.ch`).join(',');
+
+      expect(
+        loadApiConfig(env({ WEBAUTHN_RP_ID: 'questline.ch', WEBAUTHN_ORIGINS: origins(10) })).webauthn.origins,
+      ).toHaveLength(10);
+      expect(
+        configErrorOf(() => loadApiConfig(env({ WEBAUTHN_RP_ID: 'questline.ch', WEBAUTHN_ORIGINS: origins(11) })))
+          .issues,
+      ).toEqual(['WEBAUTHN_ORIGINS: at most 10 origins']);
+    });
   });
 
   it('refuses to start without required variables and names each of them [R-SUP-04, E-08]', () => {
@@ -113,10 +216,43 @@ describe('loadApiConfig', () => {
     });
 
     it('requires TRUST_PROXY_HOPS to be set explicitly', () => {
-      const env = { APP_ENV: productionApiEnv.APP_ENV, DATABASE_URL_APP: productionApiEnv.DATABASE_URL_APP };
+      const env = { ...productionApiEnv, TRUST_PROXY_HOPS: '' };
 
       expect(configErrorOf(() => loadApiConfig(env)).issues).toEqual(['TRUST_PROXY_HOPS: is required in production']);
     });
+
+    it('requires the passkey relying party and its origins [Q-51]', () => {
+      const env = { ...productionApiEnv, WEBAUTHN_RP_ID: '', WEBAUTHN_ORIGINS: '' };
+
+      expect(configErrorOf(() => loadApiConfig(env)).issues).toEqual([
+        'WEBAUTHN_RP_ID: is required in production',
+        'WEBAUTHN_ORIGINS: is required in production',
+      ]);
+    });
+
+    it.each([
+      'questline.test',
+      'localhost',
+      'app.localhost',
+      'questline.example',
+      'questline.invalid',
+      'questline.local',
+    ])('refuses the reserved domain %s as the RP ID', (rpId) => {
+      const env = { ...productionApiEnv, WEBAUTHN_RP_ID: rpId, WEBAUTHN_ORIGINS: `https://${rpId}` };
+
+      expect(configErrorOf(() => loadApiConfig(env)).issues).toEqual([
+        'WEBAUTHN_RP_ID: must not be a reserved or local domain in production',
+      ]);
+    });
+
+    it.each(['test.questline.ch', 'questline.contest', 'localhost-app.ch', 'example.ch'])(
+      'accepts %s, which only resembles a reserved domain',
+      (rpId) => {
+        const env = { ...productionApiEnv, WEBAUTHN_RP_ID: rpId, WEBAUTHN_ORIGINS: `https://${rpId}` };
+
+        expect(loadApiConfig(env).webauthn.rpId).toBe(rpId);
+      },
+    );
 
     it.each([
       ['without sslmode', `postgres://questline_app:${STRONG_PASSWORD}@db.internal:5432/questline`],
@@ -156,6 +292,8 @@ describe('loadApiConfig', () => {
         'TRUST_PROXY_HOPS: is required in production',
         'DATABASE_URL_APP: must use sslmode=verify-full in production',
         'DATABASE_URL_APP: password is missing or too weak for production',
+        'WEBAUTHN_RP_ID: is required in production',
+        'WEBAUTHN_ORIGINS: is required in production',
       ]);
     });
   });

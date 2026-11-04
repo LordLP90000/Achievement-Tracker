@@ -10,6 +10,12 @@ import { createLogger } from '../../src/platform/logging/logger.ts';
 import { createTestDatabase, type TestDatabase } from '../helpers/database.ts';
 import { LogCapture } from '../helpers/log-capture.ts';
 
+const WEBAUTHN: ApiConfig['webauthn'] = {
+  rpId: 'questline.test',
+  rpName: 'Questline',
+  origins: ['https://questline.test'],
+};
+
 describe('entrypoints against a real database', () => {
   let database: TestDatabase;
 
@@ -34,6 +40,7 @@ describe('entrypoints against a real database', () => {
       logLevel: 'info',
       http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
       databaseUrl: database.urls.app,
+      webauthn: WEBAUTHN,
     };
     const logs = new LogCapture();
     const api = await startApi(config, await keys(), loggerFor(logs));
@@ -54,6 +61,7 @@ describe('entrypoints against a real database', () => {
       logLevel: 'info',
       http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
       databaseUrl: database.urls.app,
+      webauthn: WEBAUTHN,
     };
     const logs = new LogCapture();
     const api = await startApi(config, await keys(), loggerFor(logs));
@@ -72,6 +80,7 @@ describe('entrypoints against a real database', () => {
       logLevel: 'info',
       http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
       databaseUrl: database.urls.app,
+      webauthn: WEBAUTHN,
     };
     const first = await startApi(config, await keys(), loggerFor(new LogCapture()));
     const takenPort = Number(new URL(first.url).port);

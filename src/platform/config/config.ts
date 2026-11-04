@@ -18,6 +18,17 @@ export interface ApiConfig {
   readonly logLevel: LogLevel;
   readonly http: HttpConfig;
   readonly databaseUrl: string;
+  readonly webauthn: WebAuthnConfig;
+}
+
+/** The passkey relying party (ADR-0019, Q-51): its ID and the origins its ceremonies may come from. */
+export interface WebAuthnConfig {
+  /** The domain passkeys are bound to, e.g. `questline.example`. */
+  readonly rpId: string;
+  /** Shown by the platform while a passkey is created. */
+  readonly rpName: string;
+  /** `https://<the RP ID or a subdomain>[:port]`, and `android:apk-key-hash:<SHA-256>` for the Android apps. */
+  readonly origins: readonly string[];
 }
 
 export interface ProcessConfig {
@@ -128,6 +139,18 @@ const HOST_RULE = 'must be a host name or IPv4 address';
 const LINK_BASE_RULE = 'must be an http(s) URL without credentials, query or fragment';
 const HOST_NAME = /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)*$/i;
 const DEFAULT_SMTP_PORTS: Readonly<Record<SmtpTlsMode, number>> = { starttls: 587, implicit: 465 };
+
+const RP_ID_RULE = 'must be a domain name in lower case';
+const ORIGINS_RULE =
+  'each must be https://<the RP ID or a subdomain>[:port] or android:apk-key-hash:<SHA-256, base64url>';
+/** Lower-case labels, not an IP address: WebAuthn binds passkeys to a domain. */
+const DOMAIN_NAME = /^(?!\d+(?:\.\d+)*$)[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?(?:\.[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?)*$/;
+/** RFC 2606 and RFC 6762 names, which no production relying party can own. */
+const RESERVED_DOMAIN = /(?:^|\.)(?:localhost|test|example|invalid|local)$/;
+const ANDROID_ORIGIN = /^android:apk-key-hash:([\w-]{43})$/;
+const DEFAULT_RP_ID = 'questline.test';
+const RP_NAME = 'Questline';
+const MAX_ORIGINS = 10;
 const EMAIL_VARIABLES = [
   'SMTP_HOST',
   'SMTP_PORT',
@@ -257,24 +280,73 @@ export function loadApiConfig(env: Env): ApiConfig {
       PORT: portSchema,
       TRUST_PROXY_HOPS: trustProxyHopsSchema,
       DATABASE_URL_APP: databaseUrlSchema,
+      WEBAUTHN_RP_ID: z.preprocess(blankToUndefined, z.string().regex(DOMAIN_NAME, { error: RP_ID_RULE }).optional()),
+      WEBAUTHN_ORIGINS: z.preprocess(blankToUndefined, z.string().optional()),
     },
     env,
   );
+  const production = parsed.APP_ENV === 'production';
+  const webauthn = loadWebAuthnConfig(parsed.WEBAUTHN_RP_ID, parsed.WEBAUTHN_ORIGINS, production);
 
-  if (parsed.APP_ENV === 'production') {
-    assertNoIssues([
-      ...logLevelIssues(parsed.LOG_LEVEL),
-      ...(parsed.TRUST_PROXY_HOPS === undefined ? ['TRUST_PROXY_HOPS: is required in production'] : []),
-      ...productionDatabaseIssues('DATABASE_URL_APP', parsed.DATABASE_URL_APP),
-    ]);
-  }
+  assertNoIssues([
+    ...(production
+      ? [
+          ...logLevelIssues(parsed.LOG_LEVEL),
+          ...(parsed.TRUST_PROXY_HOPS === undefined ? ['TRUST_PROXY_HOPS: is required in production'] : []),
+          ...productionDatabaseIssues('DATABASE_URL_APP', parsed.DATABASE_URL_APP),
+        ]
+      : []),
+    ...webauthn.issues,
+  ]);
 
   return Object.freeze({
     appEnv: parsed.APP_ENV,
     logLevel: parsed.LOG_LEVEL,
     http: Object.freeze({ host: parsed.HOST, port: parsed.PORT, trustProxyHops: parsed.TRUST_PROXY_HOPS ?? 0 }),
     databaseUrl: parsed.DATABASE_URL_APP,
+    webauthn: webauthn.config,
   });
+}
+
+/** An origin a passkey ceremony may come from: the site or a subdomain over https, or a signed Android app. */
+function isPasskeyOrigin(origin: string, rpId: string): boolean {
+  const android = ANDROID_ORIGIN.exec(origin)?.[1];
+  if (android !== undefined) return Buffer.from(android, 'base64url').toString('base64url') === android;
+  if (!URL.canParse(origin)) return false;
+  const url = new URL(origin);
+  return (
+    url.protocol === 'https:' && url.origin === origin && (url.hostname === rpId || url.hostname.endsWith(`.${rpId}`))
+  );
+}
+
+/**
+ * The passkey relying party (ADR-0019, Q-51). Production names it explicitly, with a domain it can own; elsewhere it
+ * defaults to `questline.test` and its https origin.
+ */
+function loadWebAuthnConfig(
+  rpIdSetting: string | undefined,
+  originsSetting: string | undefined,
+  production: boolean,
+): { readonly config: WebAuthnConfig; readonly issues: readonly string[] } {
+  const rpId = rpIdSetting ?? DEFAULT_RP_ID;
+  const origins =
+    originsSetting === undefined
+      ? [`https://${rpId}`]
+      : [...new Set(originsSetting.split(',').map((origin) => origin.trim()))];
+  const rpIdIssue = !production
+    ? undefined
+    : rpIdSetting === undefined
+      ? 'is required in production'
+      : RESERVED_DOMAIN.test(rpIdSetting)
+        ? 'must not be a reserved or local domain in production'
+        : undefined;
+  const issues = [
+    ...(rpIdIssue === undefined ? [] : [`WEBAUTHN_RP_ID: ${rpIdIssue}`]),
+    ...(production && originsSetting === undefined ? ['WEBAUTHN_ORIGINS: is required in production'] : []),
+    ...(origins.every((origin) => isPasskeyOrigin(origin, rpId)) ? [] : [`WEBAUTHN_ORIGINS: ${ORIGINS_RULE}`]),
+    ...(origins.length > MAX_ORIGINS ? [`WEBAUTHN_ORIGINS: at most ${String(MAX_ORIGINS)} origins`] : []),
+  ];
+  return { config: Object.freeze({ rpId, rpName: RP_NAME, origins: Object.freeze(origins) }), issues };
 }
 
 interface EmailSettings {

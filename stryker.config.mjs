@@ -1,12 +1,13 @@
 // @ts-check
 /**
- * Mutation testing (test strategy §6): break below 80 % on the domain engine and the crypto platform.
+ * Mutation testing (test strategy §6): break below 80 % on the domain engine, the crypto platform and the passkey
+ * verification wrapper.
  * @type {import('@stryker-mutator/api/core').PartialStrykerOptions}
  */
 export default {
   testRunner: 'vitest',
   vitest: { configFile: 'vitest.unit.config.ts' },
-  mutate: ['src/domain/**/*.ts', 'src/platform/crypto/**/*.ts', '!src/**/*.test.ts'],
+  mutate: ['src/domain/**/*.ts', 'src/platform/crypto/**/*.ts', 'src/platform/webauthn/**/*.ts', '!src/**/*.test.ts'],
   coverageAnalysis: 'perTest',
   thresholds: { high: 90, low: 80, break: 80 },
   reporters: ['clear-text', 'progress', 'html'],
