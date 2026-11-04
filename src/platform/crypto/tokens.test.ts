@@ -12,6 +12,7 @@ describe('issueToken (ADR-0004) [R-AUTH-03, R-AUTH-04]', () => {
     ['refresh', 'ql_rt_'],
     ['verification', 'ql_vt_'],
     ['passwordReset', 'ql_pt_'],
+    ['secondFactor', 'ql_sf_'],
   ] as const)('issues %s tokens with the prefix %s in the contract format', (kind, prefix) => {
     const { token } = issueToken(kind);
 

@@ -131,7 +131,9 @@ Rules enforced by lint/tests:
 | `FieldCipher` | `encryptText`/`decryptText` (`field-cipher.ts`) over `aead.ts` (`seal`/`open`, one uniform `DecryptionError` for every failure): `0x01‖nonce‖ct‖tag`, AD = user, record, column. Decimals are canonical strings (data-model §1). |
 | `PasswordHasher` | Argon2id (ADR-0005) with `needsRehash` for parameter upgrades; NFKC before hashing; at most N hashes at once with a bounded queue (`Semaphore`, D-01 — overflow is refused, not queued forever); `verify(undefined, …)` does the same work against a startup dummy hash, so unknown accounts take as long as known ones. |
 | `BlindIndex` | HMAC-SHA256(`BLIND_INDEX_KEY`, NFKC-normalised, lower-cased, trimmed email). |
-| `Tokens` | Random tokens with type prefixes, SHA-256 digests, constant-time comparison. `ql_vt_` serves email verification and email-change confirmation; the stored `purpose` keeps them apart. |
+| `Tokens` | Random tokens with type prefixes, SHA-256 digests, constant-time comparison. `ql_vt_` serves email verification and email-change confirmation; the stored `purpose` keeps them apart; `ql_sf_` is the second step of a login with TOTP on (M5). |
+| `Totp` (M5) | RFC 6238 (`totp.ts`): HOTP over HMAC-SHA1 — the one SHA-1 in the code base, as authenticator apps require it; SHA-1's collisions do not weaken HMAC (RFC 6194 §3), and the Semgrep rule against weak hashes is suppressed on that line only. 160-bit secrets, 6 digits, 30-second steps, one step of drift either way, each candidate compared in constant time, no step accepted twice; the `otpauth://` URI for the QR code. |
+| `RecoveryCodes` (M5) | `recovery-codes.ts`: 10 codes of 80 random bits, Crockford base32 in groups of four (`base32.ts`), stored as SHA-256 digests; typed codes are read in any case, with or without hyphens and spaces, O as 0 and I or L as 1. |
 
 ### 4.4 HTTP utilities (`platform/http`)
 

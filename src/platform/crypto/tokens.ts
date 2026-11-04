@@ -8,6 +8,8 @@ export const TOKEN_KINDS = {
   /** Email verification and the confirmation of an email change (the token's purpose is stored with its hash). */
   verification: 'vt',
   passwordReset: 'pt',
+  /** The second step of a login with TOTP on (ADR-0019). */
+  secondFactor: 'sf',
 } as const;
 
 export type TokenKind = keyof typeof TOKEN_KINDS;
@@ -25,7 +27,7 @@ export interface IssuedToken {
 const RANDOM_BYTES = 32;
 const BODY = /^[\w-]{43}$/;
 
-const digest = (token: string): Buffer => createHash('sha256').update(token, 'utf8').digest();
+const digest = (token: string): Buffer => createHash('sha256').update(token).digest();
 
 export function issueToken(kind: TokenKind): IssuedToken {
   const token = `ql_${TOKEN_KINDS[kind]}_${randomBytes(RANDOM_BYTES).toString('base64url')}`;
