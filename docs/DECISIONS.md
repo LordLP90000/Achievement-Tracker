@@ -214,7 +214,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   as `0.3.2` with the deletion, since when every operation is frozen. From then on the snapshot is renewed with every
   approved change, after the check against the snapshot before it, so that additions are frozen as well (`0.3.3`:
   Q-47; `0.3.4`: Q-48). `0.4.0` adds M5's 11 operations (ADR-0019), each outside the freeze until implemented; the
-  generated suites classify an operation once it leaves `test/contract/not-yet-implemented.ts`.
+  generated suites classify an operation once it leaves `test/contract/not-yet-implemented.ts`. `0.4.1` adds the
+  sign-in methods to the export (Q-52) and deletes an unconfirmed TOTP secret after 24 hours (Q-53).
   Chosen by the PM over oasdiff, which would have added a tool to CI.
 
 ## ADR-0011 · Timezone handling with `Intl` only; `local_date` stored per check-in
@@ -409,7 +410,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 ## ADR-0019 · Passkeys, TOTP, recovery codes and step-up (M5)
 
 - **Status:** accepted (2026-11-04: the PM approved the design as proposed, Q-52; the library, Q-50, and the
-  relying-party ID as a production setting, Q-51, before it).
+  relying-party ID as a production setting, Q-51, before it; later the same day, an unconfirmed TOTP secret is
+  deleted after 24 hours, Q-53).
 - **Context:** M5 adds passkeys and optional TOTP 2FA to email and password (R-AUTH-01, plan M5). The contract is
   frozen (Q-45): new operations and additive changes only, each approved. What stays: no enumeration (R-AUTH-07),
   the 10-minute re-authentication for sensitive operations (R-AUTH-06), rate limits and backoff (R-AUTH-08, S-01),
@@ -438,7 +440,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   - **TOTP**, RFC 6238 on `node:crypto`'s HMAC-SHA1 in `src/platform/crypto/totp.ts`, tested against the RFC's
     vectors — no new dependency: 6 digits, 30-second steps, one step of clock drift either way, no code accepted
     twice (the last accepted step is stored). The 160-bit secret is encrypted with the user's data key.
-    - Enrolment, re-authenticated: `POST /me/totp` → the secret, once, as base32 and an `otpauth://` URI;
+    - Enrolment, re-authenticated: `POST /me/totp` → the secret, once, as base32 and an `otpauth://` URI (one not
+      confirmed within 24 hours is deleted by the hourly purge, Q-53);
       `POST /me/totp/confirm` `{ code }` → TOTP on, and **10 recovery codes**, shown once; `POST /me/recovery-codes`
       → 10 new codes, the old ones void; `DELETE /me/totp` → off, codes deleted. Recovery codes have 80 bits each
       (`XXXX-XXXX-XXXX-XXXX`, Crockford base32), are stored as SHA-256 hashes and work once.

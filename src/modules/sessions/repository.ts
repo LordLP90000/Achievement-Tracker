@@ -19,6 +19,9 @@ export type RevokedReason =
   | 'account_deleted'
   | 'session_limit';
 
+/** How a session signed in (ADR-0019): the password, with a TOTP or recovery code if TOTP is on, or a passkey. */
+export type AuthMethod = 'password' | 'password_totp' | 'password_recovery_code' | 'passkey';
+
 export interface LoginAccount {
   readonly id: string;
   readonly passwordHash: string;
@@ -32,6 +35,7 @@ export interface NewSession {
   readonly client: 'ios' | 'android';
   readonly deviceLabelEnc: Buffer | null;
   readonly absoluteExpiresAt: Date;
+  readonly authMethod: AuthMethod;
 }
 
 export interface NewTokenGeneration {

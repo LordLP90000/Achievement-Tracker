@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.4.0
+  version: 0.4.1
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -41,6 +41,9 @@ info:
     0.4.0 (2026-11-04): M5's sign-in methods (ADR-0019, Q-52) — passkeys, TOTP, recovery codes and the second login
     step; 11 new operations, built during M5 and outside the freeze until then. The changes they make to existing
     operations (`login`, `reauthenticate`, the account, sessions and the export) are added with them.
+    0.4.1 (2026-11-04): the export shows the sign-in methods — `passkeys`, `two_factor` and each session's
+    `auth_method` (ADR-0019, Q-52) — without any secret, key or digest; an unconfirmed TOTP secret is deleted after
+    24 hours (Q-53; `startTotp`, `confirmTotp`).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -708,8 +711,8 @@ paths:
       description: |
         Requires recent re-authentication (R-AUTH-06). A new secret for an authenticator app, shown only now — as
         base32 and as an `otpauth://` URI for a QR code (RFC 6238: SHA-1, 6 digits, 30 seconds). Nothing changes for
-        login until `POST /me/totp/confirm`; starting again replaces an unconfirmed secret. TOTP on already →
-        `409 urn:questline:problem:totp-enabled`.
+        login until `POST /me/totp/confirm`; starting again replaces an unconfirmed secret, and one not confirmed
+        within 24 hours is deleted (Q-53). TOTP on already → `409 urn:questline:problem:totp-enabled`.
       responses:
         '200':
           description: The secret to enter into the authenticator app.
@@ -744,7 +747,8 @@ paths:
       description: |
         Requires recent re-authentication (R-AUTH-06). A current code from the app turns TOTP on and returns 10
         recovery codes — shown only now; each works once instead of a code. A wrong code →
-        `422 urn:questline:problem:invalid-code`; nothing started → `409 urn:questline:problem:totp-not-started`;
+        `422 urn:questline:problem:invalid-code`; nothing started, or the secret was not confirmed within 24 hours
+        (Q-53) → `409 urn:questline:problem:totp-not-started`;
         TOTP on already → `409 urn:questline:problem:totp-enabled`. Audited; the owner is emailed a notice.
       requestBody:
         required: true
@@ -2500,13 +2504,15 @@ components:
     ExportDocument:
       type: object
       additionalProperties: false
-      required: [format, version, generated_at, account, consents, sessions, achievements, xp_events, badges, audit_events]
+      required: [format, version, generated_at, account, consents, sessions, passkeys, two_factor, achievements, xp_events, badges, audit_events]
       description: |
         Every stored field of the account, decrypted (R-PRIV-05). Each record lists every column that the data
         inventory (`docs/privacy/data-inventory.yaml`) marks `included`, named after the column without `_enc`, and
         `null` where empty. Not exported: the password hash, tokens, wrapped keys and key versions, the account's ID in
         every record (it is `account.id`), and bookkeeping (stored idempotent responses, the email outbox, the daily
-        evaluation). Gambles and quests are listed with their achievement, check-ins with their quest.
+        evaluation); of the sign-in methods (ADR-0019) no secret, key or digest — not the TOTP secret, the passkeys'
+        credential IDs, public keys and counters, the recovery codes' digests or the 5-minute challenges. Gambles and
+        quests are listed with their achievement, check-ins with their quest.
       properties:
         format: { type: string, const: questline-export }
         version: { type: integer, const: 1 }
@@ -2519,6 +2525,11 @@ components:
           type: array
           description: Device sessions, revoked and expired ones until they are deleted 7 days later.
           items: { $ref: '#/components/schemas/ExportSession' }
+        passkeys:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/ExportPasskey' }
+        two_factor: { $ref: '#/components/schemas/ExportTwoFactor' }
         achievements:
           type: array
           items: { $ref: '#/components/schemas/ExportAchievement' }
@@ -2577,7 +2588,7 @@ components:
     ExportSession:
       type: object
       additionalProperties: false
-      required: [id, client, device_label, created_at, last_used_at, last_reauth_at, absolute_expires_at, revoked_at, revoked_reason]
+      required: [id, client, device_label, created_at, last_used_at, last_reauth_at, absolute_expires_at, revoked_at, revoked_reason, auth_method]
       properties:
         id: { $ref: '#/components/schemas/Uuid' }
         client: { $ref: '#/components/schemas/Client' }
@@ -2598,6 +2609,64 @@ components:
             - type: string
               enum: [logout, logout_all, user_revoked, password_changed, password_reset, refresh_reuse, expired, account_deleted, session_limit]
             - type: 'null'
+        auth_method:
+          type: string
+          enum: [password, password_totp, password_recovery_code, passkey]
+          description: How the session signed in (ADR-0019); sessions from before M5 signed in with a password.
+    ExportPasskey:
+      type: object
+      additionalProperties: false
+      required: [id, name, transports, backed_up, created_at, last_used_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name:
+          oneOf:
+            - { type: string, maxLength: 50 }
+            - type: 'null'
+        transports:
+          type: array
+          maxItems: 7
+          description: How the authenticator said it can be reached, a hint for later sign-ins.
+          items: { type: string, enum: [ble, cable, hybrid, internal, nfc, smart-card, usb] }
+        backed_up: { type: boolean }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        last_used_at:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+    ExportTwoFactor:
+      type: object
+      additionalProperties: false
+      required: [totp, recovery_codes]
+      properties:
+        totp:
+          description: The TOTP secret's dates, never the secret; `null` without one.
+          oneOf:
+            - $ref: '#/components/schemas/ExportTotp'
+            - type: 'null'
+        recovery_codes:
+          type: array
+          maxItems: 10
+          description: The unused recovery codes, never a code or its digest.
+          items: { $ref: '#/components/schemas/ExportRecoveryCode' }
+    ExportTotp:
+      type: object
+      additionalProperties: false
+      required: [enabled_at, created_at]
+      properties:
+        enabled_at:
+          description: When TOTP was turned on; `null` while the secret is not confirmed (deleted after 24 hours, Q-53).
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    ExportRecoveryCode:
+      type: object
+      additionalProperties: false
+      required: [id, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
     ExportAchievement:
       type: object
       additionalProperties: false

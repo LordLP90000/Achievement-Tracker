@@ -61,7 +61,8 @@ Rules enforced by lint/tests:
   (`achievementsRepository(tx, userId, dataKey)`); there is no API to build one without a user ID, and every query
   filters by it. Before a user is known (registration, verification, login, password reset) the account
   repositories read only the RLS-exempt tables — `users` by email blind index, `one_time_tokens` and
-  `session_tokens` by token hash. Cross-user access exists only in worker-role code: the retention jobs
+  `session_tokens` by token hash, and (M5) `webauthn_challenges` and `second_factor_challenges` by the hash of the
+  challenge or token. Cross-user access exists only in worker-role code: the retention jobs
   (`src/modules/privacy/retention*.ts`) and the outbox delivery (`src/platform/email/delivery.ts`).
 - Every transaction is bound to its user with a transaction-local `app.user_id` (RLS, ADR-0003) before it reads or
   writes an RLS table; pre-authentication transactions bind as soon as the account is identified. Worker
@@ -206,7 +207,9 @@ its response (headers and body, encrypted with the user's data key) in the same 
   delete; 100 accounts per batch, at most 10 batches per run), used or expired one-time tokens, session token
   generations whose refresh token expired (rotated ones are kept until then for reuse detection; revocation deletes
   a session's tokens at once), sessions 7 d after revocation, absolute expiry or the end of their refresh lifetime,
-  audit events after 90 d, rate-limit buckets untouched for 24 h, idempotency records when their 24 h are over (M3),
+  WebAuthn and second-factor challenges when their 5 minutes are over and TOTP secrets not confirmed within 24 h
+  (M5, ADR-0019, Q-53: the worker's policy shows it only unconfirmed ones, and the delete checks again), audit events
+  after 90 d, rate-limit buckets untouched for 24 h, idempotency records when their 24 h are over (M3),
   dead letters after 7 d, tombstones after 35 d and job runs after 30 d. The **daily goal evaluation**
   (`modules/goals/daily-evaluation.ts`, M3, A-20, A-21) runs every minute and takes the users whose next local
   midnight has come (`goal_evaluations.due_at`, computed with `Intl`, ADR-0011) and who have an active achievement

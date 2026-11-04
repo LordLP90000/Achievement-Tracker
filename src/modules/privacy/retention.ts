@@ -7,8 +7,11 @@ import {
   deleteDeadLetters,
   deleteEndedSessions,
   deleteExpiredIdempotencyKeys,
+  deleteExpiredSecondFactorChallenges,
   deleteExpiredSessionTokens,
+  deleteExpiredWebauthnChallenges,
   deleteJobRuns,
+  deletePendingTotpSecrets,
   deleteRateLimitBuckets,
   deleteSpentOneTimeTokens,
   deleteTombstones,
@@ -30,6 +33,8 @@ export const RETENTION = Object.freeze({
   deactivatedAccountMs: DELETION_GRACE_MS,
   /** After revocation, absolute expiry or the last possible refresh. */
   endedSessionMs: 7 * DAY_MS,
+  /** Q-53: a TOTP secret not confirmed within a day was abandoned. */
+  pendingTotpSecretMs: 24 * HOUR_MS,
   auditEventMs: 90 * DAY_MS,
   rateLimitBucketMs: 24 * HOUR_MS,
   deadLetterMs: 7 * DAY_MS,
@@ -103,6 +108,11 @@ export function retentionJobs(options: RetentionOptions = {}): ScheduledJob[] {
         },
         limit,
       ),
+    ),
+    job('purge_webauthn_challenges', deleteExpiredWebauthnChallenges),
+    job('purge_second_factor_challenges', deleteExpiredSecondFactorChallenges),
+    job('purge_pending_totp_secrets', (tx, now, limit) =>
+      deletePendingTotpSecrets(tx, before(now, RETENTION.pendingTotpSecretMs), limit),
     ),
     job('purge_audit_events', (tx, now, limit) => deleteAuditEvents(tx, before(now, RETENTION.auditEventMs), limit)),
     job('purge_rate_limit_buckets', (tx, now, limit) =>

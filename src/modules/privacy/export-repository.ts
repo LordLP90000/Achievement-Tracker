@@ -9,8 +9,11 @@ import {
   checkIns,
   consents,
   gambles,
+  passkeys,
   quests,
+  recoveryCodes,
   sessions,
+  totpSecrets,
   users,
   xpEvents,
 } from '../../platform/db/schema/index.ts';
@@ -49,7 +52,11 @@ const EXPORTED = {
     'absolute_expires_at',
     'revoked_at',
     'revoked_reason',
+    'auth_method',
   ],
+  passkeys: ['id', 'name_enc', 'transports', 'backed_up', 'created_at', 'last_used_at'],
+  totp_secrets: ['enabled_at', 'created_at'],
+  recovery_codes: ['id', 'created_at'],
   achievements: [
     'id',
     'title_enc',
@@ -108,6 +115,10 @@ export interface ExportedRows {
   readonly account: ExportedRecord;
   readonly consents: readonly ExportedRecord[];
   readonly sessions: readonly ExportedRecord[];
+  readonly passkeys: readonly ExportedRecord[];
+  /** The TOTP secret's record — its dates, not the secret — or null without one. */
+  readonly totp: ExportedRecord | null;
+  readonly recoveryCodes: readonly ExportedRecord[];
   readonly achievements: readonly ExportedRecord[];
   readonly gambles: readonly ExportedRecord[];
   readonly quests: readonly ExportedRecord[];
@@ -131,7 +142,8 @@ function exporter(table: Table, columns: readonly string[], open: Opener): (row:
   });
   return (row) => {
     const values = row as Readonly<Record<string, unknown>>;
-    const recordId = String(values['id']);
+    // A table keyed by the account (one row each) has no `id` of its own.
+    const recordId = String(values['id'] ?? values['userId']);
     return Object.fromEntries(
       fields.map(({ name, property, encrypted }) => {
         const value = values[property];
@@ -196,6 +208,17 @@ export async function exportedRows(tx: Transaction, userId: string, dataKey: Use
     .from(sessions)
     .where(eq(sessions.userId, userId))
     .orderBy(asc(sessions.createdAt), asc(sessions.id));
+  const passkeyRows = await tx
+    .select()
+    .from(passkeys)
+    .where(eq(passkeys.userId, userId))
+    .orderBy(asc(passkeys.createdAt), asc(passkeys.id));
+  const totpRows = await tx.select().from(totpSecrets).where(eq(totpSecrets.userId, userId));
+  const recoveryCodeRows = await tx
+    .select()
+    .from(recoveryCodes)
+    .where(eq(recoveryCodes.userId, userId))
+    .orderBy(asc(recoveryCodes.createdAt), asc(recoveryCodes.id));
   const xpRows = await tx
     .select()
     .from(xpEvents)
@@ -214,10 +237,14 @@ export async function exportedRows(tx: Transaction, userId: string, dataKey: Use
 
   const all = (table: Table, columns: readonly string[], rows: readonly object[]) =>
     rows.map(exporter(table, columns, open));
+  const totp = totpRows[0];
   return {
     account: exporter(users, EXPORTED.users, open)(account),
     consents: all(consents, EXPORTED.consents, consentRows),
     sessions: all(sessions, EXPORTED.sessions, sessionRows),
+    passkeys: all(passkeys, EXPORTED.passkeys, passkeyRows),
+    totp: totp === undefined ? null : exporter(totpSecrets, EXPORTED.totp_secrets, open)(totp),
+    recoveryCodes: all(recoveryCodes, EXPORTED.recovery_codes, recoveryCodeRows),
     achievements: all(achievements, EXPORTED.achievements, achievementRows),
     gambles: all(gambles, EXPORTED.gambles, gambleRows),
     quests: all(quests, EXPORTED.quests, questRows),

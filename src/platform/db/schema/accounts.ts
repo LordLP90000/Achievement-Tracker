@@ -105,12 +105,18 @@ export const sessions = pgTable(
     absoluteExpiresAt: timestamptz('absolute_expires_at').notNull(),
     revokedAt: timestamptz('revoked_at'),
     revokedReason: text('revoked_reason'),
+    /** How the session signed in (ADR-0019); no default, so every insert must name it. */
+    authMethod: text('auth_method').notNull(),
   },
   (table) => [
     // Target of the session_tokens foreign key that keeps a token's user equal to its session's user.
     unique('sessions_id_user_id_unique').on(table.id, table.userId),
     index('sessions_user_id_idx').on(table.userId),
     check('sessions_client_check', sql`${table.client} in ('ios', 'android')`),
+    check(
+      'sessions_auth_method_check',
+      sql`${table.authMethod} in ('password', 'password_totp', 'password_recovery_code', 'passkey')`,
+    ),
     check(
       'sessions_revoked_reason_check',
       sql`${table.revokedReason} in ('logout', 'logout_all', 'user_revoked', 'password_changed', 'password_reset',

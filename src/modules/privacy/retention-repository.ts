@@ -9,9 +9,12 @@ import {
   jobRuns,
   oneTimeTokens,
   rateLimitBuckets,
+  secondFactorChallenges,
   sessions,
   sessionTokens,
+  totpSecrets,
   users,
+  webauthnChallenges,
 } from '../../platform/db/schema/index.ts';
 
 /**
@@ -125,6 +128,36 @@ export function deleteExpiredIdempotencyKeys(tx: Transaction, now: Date, limit: 
 /** Dead letters only: an email that is still waiting is never deleted by retention. */
 export function deleteDeadLetters(tx: Transaction, deadBefore: Date, limit: number): Promise<number> {
   return deleteBatch(tx, emailOutbox, emailOutbox.id, lte(emailOutbox.deadAt, deadBefore), limit);
+}
+
+/** WebAuthn challenges whose 5 minutes are over (ADR-0019); a used one was deleted at once. */
+export function deleteExpiredWebauthnChallenges(tx: Transaction, now: Date, limit: number): Promise<number> {
+  return deleteBatch(tx, webauthnChallenges, webauthnChallenges.id, lte(webauthnChallenges.expiresAt, now), limit);
+}
+
+/** Second-factor tokens whose 5 minutes are over (ADR-0019); a used one was deleted at once. */
+export function deleteExpiredSecondFactorChallenges(tx: Transaction, now: Date, limit: number): Promise<number> {
+  return deleteBatch(
+    tx,
+    secondFactorChallenges,
+    secondFactorChallenges.id,
+    lte(secondFactorChallenges.expiresAt, now),
+    limit,
+  );
+}
+
+/**
+ * TOTP secrets never confirmed, created at or before `createdBefore` (Q-53). The condition is checked again as each
+ * row is deleted, so a secret confirmed meanwhile stays; the worker's policy hides confirmed ones as well.
+ */
+export async function deletePendingTotpSecrets(tx: Transaction, createdBefore: Date, limit: number): Promise<number> {
+  const due = and(isNull(totpSecrets.enabledAt), lte(totpSecrets.createdAt, createdBefore));
+  const batch = tx.select({ userId: totpSecrets.userId }).from(totpSecrets).where(due).limit(limit);
+  const deleted = await tx
+    .delete(totpSecrets)
+    .where(and(inArray(totpSecrets.userId, batch), due))
+    .returning({ userId: totpSecrets.userId });
+  return deleted.length;
 }
 
 export function deleteTombstones(tx: Transaction, deletedBefore: Date, limit: number): Promise<number> {

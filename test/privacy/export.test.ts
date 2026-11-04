@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encryptText } from '../../src/platform/crypto/field-cipher.ts';
@@ -22,6 +22,8 @@ interface ExportDocument {
   readonly account: Row;
   readonly consents: Row[];
   readonly sessions: Row[];
+  readonly passkeys: Row[];
+  readonly two_factor: { readonly totp: Row | null; readonly recovery_codes: Row[] };
   readonly achievements: ExportedAchievement[];
   readonly xp_events: Row[];
   readonly badges: Row[];
@@ -33,6 +35,9 @@ const SECTIONS: Readonly<Record<string, (document: ExportDocument) => Row[]>> = 
   users: (document) => [document.account],
   consents: (document) => document.consents,
   sessions: (document) => document.sessions,
+  passkeys: (document) => document.passkeys,
+  totp_secrets: (document) => (document.two_factor.totp === null ? [] : [document.two_factor.totp]),
+  recovery_codes: (document) => document.two_factor.recovery_codes,
   achievements: (document) => document.achievements,
   gambles: (document) => document.achievements.flatMap((achievement) => achievement.gambles),
   quests: (document) => document.achievements.flatMap((achievement) => achievement.quests),
@@ -103,6 +108,42 @@ describe('export completeness against the data inventory [R-PRIV-05, R-PRIV-08, 
     });
     return response.json<{ access_token: string }>().access_token;
   };
+  /** Encrypts with the user's data key, as the API does, for rows written directly. */
+  const seal = async (recordId: string, field: string, value: string): Promise<Buffer> => {
+    const [key] = await ctx.admin.sql<{ wrapped_dek: Buffer; kek_id: string; kek_version: number }[]>`
+      select wrapped_dek, kek_id, kek_version from user_keys where user_id = ${user.userId}`;
+    if (key === undefined) throw new Error('the account has no data key');
+    const wrapped = { blob: key.wrapped_dek, kekId: key.kek_id, kekVersion: key.kek_version };
+    return ctx.dataKeys.withKey(user.userId, wrapped, (dataKey) =>
+      Promise.resolve(encryptText(dataKey, { userId: user.userId, recordId, field }, value)),
+    );
+  };
+
+  /**
+   * Sign-in methods (ADR-0019) of the account — written directly until their operations exist: a named passkey that
+   * signed in, an unnamed one that never did, TOTP on, and two unused recovery codes.
+   */
+  async function seedSignInMethods(): Promise<void> {
+    const { sql } = ctx.admin;
+    const now = ctx.clock.now();
+    const named = randomUUID();
+    await sql`
+      insert into passkeys (id, user_id, credential_id, public_key, sign_count, transports, backed_up, name_enc,
+                            created_at, last_used_at)
+      values (${named}, ${user.userId}, ${randomBytes(32)}, ${randomBytes(77)}, 7, '{internal,hybrid}', true,
+              ${await seal(named, 'name_enc', 'iPhone')}, ${now}, ${now}),
+             (${randomUUID()}, ${user.userId}, ${randomBytes(32)}, ${randomBytes(77)}, 0, '{usb}', false, null, ${now},
+              null)`;
+    await sql`
+      insert into totp_secrets (user_id, secret_enc, enabled_at, last_used_step, created_at)
+      values (${user.userId}, ${await seal(user.userId, 'secret_enc', 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP')}, ${now},
+              59736000, ${now})`;
+    for (let code = 0; code < 2; code += 1) {
+      await sql`
+        insert into recovery_codes (id, user_id, code_hash, created_at)
+        values (${randomUUID()}, ${user.userId}, ${randomBytes(32)}, ${now})`;
+    }
+  }
 
   /** An account with rows in every exported table, every nullable encrypted column filled somewhere. */
   async function seed(): Promise<void> {
@@ -112,6 +153,7 @@ describe('export completeness against the data inventory [R-PRIV-05, R-PRIV-08, 
     await must(201, call('POST', '/v1/me/consents', user.token, { type: 'goal_content', version: '2026-10-01' }));
     await login('android', 'Pixel 9');
     await must(204, call('POST', '/v1/auth/logout', await login('ios')));
+    await seedSignInMethods();
     await ctx.admin.sql`
       insert into xp_events (id, user_id, kind, amount, local_date, created_at)
       values (${randomUUID()}, ${user.userId}, 'quest_completed', 1000, ${TODAY}, ${ctx.clock.now()})`;
@@ -225,15 +267,17 @@ describe('export completeness against the data inventory [R-PRIV-05, R-PRIV-08, 
   });
 
   it('gives every included column its stored value, decrypted, for every row of the account', async () => {
+    /** A record's identity: its `id` — or the account's, in a table keyed by the account (one row, no `id`). */
+    const identity = (row: Row) => (typeof row['id'] === 'string' ? row['id'] : user.userId);
     for (const [table, section] of Object.entries(SECTIONS)) {
-      const byId = new Map(section(document).map((record) => [record['id'], record]));
+      const byId = new Map(section(document).map((record) => [identity(record), record]));
       const stored = await storedRows(table);
 
-      expect([...byId.keys()].sort(), table).toEqual(stored.map((row) => row['id']).sort());
+      expect([...byId.keys()].sort(), table).toEqual(stored.map(identity).sort());
       for (const row of stored) {
-        const record = byId.get(row['id']) ?? {};
+        const record = byId.get(identity(row)) ?? {};
         for (const column of exportedColumns(inventory, table)) {
-          const matches = await sameValue(record[keyOf(column)], row[column], column, String(row['id']));
+          const matches = await sameValue(record[keyOf(column)], row[column], column, identity(row));
           expect(matches, `${table}.${column}: ${JSON.stringify(record[keyOf(column)])}`).toBe(true);
         }
       }

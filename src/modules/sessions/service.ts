@@ -265,6 +265,7 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
             client: request.client,
             deviceLabelEnc: await encryptDeviceLabel(tx, { userId: account.id, sessionId }, request.device_label),
             absoluteExpiresAt,
+            authMethod: 'password',
           },
           now,
         );

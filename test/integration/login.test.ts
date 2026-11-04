@@ -69,6 +69,7 @@ describe('login [R-AUTH-04, R-AUTH-09, R-AUTH-10, R-PRIV-06, Q-29]', () => {
       last_reauth_at: T0,
       absolute_expires_at: new Date(T0.getTime() + 180 * DAY),
       revoked_at: null,
+      auth_method: 'password',
     });
     const label = session?.['device_label_enc'] as Buffer;
     expect(label.includes(Buffer.from('iPhone'))).toBe(false);

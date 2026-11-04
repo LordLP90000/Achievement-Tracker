@@ -7,6 +7,7 @@ import { createTestDatabase, type TestDatabase } from '../helpers/database.ts';
 const CHECK_VIOLATION = { code: '23514' };
 const UNIQUE_VIOLATION = { code: '23505' };
 const FOREIGN_KEY_VIOLATION = { code: '23503' };
+const NOT_NULL_VIOLATION = { code: '23502' };
 const INSUFFICIENT_PRIVILEGE = { code: '42501' };
 const INVALID_TEXT = { code: '22P02' };
 
@@ -48,6 +49,7 @@ const rows = {
     last_used_at: T0,
     last_reauth_at: T0,
     absolute_expires_at: at(180 * DAY),
+    auth_method: 'password',
     ...overrides,
   }),
   sessionToken: (sessionId: string, userId: string, overrides: Row = {}): Row => ({
@@ -340,5 +342,189 @@ describe('account tables', () => {
       select relpersistence as persistence from pg_class where relname = 'rate_limit_buckets'`;
 
     expect(row?.persistence).toBe('u');
+  });
+
+  describe('sign-in methods [ADR-0019]', () => {
+    const passkey = (userId: string, overrides: Row = {}): Row => ({
+      id: randomUUID(),
+      user_id: userId,
+      credential_id: randomBytes(32),
+      public_key: randomBytes(77),
+      sign_count: 0,
+      transports: '{internal,hybrid}',
+      backed_up: true,
+      created_at: T0,
+      ...overrides,
+    });
+    const totpSecret = (userId: string, overrides: Row = {}): Row => ({
+      user_id: userId,
+      secret_enc: randomBytes(73),
+      created_at: T0,
+      ...overrides,
+    });
+    const recoveryCode = (userId: string, overrides: Row = {}): Row => ({
+      id: randomUUID(),
+      user_id: userId,
+      code_hash: randomBytes(32),
+      created_at: T0,
+      ...overrides,
+    });
+    const webauthnChallenge = (overrides: Row = {}): Row => ({
+      id: randomUUID(),
+      challenge_hash: randomBytes(32),
+      purpose: 'authentication',
+      user_id: null,
+      created_at: T0,
+      expires_at: at(5),
+      ...overrides,
+    });
+    const secondFactorChallenge = (userId: string, overrides: Row = {}): Row => ({
+      id: randomUUID(),
+      user_id: userId,
+      token_hash: randomBytes(32),
+      created_at: T0,
+      expires_at: at(5),
+      ...overrides,
+    });
+    /** The challenge tables are looked up by hash before the user is known: written without a user context. */
+    const unbound = (table: string, row: Row) => app.sql.begin((tx) => insert(tx, table, row));
+
+    it('records how every session signed in: one of four methods, never left out', async () => {
+      const { userId } = await seedAccount();
+      const unnamed = rows.session(randomUUID(), userId);
+      Reflect.deleteProperty(unnamed, 'auth_method');
+
+      for (const method of ['password', 'password_totp', 'password_recovery_code', 'passkey']) {
+        await expect(
+          appInsert(userId, 'sessions', rows.session(randomUUID(), userId, { auth_method: method })),
+        ).resolves.toBeDefined();
+      }
+      await expect(
+        appInsert(userId, 'sessions', rows.session(randomUUID(), userId, { auth_method: 'magic_link' })),
+      ).rejects.toMatchObject(CHECK_VIOLATION);
+      await expect(appInsert(userId, 'sessions', unnamed)).rejects.toMatchObject(NOT_NULL_VIOLATION);
+    });
+
+    it('keeps passkeys to WebAuthn sizes, a 32-bit counter and known transports, each credential once', async () => {
+      const { userId } = await seedAccount();
+      const other = await seedAccount();
+      const credentialId = randomBytes(1023);
+
+      await expect(
+        appInsert(userId, 'passkeys', passkey(userId, { credential_id: credentialId })),
+      ).resolves.toBeDefined();
+      await expect(
+        appInsert(other.userId, 'passkeys', passkey(other.userId, { credential_id: credentialId })),
+      ).rejects.toMatchObject(UNIQUE_VIOLATION);
+      for (const invalid of [
+        passkey(userId, { credential_id: randomBytes(1024) }),
+        passkey(userId, { credential_id: Buffer.alloc(0) }),
+        passkey(userId, { public_key: randomBytes(2049) }),
+        passkey(userId, { sign_count: -1 }),
+        passkey(userId, { sign_count: 4_294_967_296 }),
+        passkey(userId, { transports: '{carrier-pigeon}' }),
+        passkey(userId, { transports: '{usb,usb,usb,usb,usb,usb,usb,usb}' }),
+        passkey(userId, { transports: '{NULL}' }),
+      ]) {
+        await expect(appInsert(userId, 'passkeys', invalid)).rejects.toMatchObject(CHECK_VIOLATION);
+      }
+      await expect(
+        appInsert(userId, 'passkeys', passkey(userId, { sign_count: 4_294_967_295, transports: '{}' })),
+      ).resolves.toBeDefined();
+    });
+
+    it('binds a registration challenge to its account and an authentication challenge to none, for 5 minutes', async () => {
+      const { userId } = await seedAccount();
+
+      await expect(unbound('webauthn_challenges', webauthnChallenge())).resolves.toBeDefined();
+      await expect(
+        unbound('webauthn_challenges', webauthnChallenge({ purpose: 'registration', user_id: userId })),
+      ).resolves.toBeDefined();
+      for (const invalid of [
+        webauthnChallenge({ user_id: userId }),
+        webauthnChallenge({ purpose: 'registration' }),
+        webauthnChallenge({ purpose: 'step_up' }),
+        webauthnChallenge({ challenge_hash: randomBytes(31) }),
+        webauthnChallenge({ expires_at: at(5.01) }),
+        webauthnChallenge({ expires_at: T0 }),
+      ]) {
+        await expect(unbound('webauthn_challenges', invalid)).rejects.toMatchObject(CHECK_VIOLATION);
+      }
+    });
+
+    it('keeps one TOTP secret per account, enabled no earlier than created [ADR-0019]', async () => {
+      const { userId } = await seedAccount();
+
+      for (const invalid of [totpSecret(userId, { enabled_at: at(-1) }), totpSecret(userId, { last_used_step: -1 })]) {
+        await expect(appInsert(userId, 'totp_secrets', invalid)).rejects.toMatchObject(CHECK_VIOLATION);
+      }
+      await expect(
+        appInsert(userId, 'totp_secrets', totpSecret(userId, { enabled_at: at(1), last_used_step: 0 })),
+      ).resolves.toBeDefined();
+      await expect(appInsert(userId, 'totp_secrets', totpSecret(userId))).rejects.toMatchObject(UNIQUE_VIOLATION);
+    });
+
+    it('keeps recovery codes as 32-byte digests, each once [R-AUTH-03]', async () => {
+      const { userId } = await seedAccount();
+      const hash = randomBytes(32);
+
+      await expect(
+        appInsert(userId, 'recovery_codes', recoveryCode(userId, { code_hash: hash })),
+      ).resolves.toBeDefined();
+      await expect(
+        appInsert(userId, 'recovery_codes', recoveryCode(userId, { code_hash: hash })),
+      ).rejects.toMatchObject(UNIQUE_VIOLATION);
+      await expect(
+        appInsert(userId, 'recovery_codes', recoveryCode(userId, { code_hash: randomBytes(31) })),
+      ).rejects.toMatchObject(CHECK_VIOLATION);
+    });
+
+    it('lets a second-factor token live 5 minutes and take at most 5 wrong codes [ADR-0019, S-01]', async () => {
+      const { userId } = await seedAccount();
+
+      await expect(
+        unbound('second_factor_challenges', secondFactorChallenge(userId, { failed_attempts: 5 })),
+      ).resolves.toBeDefined();
+      for (const invalid of [
+        secondFactorChallenge(userId, { failed_attempts: 6 }),
+        secondFactorChallenge(userId, { failed_attempts: -1 }),
+        secondFactorChallenge(userId, { token_hash: randomBytes(31) }),
+        secondFactorChallenge(userId, { expires_at: at(5.01) }),
+        secondFactorChallenge(userId, { expires_at: T0 }),
+      ]) {
+        await expect(unbound('second_factor_challenges', invalid)).rejects.toMatchObject(CHECK_VIOLATION);
+      }
+    });
+
+    it('deletes every sign-in method and challenge of an account with it, and nothing of other accounts [R-PRIV-06]', async () => {
+      const { userId } = await seedAccount();
+      const other = await seedAccount();
+      for (const id of [userId, other.userId]) {
+        await appInsert(id, 'passkeys', passkey(id));
+        await appInsert(id, 'totp_secrets', totpSecret(id));
+        await appInsert(id, 'recovery_codes', recoveryCode(id));
+        await unbound('webauthn_challenges', webauthnChallenge({ purpose: 'registration', user_id: id }));
+        await unbound('second_factor_challenges', secondFactorChallenge(id));
+      }
+      const counts = async (id: string) => {
+        const owned = await withUserContext(
+          app,
+          id,
+          (tx) => tx<Record<string, number>[]>`
+            select (select count(*)::int from passkeys) as passkeys,
+                   (select count(*)::int from totp_secrets) as totp_secrets,
+                   (select count(*)::int from recovery_codes) as recovery_codes,
+                   (select count(*)::int from webauthn_challenges where user_id = ${id}) as webauthn_challenges,
+                   (select count(*)::int from second_factor_challenges where user_id = ${id})
+                     as second_factor_challenges`,
+        );
+        return Object.values({ ...owned[0] });
+      };
+
+      await worker.sql`delete from users where id = ${userId}`;
+
+      expect(await counts(userId)).toEqual([0, 0, 0, 0, 0]);
+      expect(await counts(other.userId)).toEqual([1, 1, 1, 1, 1]);
+    });
   });
 });

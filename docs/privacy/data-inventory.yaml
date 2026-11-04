@@ -11,7 +11,7 @@
 #   approved_by/approved_on : required for exceptions
 
 version: 2
-updated: 2026-10-29
+updated: 2026-11-04
 
 defaults:
   export: included
@@ -79,6 +79,7 @@ tables:
       absolute_expires_at:  { category: C4, personal: false }
       revoked_at:           { category: C4, personal: true }
       revoked_reason:       { category: C4, personal: true }
+      auth_method:          { category: C4, personal: true }
 
   session_tokens:
     user_relation: user_id
@@ -94,6 +95,62 @@ tables:
       refresh_expires_at:  { category: C2, personal: false, export: excluded, export_reason: secret record }
       rotated_at:          { category: C2, personal: false, export: excluded, export_reason: secret record }
       created_at:          { category: C2, personal: false, export: excluded, export_reason: secret record }
+
+  passkeys:
+    user_relation: user_id
+    retention: until the user removes it (ADR-0019); cascade on deletion
+    columns:
+      id:             { category: C2, personal: true }
+      user_id:        { category: C2, personal: true }
+      credential_id:  { category: C2, personal: true,  export: excluded, export_reason: identifier meaningful only to the authenticator; the passkey is exported by its ID with its name and dates }
+      public_key:     { category: C2, personal: false, export: excluded, export_reason: key material that only verifies signatures; meaningful only to the server }
+      sign_count:     { category: C2, personal: false, export: excluded, export_reason: the authenticator's counter for clone detection; its sign-ins are exported as last_used_at with the sessions and audit events }
+      transports:     { category: C2, personal: true }
+      backed_up:      { category: C2, personal: true }
+      name_enc:       { category: C2, personal: true,  encrypted: true }
+      created_at:     { category: C2, personal: true }
+      last_used_at:   { category: C2, personal: true }
+
+  webauthn_challenges:
+    user_relation: user_id
+    retention: ≤ 5 min or until used (deleted at once); purged hourly (purge-job); a registration challenge names its account (cascade on deletion), a sign-in challenge none
+    columns:
+      id:              { category: C2, personal: false, export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
+      challenge_hash:  { category: C2, personal: false, export: excluded, export_reason: secret material }
+      purpose:         { category: C2, personal: false, export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
+      user_id:         { category: C2, personal: true,  export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
+      expires_at:      { category: C2, personal: false, export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
+      created_at:      { category: C2, personal: false, export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
+
+  totp_secrets:
+    user_relation: user_id
+    retention: until TOTP is turned off (ADR-0019); one not confirmed within 24 hours is deleted (purge-job, hourly; Q-53); cascade on deletion
+    columns:
+      user_id:         { category: C2, personal: true }
+      secret_enc:      { category: C2, personal: true, encrypted: true, export: excluded, export_reason: secret material; whoever reads the export could produce codes }
+      enabled_at:      { category: C2, personal: true }
+      last_used_step:  { category: C2, personal: true, export: excluded, export_reason: replay protection (the last accepted 30-second step); the sign-ins are exported as sessions and audit events }
+      created_at:      { category: C2, personal: true }
+
+  recovery_codes:
+    user_relation: user_id
+    retention: until used, replaced or TOTP is turned off (ADR-0019); cascade on deletion
+    columns:
+      id:          { category: C2, personal: true }
+      user_id:     { category: C2, personal: true }
+      code_hash:   { category: C2, personal: false, export: excluded, export_reason: secret material (SHA-256 of the code) }
+      created_at:  { category: C2, personal: true }
+
+  second_factor_challenges:
+    user_relation: user_id
+    retention: ≤ 5 min or until used (deleted at once); purged hourly (purge-job); cascade on deletion
+    columns:
+      id:               { category: C2, personal: false, export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
+      user_id:          { category: C2, personal: true,  export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
+      token_hash:       { category: C2, personal: false, export: excluded, export_reason: secret material }
+      failed_attempts:  { category: C2, personal: true,  export: excluded, export_reason: 'transient, ≤ 5 min lifetime; wrong codes are exported as audit events' }
+      expires_at:       { category: C2, personal: false, export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
+      created_at:       { category: C2, personal: false, export: excluded, export_reason: 'transient secret record, ≤ 5 min lifetime' }
 
   consents:
     user_relation: user_id

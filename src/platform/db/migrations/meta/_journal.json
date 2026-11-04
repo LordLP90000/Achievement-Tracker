@@ -64,6 +64,13 @@
       "when": 1793642391009,
       "tag": "0008_export_reads_audit_events",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793810226316,
+      "tag": "0009_sign_in_methods",
+      "breakpoints": true
     }
   ]
 }

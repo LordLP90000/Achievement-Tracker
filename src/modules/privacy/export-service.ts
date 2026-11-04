@@ -22,6 +22,11 @@ export interface ExportDocument {
   readonly account: ExportedRecord;
   readonly consents: readonly ExportedRecord[];
   readonly sessions: readonly ExportedRecord[];
+  readonly passkeys: readonly ExportedRecord[];
+  readonly two_factor: {
+    readonly totp: ExportedRecord | null;
+    readonly recovery_codes: readonly ExportedRecord[];
+  };
   readonly achievements: readonly ExportedRecord[];
   readonly xp_events: readonly ExportedRecord[];
   readonly badges: readonly ExportedRecord[];
@@ -51,6 +56,8 @@ function documentOf(rows: ExportedRows, now: Date): ExportDocument {
     account: rows.account,
     consents: rows.consents,
     sessions: rows.sessions,
+    passkeys: rows.passkeys,
+    two_factor: { totp: rows.totp, recovery_codes: rows.recoveryCodes },
     achievements: rows.achievements.map((achievement) => ({
       ...achievement,
       gambles: gambles.get(achievement['id']) ?? [],

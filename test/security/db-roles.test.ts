@@ -24,12 +24,17 @@ const EXPECTED_GRANTS: Readonly<Record<string, { readonly app: string[]; readonl
   idempotency_keys: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
   job_runs: { app: [], worker: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'] },
   one_time_tokens: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
+  passkeys: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: [] },
   quests: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'UPDATE'] },
   rate_limit_buckets: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
+  recovery_codes: { app: ['SELECT', 'INSERT', 'DELETE'], worker: [] },
+  second_factor_challenges: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
   session_tokens: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
   sessions: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
+  totp_secrets: { app: ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], worker: ['SELECT', 'DELETE'] },
   user_keys: { app: ['SELECT', 'INSERT'], worker: ['SELECT'] },
   users: { app: ['SELECT', 'INSERT', 'UPDATE'], worker: ['SELECT', 'DELETE'] },
+  webauthn_challenges: { app: ['SELECT', 'INSERT', 'DELETE'], worker: ['SELECT', 'DELETE'] },
   xp_events: { app: ['SELECT', 'INSERT', 'DELETE'], worker: ['SELECT', 'INSERT'] },
 };
 
@@ -127,6 +132,37 @@ describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {
     await expect(withUserContext(app, owner, (tx) => tx`delete from audit_events`)).rejects.toMatchObject(
       INSUFFICIENT_PRIVILEGE,
     );
+  });
+
+  it('lets the worker see and delete only unconfirmed TOTP secrets, so no job can turn off a second factor [Q-53]', async () => {
+    const [pending, enabled] = [randomUUID(), randomUUID()];
+    for (const userId of [pending, enabled]) {
+      await migrator.sql`
+        insert into users (id, email_enc, email_blind_index, password_hash, timezone, locale, age_confirmed,
+                           privacy_policy_version, password_changed_at, created_at, updated_at)
+        values (${userId}, ${Buffer.from([0])}, ${randomBytes(32)}, 'x', 'Europe/Zurich', 'de-CH', true, '1', now(), now(),
+                now())`;
+      await withUserContext(
+        app,
+        userId,
+        (tx) => tx`
+          insert into totp_secrets (user_id, secret_enc, enabled_at, created_at)
+          values (${userId}, ${randomBytes(73)}, ${userId === enabled ? new Date('2026-11-04T12:01:00Z') : null},
+                  ${new Date('2026-11-04T12:00:00Z')})`,
+      );
+    }
+
+    const seen = await worker.sql<{ user_id: string }[]>`select user_id from totp_secrets`;
+    const deleted = await worker.sql<{ user_id: string }[]>`delete from totp_secrets returning user_id`;
+
+    expect(seen.map((row) => row.user_id)).toEqual([pending]);
+    expect(deleted.map((row) => row.user_id)).toEqual([pending]);
+    const left = await withUserContext(
+      app,
+      enabled,
+      (tx) => tx<{ user_id: string }[]>`select user_id from totp_secrets`,
+    );
+    expect(left.map((row) => row.user_id)).toEqual([enabled]);
   });
 
   it('grants each role exactly the documented privileges on every table (least privilege)', async () => {

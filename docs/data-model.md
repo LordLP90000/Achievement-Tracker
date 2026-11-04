@@ -29,6 +29,11 @@ erDiagram
     users ||--o{ one_time_tokens : ""
     users ||--o{ sessions : ""
     sessions ||--o{ session_tokens : "generations"
+    users ||--o{ passkeys : ""
+    users |o--o{ webauthn_challenges : "registration"
+    users ||--o| totp_secrets : ""
+    users ||--o{ recovery_codes : ""
+    users ||--o{ second_factor_challenges : ""
     users ||--o{ consents : ""
     users ||--o{ achievements : ""
     achievements ||--o{ gambles : ""
@@ -119,6 +124,7 @@ hourly.
 | `absolute_expires_at` | timestamptz NOT NULL | created + 180 d (A-10) |
 | `revoked_at` | timestamptz NULL | |
 | `revoked_reason` | text NULL CHECK IN (`logout`, `logout_all`, `user_revoked`, `password_changed`, `password_reset`, `refresh_reuse`, `expired`, `account_deleted`, `session_limit`) | `session_limit`: logged out to make room for a new login (Q-29, migration 0003) |
+| `auth_method` | text NOT NULL CHECK IN (`password`, `password_totp`, `password_recovery_code`, `passkey`) | how the session signed in (M5, ADR-0019, migration 0009); no default — sessions from before M5 were filled in with `password`, every insert names it |
 
 Session rows are deleted 7 days after their revocation, their absolute expiry or the end of their refresh lifetime (last use + 30 d). Revocation deletes a session's tokens at once; otherwise a token generation is deleted when its refresh token expires — rotated generations stay until then, so a replayed refresh token is still recognised as reuse (hourly purge jobs, architecture §4.7).
 
@@ -144,6 +150,78 @@ generations stay until the session ends so reuse is always detected. The refresh
 (`FOR UPDATE`), so two concurrent uses of one token are serialised: the first rotates, the second is reuse. Access and
 refresh expiries never exceed the session's `absolute_expires_at`; an access token stays valid until it expires (or
 its session is revoked), also after a refresh.
+
+#### `passkeys` RLS (M5, ADR-0019)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | AD record id of `name_enc` |
+| `user_id` | uuid → `users` CASCADE | the user handle the authenticator stores is this account ID |
+| `credential_id` | bytea(1–1023) NOT NULL UNIQUE | WebAuthn credential ID; a second registration of it fails |
+| `public_key` | bytea(1–2048) NOT NULL | COSE public key (ES256, EdDSA or RS256) that verifies the sign-ins |
+| `sign_count` | bigint NOT NULL CHECK 0 … 2³² − 1 | signature counter: must grow, unless the authenticator always reports 0 |
+| `transports` | text[] NOT NULL | ⊆ {`ble`, `cable`, `hybrid`, `internal`, `nfc`, `smart-card`, `usb`}, at most 7 |
+| `backed_up` | boolean NOT NULL | synced by the platform (iCloud Keychain, Google Password Manager) |
+| `name_enc` 🔒 | bytea NULL | optional, ≤ 50 characters |
+| `created_at` | timestamptz NOT NULL | |
+| `last_used_at` | timestamptz NULL | last sign-in or step-up |
+
+At most 10 per account (the service checks). A passkey sign-in binds the user its authenticator names (the user
+handle) before it looks the credential up, so this table needs no exemption from RLS. No `dek_version`, like `users`
+and `sessions`.
+
+#### `webauthn_challenges` ⟂ (M5)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | |
+| `challenge_hash` 🔑 | bytea(32) NOT NULL UNIQUE | SHA-256 of the 32 random bytes sent to the platform |
+| `purpose` | text CHECK IN (`registration`, `authentication`) | |
+| `user_id` | uuid NULL → `users` CASCADE | the account a registration is for; NULL exactly for sign-in and step-up challenges (CHECK) |
+| `expires_at` | timestamptz NOT NULL | ≤ 5 min after creation |
+| `created_at` | timestamptz NOT NULL | |
+
+A response finds its challenge by the hash of the challenge it signed, before the user is known (⟂), and uses it
+once: the row is deleted. Expired rows are deleted hourly. Sign-in challenges are created by a public endpoint;
+per-network rate limits, the 5-minute expiry and the purge bound them (ADR-0019).
+
+#### `totp_secrets` RLS (M5)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `user_id` | uuid PK → `users` CASCADE | one secret per account; AD record id of `secret_enc` |
+| `secret_enc` 🔒 | bytea NOT NULL | the 160-bit RFC 6238 secret |
+| `enabled_at` | timestamptz NULL | NULL until confirmed with a code; CHECK ≥ `created_at` |
+| `last_used_step` | bigint NULL | the 30-second step of the last accepted code: no code of it or an earlier step works again |
+| `created_at` | timestamptz NOT NULL | |
+
+Starting again replaces an unconfirmed secret; turning TOTP off deletes the row and the recovery codes. A secret not
+confirmed within 24 hours is deleted by the hourly purge (Q-53); the worker's policy shows it only unconfirmed rows
+(partial index on `created_at` where `enabled_at` is NULL), so no job can turn off anyone's second factor.
+
+#### `recovery_codes` RLS (M5)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | |
+| `user_id` | uuid → `users` CASCADE | |
+| `code_hash` 🔑 | bytea(32) NOT NULL UNIQUE | SHA-256 of `ql_rc_` and the normalised 80-bit code (`src/platform/crypto/recovery-codes.ts`) |
+| `created_at` | timestamptz NOT NULL | |
+
+Ten per confirmation or replacement, shown once. A used code is deleted; new codes replace the old ones.
+
+#### `second_factor_challenges` ⟂ (M5)
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | uuid PK | |
+| `user_id` | uuid → `users` CASCADE | |
+| `token_hash` 🔑 | bytea(32) NOT NULL UNIQUE | SHA-256 of the `ql_sf_` token a password login with TOTP on answers with (`202`) |
+| `failed_attempts` | integer NOT NULL DEFAULT 0 CHECK 0 … 5 | wrong codes; they count against the account's backoff too (S-01) |
+| `expires_at` | timestamptz NOT NULL | ≤ 5 min after creation |
+| `created_at` | timestamptz NOT NULL | |
+
+Looked up by token hash before the session exists (⟂); deleted when used, expired rows hourly.
 
 ### 3.2 Consent
 
@@ -314,7 +392,7 @@ Removed on re-lock (R-ACH-05) and on achievement deletion. Index `(user_id)`.
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid NULL → `users` CASCADE | NULL for failed logins against unknown emails |
-| `event_type` | text NOT NULL | `login_succeeded`, `login_failed`, `logout`, `session_revoked`, `refresh_reuse_detected`, `password_changed`, `password_reset_requested`, `password_reset_completed`, `email_change_requested`, `email_changed`, `email_verified`, `consent_granted`, `consent_withdrawn`, `export_requested`, `account_deleted`, `account_reactivated` (§5 step 2, added in M2), `reauth_succeeded`, `reauth_failed`, `rate_limited` |
+| `event_type` | text NOT NULL | `login_succeeded`, `login_failed`, `logout`, `session_revoked`, `refresh_reuse_detected`, `password_changed`, `password_reset_requested`, `password_reset_completed`, `email_change_requested`, `email_changed`, `email_verified`, `consent_granted`, `consent_withdrawn`, `export_requested`, `account_deleted`, `account_reactivated` (§5 step 2, added in M2), `reauth_succeeded`, `reauth_failed`, `rate_limited`; M5 (ADR-0019, migration 0009): `passkey_added`, `passkey_removed`, `passkey_clone_suspected`, `totp_enabled`, `totp_disabled`, `recovery_codes_generated`, `recovery_code_used`, `second_factor_failed` |
 | `session_id` | uuid NULL | not a FK (session may be gone) |
 | `ip_prefix` | cidr NULL | truncated: IPv4 /24, IPv6 /48 — `cidr` refuses host bits and a CHECK refuses longer masks, so the database cannot store a full address (M2; was `text`) |
 | `client` | text NULL | `ios` / `android` |
@@ -347,7 +425,7 @@ purge job (worker). No `dek_version`: like `email_outbox.payload_enc`, it lives 
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | only registered users are ever emailed |
-| `template` | text NOT NULL | `verify_email`, `registration_notice` (someone tried to register or move an account to this address), `password_reset`, `password_changed_notice`, `email_change_verify` (to the new address), `email_change_notice` (to the old address), `account_deleted_notice` |
+| `template` | text NOT NULL | `verify_email`, `registration_notice` (someone tried to register or move an account to this address), `password_reset`, `password_changed_notice`, `email_change_verify` (to the new address), `email_change_notice` (to the old address), `account_deleted_notice`, `sign_in_methods_changed_notice` (M5: a passkey, TOTP or the recovery codes changed, ADR-0019) |
 | `payload_enc` 🔒 | bytea NOT NULL | JSON `{to, locale, token?}` encrypted with the user's DEK (AD record id = `id`); the worker builds links from config (A-19) — never in plaintext |
 | `attempts` | integer NOT NULL DEFAULT 0 | counted when the worker claims the email, so a crash loop still reaches the limit (8) |
 | `next_attempt_at` | timestamptz NOT NULL | exponential backoff (1, 2, 4 … 64 min); while an email is being sent, the end of the worker's 5-minute lease |
@@ -429,6 +507,11 @@ row is added here and in the test. Cascading deletes need no grant (they run as 
 | `one_time_tokens` | SELECT, INSERT, UPDATE, DELETE | SELECT, DELETE | ⟂ lookup by token hash |
 | `sessions` | SELECT, INSERT, UPDATE | SELECT, DELETE | RLS |
 | `session_tokens` | SELECT, INSERT, UPDATE, DELETE | SELECT, DELETE | ⟂ lookup by token hash; a composite FK `(session_id, user_id)` → `sessions(id, user_id)` keeps its user equal to the session's |
+| `passkeys` (M5) | SELECT, INSERT, UPDATE (counter, last use), DELETE | — | RLS |
+| `webauthn_challenges` (M5) | SELECT, INSERT, DELETE (a used challenge) | SELECT, DELETE (purge) | ⟂ lookup by challenge hash; a sign-in challenge has no user |
+| `totp_secrets` (M5) | SELECT, INSERT, UPDATE, DELETE | SELECT, DELETE — unconfirmed secrets only (policy `enabled_at IS NULL`, Q-53) | RLS |
+| `recovery_codes` (M5) | SELECT, INSERT, DELETE | — | RLS |
+| `second_factor_challenges` (M5) | SELECT, INSERT, UPDATE (wrong codes), DELETE | SELECT, DELETE (purge) | ⟂ lookup by token hash |
 | `consents` | SELECT, INSERT, UPDATE | — | RLS |
 | `audit_events` | SELECT (own user, for the export; migration 0008), INSERT (own user, or NULL for unknown accounts) | SELECT, DELETE | RLS; the API reads only the user in context's events and changes none |
 | `email_outbox` | INSERT | SELECT, UPDATE, DELETE | RLS |
@@ -457,6 +540,12 @@ refresh tokens over 30 days, sessions over 180 days; revocation without reason; 
 active consent of one type; hashes, blind indexes and bucket keys that are not 32 bytes; outbox error codes that are
 not short identifiers (no free text that could contain an address). Tested in `test/integration/account-schema.test.ts`.
 
+**Sign-in methods (M5, migration 0009).** CHECK constraints refuse WebAuthn challenges and second-factor tokens that
+live longer than 5 minutes, a registration challenge without its account or a sign-in challenge with one, more than 5
+wrong codes per token, credential IDs over 1 023 bytes, signature counters outside 32 bits, unknown transports or more
+than 7, a TOTP secret enabled before it was created, digests that are not 32 bytes, and a session that does not
+say how it signed in. Tested in `test/integration/account-schema.test.ts`.
+
 **Goal content (M3, migration 0004).** Every child row references its parent together with `user_id` (composite
 foreign keys, like `session_tokens`), so no row can hang below another user's achievement, quest or gamble even if a
 service forgot a check (T-01), and a prerequisite must lie in the same achievement. CHECK constraints refuse unknown
@@ -479,7 +568,8 @@ ledger amounts that are 0 or have the wrong sign. Tested in `test/integration/go
 3. **Hard delete** (retention job `purge_deleted_accounts`, hourly): every user with `deactivated_at ≤ now − 30
    days` — the instant from which login refuses the account — is deleted with `DELETE FROM users`, which removes,
    via `ON DELETE CASCADE`: `user_keys`
-   (crypto-shredding), `one_time_tokens`, `sessions` → `session_tokens`, `consents`, `achievements` → (`gambles`,
+   (crypto-shredding), `one_time_tokens`, `sessions` → `session_tokens`, `passkeys`, `webauthn_challenges`,
+   `totp_secrets`, `recovery_codes`, `second_factor_challenges`, `consents`, `achievements` → (`gambles`,
    `badges`, `quests` → `check_ins`), `xp_events`, `audit_events`, `idempotency_keys`, `email_outbox`. The same
    transaction inserts the tombstone (Q-13). The data-inventory guard test asserts that **every** table with a
    user relation is reached by this cascade and appears in the export. The delete checks `deactivated_at` again
@@ -495,7 +585,8 @@ delete policies on completed achievements and the ledger (§4). Code: `deleteGoa
 
 ## 6. Export document (R-PRIV-05) — shape
 
-The contract's `ExportDocument` (0.3.1, approved by the PM) defines every record; each is closed and lists every
+The contract's `ExportDocument` (0.3.1, approved by the PM; the sign-in methods since 0.4.1, Q-52) defines every
+record; each is closed and lists every
 column that `docs/privacy/data-inventory.yaml` marks `included`, named after the column without `_enc`, decrypted,
 `null` where empty — `test/privacy/export.test.ts` holds the export against the inventory (step 6 of its guard).
 Abridged:
@@ -507,7 +598,9 @@ Abridged:
   "generated_at": "2026-11-02T10:00:00.000Z",
   "account": { "id": "…", "email": "…", "nickname": null, "timezone": "Europe/Zurich", "locale": "de-CH", "week_start": "monday", "age_confirmed": true, "privacy_policy_version": "2026-10-01", "email_verified_at": "…", "password_changed_at": "…", "deactivated_at": null, "created_at": "…", "updated_at": "…", "version": 2 },
   "consents": [ { "id": "…", "type": "goal_content", "version": "2026-10-01", "granted_at": "…", "withdrawn_at": null } ],
-  "sessions": [ { "id": "…", "client": "ios", "device_label": "…", "created_at": "…", "last_used_at": "…", "last_reauth_at": "…", "absolute_expires_at": "…", "revoked_at": null, "revoked_reason": null } ],
+  "sessions": [ { "id": "…", "client": "ios", "device_label": "…", "created_at": "…", "last_used_at": "…", "last_reauth_at": "…", "absolute_expires_at": "…", "revoked_at": null, "revoked_reason": null, "auth_method": "password" } ],
+  "passkeys": [ { "id": "…", "name": "iPhone", "transports": ["internal", "hybrid"], "backed_up": true, "created_at": "…", "last_used_at": "…" } ],
+  "two_factor": { "totp": { "enabled_at": "…", "created_at": "…" }, "recovery_codes": [ { "id": "…", "created_at": "…" } ] },
   "achievements": [ { "id": "…", "title": "…", "description": null, "target_date": "2026-11-30", "deadline": "2026-11-30", "status": "completed", "attempt": 1, "rank": "gold", "execution_score": 78.5, "…": "…",
                       "gambles": [ { "id": "…", "achievement_id": "…", "stake": 150, "status": "won", "…": "…" } ],
                       "quests": [ { "id": "…", "type": "habit", "habit_period": "day", "reset_count": 0, "habit_best_streak": 3, "…": "…",
@@ -519,7 +612,9 @@ Abridged:
 ```
 
 Hashes (password, tokens), wrapped keys and key versions are **not** exported (they are not personal data the user
-can use and exporting them would weaken security), nor the account's ID in every record (it is `account.id`) or
-bookkeeping (stored idempotent responses, the email outbox, the daily evaluation); the data inventory gives each
-reason. The export reads as of now (A-21): what time alone changed is stored first, as by every read. Its children
+can use and exporting them would weaken security), nor the TOTP secret, the passkeys' credential IDs, public keys and
+counters, the recovery codes' digests or the 5-minute challenges (M5), nor the account's ID in every record (it is
+`account.id`) or bookkeeping (stored idempotent responses, the email outbox, the daily evaluation); the data
+inventory gives each reason. The export reads as of now (A-21): what time alone changed is stored first, as by every
+read. Its children
 of the unlimited archive (Q-40) are read by their parents' IDs in batches of 1 000 (`src/modules/privacy/export-repository.ts`).

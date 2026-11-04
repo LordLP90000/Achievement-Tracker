@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { retentionJobs, RETENTION_INTERVAL_MS, type RetentionOptions } from '../../src/modules/privacy/retention.ts';
+import { deletePendingTotpSecrets } from '../../src/modules/privacy/retention-repository.ts';
 import { createDatabase, inTransaction } from '../../src/platform/db/database.ts';
 import { createScheduler } from '../../src/platform/jobs/scheduler.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
@@ -30,6 +31,7 @@ describe('retention jobs', () => {
   beforeEach(async () => {
     // Deleting the users cascades to everything they own.
     await ctx.admin.sql`delete from users`;
+    await ctx.admin.sql`delete from webauthn_challenges`;
     await ctx.admin.sql`delete from rate_limit_buckets`;
     await ctx.admin.sql`delete from deleted_user_tombstones`;
     await ctx.admin.sql`delete from job_runs`;
@@ -45,6 +47,13 @@ describe('retention jobs', () => {
   /** Rows in a table (the name is escaped as an identifier). */
   const total = async (table: string) =>
     (await ctx.admin.sql<{ count: number }[]>`select count(*)::int as count from ${ctx.admin.sql(table)}`)[0]?.count;
+  /** Connections to this test database that wait for a row lock. */
+  const waitingForLocks = async () =>
+    (
+      await ctx.admin.sql<{ count: number }[]>`
+        select count(*)::int as count from pg_stat_activity
+        where datname = current_database() and wait_event_type = 'Lock'`
+    )[0]?.count;
   const login = async (account: TestAccount): Promise<TokenPair> => {
     const response = await ctx.post('/v1/auth/login', {
       email: account.email,
@@ -64,6 +73,9 @@ describe('retention jobs', () => {
       'purge_one_time_tokens',
       'purge_session_tokens',
       'purge_sessions',
+      'purge_webauthn_challenges',
+      'purge_second_factor_challenges',
+      'purge_pending_totp_secrets',
       'purge_audit_events',
       'purge_rate_limit_buckets',
       'purge_idempotency_keys',
@@ -195,6 +207,69 @@ describe('retention jobs', () => {
     expect(await left()).toEqual([]);
   });
 
+  it('deletes WebAuthn and second-factor challenges when their 5 minutes are over [ADR-0019]', async () => {
+    const account = await ctx.account();
+    for (const offset of [0, 1]) {
+      await ctx.admin.sql`
+        insert into webauthn_challenges (id, challenge_hash, purpose, user_id, created_at, expires_at)
+        values (${randomUUID()}, ${randomBytes(32)}, 'authentication', null, ${at(offset - 5 * MS.minute)},
+                ${at(offset)})`;
+      await ctx.admin.sql`
+        insert into second_factor_challenges (id, user_id, token_hash, created_at, expires_at)
+        values (${randomUUID()}, ${account.userId}, ${randomBytes(32)}, ${at(offset - 5 * MS.minute)}, ${at(offset)})`;
+    }
+
+    expect(await run('purge_webauthn_challenges')).toBe(1);
+    expect(await run('purge_second_factor_challenges')).toBe(1);
+    expect([await total('webauthn_challenges'), await total('second_factor_challenges')]).toEqual([1, 1]);
+  });
+
+  it('deletes a TOTP secret not confirmed within 24 hours, and never a confirmed one [Q-53]', async () => {
+    const [abandoned, recent, enabled] = [await ctx.account(), await ctx.account(), await ctx.account()];
+    const secret = async (userId: string, createdAt: string, enabledAt: string | null) => {
+      await ctx.admin.sql`
+        insert into totp_secrets (user_id, secret_enc, enabled_at, created_at)
+        values (${userId}, ${randomBytes(73)}, ${enabledAt}, ${createdAt})`;
+    };
+    await secret(abandoned.userId, at(-MS.day), null);
+    await secret(recent.userId, at(-MS.day + 1), null);
+    await secret(enabled.userId, at(-2 * MS.day), at(-2 * MS.day));
+
+    expect(await run('purge_pending_totp_secrets')).toBe(1);
+    const left = await ctx.admin.sql<{ user_id: string }[]>`select user_id from totp_secrets`;
+    expect(left.map((row) => row.user_id).sort()).toEqual([recent.userId, enabled.userId].sort());
+  });
+
+  it('keeps confirmed TOTP secrets by its own conditions too, also one confirmed while the purge waits [Q-53]', async () => {
+    const [confirmed, confirming] = [await ctx.account(), await ctx.account()];
+    for (const { userId } of [confirmed, confirming]) {
+      await ctx.admin.sql`
+        insert into totp_secrets (user_id, secret_enc, enabled_at, created_at)
+        values (${userId}, ${randomBytes(73)}, ${userId === confirmed.userId ? at(-2 * MS.day) : null},
+                ${at(-2 * MS.day)})`;
+    }
+    // A confirmation holds its row while the purge runs.
+    const { promise: released, resolve: release } = Promise.withResolvers<undefined>();
+    const { promise: isLocked, resolve: locked } = Promise.withResolvers<undefined>();
+    const confirmation = ctx.admin.sql.begin(async (tx) => {
+      await tx`update totp_secrets set enabled_at = ${at(0)} where user_id = ${confirming.userId}`;
+      locked(undefined);
+      await released;
+    });
+    await isLocked;
+
+    // As the owner, whom no policy restricts: only the purge's own conditions keep the confirmed secrets.
+    const purge = inTransaction(createDatabase(ctx.admin), (tx) =>
+      deletePendingTotpSecrets(tx, new Date(at(-MS.day)), 100),
+    );
+    await expect.poll(waitingForLocks, { timeout: 5000, interval: 10 }).toBe(1);
+    release(undefined);
+    await confirmation;
+
+    expect(await purge).toBe(0);
+    expect(await total('totp_secrets')).toBe(2);
+  });
+
   it('deletes audit events after 90 days', async () => {
     await ctx.account();
     const events = await total('audit_events');
@@ -286,8 +361,8 @@ describe('retention jobs', () => {
 
     const outcomes = await scheduler.runDue();
 
-    expect(outcomes.map((outcome) => outcome.outcome)).toEqual(Array(11).fill('succeeded'));
+    expect(outcomes.map((outcome) => outcome.outcome)).toEqual(Array(14).fill('succeeded'));
     expect(outcomes[0]).toEqual({ job: 'purge_unverified_accounts', outcome: 'succeeded', processed: 1 });
-    expect((await ctx.admin.sql`select 1 from job_runs where status = 'succeeded'`).length).toBe(11);
+    expect((await ctx.admin.sql`select 1 from job_runs where status = 'succeeded'`).length).toBe(14);
   });
 });
