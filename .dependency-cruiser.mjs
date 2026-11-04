@@ -56,6 +56,15 @@ export default {
       to: { path: 'node_modules/nodemailer/' },
     },
     {
+      name: 'webauthn-library-only-in-platform-webauthn',
+      comment:
+        'Passkeys are verified only behind src/platform/webauthn (ADR-0019), where the relying party, the origins and ' +
+        'the required checks are fixed; everything else uses its functions.',
+      severity: 'error',
+      from: { path: '^src/', pathNot: '^src/platform/webauthn/' },
+      to: { path: 'node_modules/@simplewebauthn/' },
+    },
+    {
       name: 'production-code-not-to-tests',
       severity: 'error',
       from: { path: '^src/', pathNot: '\\.test\\.ts$' },
