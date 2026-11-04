@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.3.4
+  version: 0.4.0
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -11,7 +11,8 @@ info:
     `test/contract/freeze.test.ts` compares it with the snapshot `openapi/frozen/openapi.yaml`, which is renewed
     when an implemented operation joins the freeze (0.3.1: `exportData`, 0.3.2: `deleteAccount`) and with every
     approved change since, so that an addition is frozen too. Clients should ignore properties and enum values they
-    do not know yet. Since 0.3.2 every operation is frozen.
+    do not know yet. Since 0.3.2 every implemented operation is frozen; operations added for a milestone join the
+    freeze once they are implemented (0.4.0: M5).
     0.2.1 (2026-10-23): `413` and `415` documented for every request body (Q-25).
     0.2.2 (2026-10-29): `429` documented on every authenticated operation (Q-30); gamble rules for parallel stakes
     and for the size of wins and losses (Q-31).
@@ -37,6 +38,9 @@ info:
     asks for (`409 gamble-pending`, Q-47; descriptions of `updateQuest` and `deleteQuest`).
     0.3.4 (2026-11-02): a password reset reactivates an account pending deletion (Q-48; descriptions of
     `deleteAccount`, `forgotPassword` and `resetPassword`).
+    0.4.0 (2026-11-04): M5's sign-in methods (ADR-0019, Q-52) — passkeys, TOTP, recovery codes and the second login
+    step; 11 new operations, built during M5 and outside the freeze until then. The changes they make to existing
+    operations (`login`, `reauthenticate`, the account, sessions and the export) are added with them.
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -70,6 +74,8 @@ tags:
     description: The authenticated account.
   - name: sessions
     description: Device sessions of the account.
+  - name: sign-in-methods
+    description: Passkeys, two-factor authentication (TOTP) and recovery codes of the account (ADR-0019).
   - name: consents
     description: Versioned consents (explicit, unticked, withdrawable).
   - name: achievements
@@ -216,6 +222,90 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidCredentials' }
         '403': { $ref: '#/components/responses/EmailNotVerified' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/login/second-factor:
+    post:
+      tags: [auth]
+      operationId: loginSecondFactor
+      summary: Complete a login with a TOTP code or a recovery code
+      description: |
+        The second step of a password login to an account with two-factor authentication on (ADR-0019, Q-52): after
+        the correct password, `POST /auth/login` answers `202` with a `second_factor_token` instead of tokens. Send it
+        with exactly one of `totp_code` (the authenticator app's current code) and `recovery_code` (one of the codes
+        shown when TOTP was turned on; each works once). The token lives 5 minutes and takes at most 5 wrong codes;
+        wrong codes also count against the account's backoff, like wrong passwords (`429`). A wrong code →
+        `401 urn:questline:problem:invalid-credentials`; an unknown, expired or used-up token →
+        `401 urn:questline:problem:invalid-token` (log in again). Like a password login, a completed login reactivates
+        an account pending deletion within its 30 days (R-PRIV-06).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SecondFactorLoginRequest' }
+      responses:
+        '200':
+          description: Session created.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/SecondFactorRejected' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/passkey/options:
+    post:
+      tags: [auth]
+      operationId: createPasskeyChallenge
+      summary: Start a passkey sign-in or step-up (WebAuthn request options)
+      description: |
+        A fresh challenge (single use, 5 minutes) in WebAuthn request options without a credential list: the device
+        offers the user's passkeys for this relying party, and nothing about any account is revealed (R-AUTH-07,
+        ADR-0019). Pass the options to the platform's passkey API and send its result to `POST /auth/passkey/login`,
+        or to `POST /auth/reauth` for a step-up.
+      security: []
+      responses:
+        '200':
+          description: WebAuthn request options.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PasskeyRequestOptions' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/passkey/login:
+    post:
+      tags: [auth]
+      operationId: loginWithPasskey
+      summary: Log in with a passkey and create a device session
+      description: |
+        Verifies the platform's assertion (ADR-0019): its challenge must come from `POST /auth/passkey/options` and be
+        unused, the passkey must belong to the account its user handle names, the signature must verify with user
+        verification, and the signature counter must grow unless the authenticator always reports 0. Any failure →
+        `401 urn:questline:problem:invalid-credentials`, the same for every reason. No second factor is asked for: a
+        passkey already is two (the device and its PIN or biometrics). Like a password login, it reactivates an
+        account pending deletion within its 30 days (R-PRIV-06).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasskeyLoginRequest' }
+      responses:
+        '200':
+          description: Session created.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/InvalidCredentials' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
@@ -517,6 +607,190 @@ paths:
         '204': { description: Revoked. }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/passkeys:
+    get:
+      tags: [sign-in-methods]
+      operationId: listPasskeys
+      summary: List the account's passkeys
+      responses:
+        '200':
+          description: Passkeys, newest first. Not paginated — at most 10 per account.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 10
+                    items: { $ref: '#/components/schemas/Passkey' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    post:
+      tags: [sign-in-methods]
+      operationId: registerPasskey
+      summary: Register a passkey
+      description: |
+        Requires recent re-authentication (R-AUTH-06). `credential` is the platform's registration result for options
+        from `POST /me/passkeys/options`; it is verified (ADR-0019): the challenge must be this account's, unused and
+        at most 5 minutes old, origin and relying-party ID must match, and user verification must have happened. A
+        result that does not verify, or a passkey registered already → `422 urn:questline:problem:invalid-passkey`;
+        the account has 10 passkeys → `422 urn:questline:problem:limit-reached`. Audited; the owner is emailed a
+        notice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasskeyRegistrationRequest' }
+      responses:
+        '201':
+          description: Registered.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Passkey' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/passkeys/options:
+    post:
+      tags: [sign-in-methods]
+      operationId: createPasskeyRegistrationOptions
+      summary: Start registering a passkey (WebAuthn creation options)
+      description: |
+        Requires recent re-authentication (R-AUTH-06). A fresh challenge (single use, 5 minutes) bound to this
+        account, in WebAuthn creation options: discoverable credential and user verification required, attestation
+        `none`, the account's passkeys excluded; the user handle is the account ID and the name its address, as the
+        device shows it (ADR-0019). At 10 passkeys → `422 urn:questline:problem:limit-reached`.
+      responses:
+        '200':
+          description: WebAuthn creation options.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PasskeyCreationOptions' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/passkeys/{passkeyId}:
+    parameters:
+      - $ref: '#/components/parameters/PasskeyId'
+    delete:
+      tags: [sign-in-methods]
+      operationId: deletePasskey
+      summary: Remove a passkey
+      description: |
+        Requires recent re-authentication (R-AUTH-06). The device keeps its copy, which no longer signs in. Unknown or
+        another account's passkey → `404`. Audited; the owner is emailed a notice.
+      responses:
+        '204': { description: Removed. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/totp:
+    post:
+      tags: [sign-in-methods]
+      operationId: startTotp
+      summary: Start turning on two-factor authentication (TOTP)
+      description: |
+        Requires recent re-authentication (R-AUTH-06). A new secret for an authenticator app, shown only now — as
+        base32 and as an `otpauth://` URI for a QR code (RFC 6238: SHA-1, 6 digits, 30 seconds). Nothing changes for
+        login until `POST /me/totp/confirm`; starting again replaces an unconfirmed secret. TOTP on already →
+        `409 urn:questline:problem:totp-enabled`.
+      responses:
+        '200':
+          description: The secret to enter into the authenticator app.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TotpEnrolment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    delete:
+      tags: [sign-in-methods]
+      operationId: disableTotp
+      summary: Turn two-factor authentication off
+      description: |
+        Requires recent re-authentication (R-AUTH-06; with TOTP on, a re-authentication by password needs a code as
+        well). Deletes the secret and the recovery codes. TOTP not on → `409 urn:questline:problem:totp-not-enabled`.
+        Audited; the owner is emailed a notice.
+      responses:
+        '204': { description: Turned off. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/totp/confirm:
+    post:
+      tags: [sign-in-methods]
+      operationId: confirmTotp
+      summary: Confirm the authenticator app and turn two-factor authentication on
+      description: |
+        Requires recent re-authentication (R-AUTH-06). A current code from the app turns TOTP on and returns 10
+        recovery codes — shown only now; each works once instead of a code. A wrong code →
+        `422 urn:questline:problem:invalid-code`; nothing started → `409 urn:questline:problem:totp-not-started`;
+        TOTP on already → `409 urn:questline:problem:totp-enabled`. Audited; the owner is emailed a notice.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code]
+              properties:
+                code: { $ref: '#/components/schemas/TotpCode' }
+      responses:
+        '200':
+          description: TOTP on; the recovery codes.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryCodes' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { $ref: '#/components/responses/PayloadTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+        '422': { $ref: '#/components/responses/UnprocessableContent' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /me/recovery-codes:
+    post:
+      tags: [sign-in-methods]
+      operationId: replaceRecoveryCodes
+      summary: Replace the recovery codes
+      description: |
+        Requires recent re-authentication (R-AUTH-06). 10 new recovery codes, shown only now; the old ones stop
+        working. TOTP not on → `409 urn:questline:problem:totp-not-enabled`. Audited; the owner is emailed a notice.
+      responses:
+        '200':
+          description: The new recovery codes.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecoveryCodes' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ReauthenticationRequired' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
   /me/consents:
     get:
@@ -1124,6 +1398,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Uuid' }
+    PasskeyId:
+      name: passkeyId
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Uuid' }
     AchievementId:
       name: achievementId
       in: path
@@ -1190,6 +1469,13 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    SecondFactorRejected:
+      description: |
+        A wrong code (`urn:questline:problem:invalid-credentials`), or an unknown, expired or used-up second-factor
+        token (`urn:questline:problem:invalid-token`: log in again).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
     EmailNotVerified:
       description: Correct credentials but the email is not verified yet.
       content:
@@ -1211,7 +1497,7 @@ components:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
     Conflict:
-      description: State conflict (e.g. quest locked or awaiting restart, achievement not active or completed, gamble pending, consent already granted, check-in no longer undoable).
+      description: State conflict (e.g. quest locked or awaiting restart, achievement not active or completed, gamble pending, consent already granted, check-in no longer undoable, two-factor authentication already on or not on).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
@@ -1302,7 +1588,7 @@ components:
     OpaqueToken:
       type: string
       pattern: '^ql_[a-z]{2}_[A-Za-z0-9_-]{43}$'
-      description: Prefixed opaque token (`ql_at_` access, `ql_rt_` refresh, `ql_vt_` verification, `ql_pt_` password reset).
+      description: Prefixed opaque token (`ql_at_` access, `ql_rt_` refresh, `ql_vt_` verification, `ql_pt_` password reset, `ql_sf_` second factor).
     Timezone:
       type: string
       minLength: 1
@@ -1458,6 +1744,227 @@ components:
         refresh_token: { $ref: '#/components/schemas/OpaqueToken' }
         refresh_expires_in: { type: integer, description: 'Seconds.' }
         session_id: { $ref: '#/components/schemas/Uuid' }
+
+    # ── sign-in methods (M5, ADR-0019) ──
+    TotpCode:
+      type: string
+      pattern: '^[0-9]{6}$'
+      description: The authenticator app's current 6-digit code.
+    RecoveryCode:
+      type: string
+      minLength: 16
+      maxLength: 32
+      pattern: '^[0-9A-Za-z -]+$'
+      description: A recovery code as shown (`XXXX-XXXX-XXXX-XXXX`); case, spaces and hyphens do not matter.
+    SecondFactorLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [second_factor_token, client]
+      description: Exactly one of `totp_code` and `recovery_code` (`400` otherwise).
+      properties:
+        second_factor_token: { $ref: '#/components/schemas/OpaqueToken' }
+        totp_code: { $ref: '#/components/schemas/TotpCode' }
+        recovery_code: { $ref: '#/components/schemas/RecoveryCode' }
+        client: { $ref: '#/components/schemas/Client' }
+        device_label:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Optional user-chosen label shown in the session list (Q-09).
+    Base64Url:
+      type: string
+      pattern: '^[A-Za-z0-9_-]*$'
+      maxLength: 16384
+      description: Unpadded base64url (RFC 4648 §5), as the JSON forms of WebAuthn use it.
+    CredentialId:
+      type: string
+      pattern: '^[A-Za-z0-9_-]+$'
+      maxLength: 1366
+      description: A passkey's credential ID, base64url (WebAuthn allows up to 1 023 bytes).
+    PasskeyRequestOptions:
+      type: object
+      additionalProperties: false
+      required: [challenge, timeout, rpId, userVerification]
+      description: WebAuthn `PublicKeyCredentialRequestOptionsJSON` without `allowCredentials` (discoverable credentials).
+      properties:
+        challenge: { $ref: '#/components/schemas/Base64Url' }
+        timeout: { type: integer, description: Milliseconds. }
+        rpId: { type: string }
+        userVerification: { type: string, const: required }
+    PasskeyDescriptor:
+      type: object
+      additionalProperties: false
+      required: [id, type]
+      properties:
+        id: { $ref: '#/components/schemas/CredentialId' }
+        type: { type: string, const: public-key }
+        transports:
+          type: array
+          maxItems: 10
+          items: { type: string, maxLength: 20 }
+    PasskeyCreationOptions:
+      type: object
+      additionalProperties: false
+      required:
+        [rp, user, challenge, pubKeyCredParams, timeout, excludeCredentials, authenticatorSelection, attestation, extensions]
+      description: WebAuthn `PublicKeyCredentialCreationOptionsJSON`.
+      properties:
+        rp:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        user:
+          type: object
+          additionalProperties: false
+          required: [id, name, displayName]
+          properties:
+            id: { $ref: '#/components/schemas/Base64Url' }
+            name: { type: string }
+            displayName: { type: string }
+        challenge: { $ref: '#/components/schemas/Base64Url' }
+        pubKeyCredParams:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [type, alg]
+            properties:
+              type: { type: string, const: public-key }
+              alg: { type: integer, description: 'COSE algorithm: -8 EdDSA, -7 ES256, -257 RS256.' }
+        timeout: { type: integer, description: Milliseconds. }
+        excludeCredentials:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/PasskeyDescriptor' }
+        authenticatorSelection:
+          type: object
+          additionalProperties: false
+          required: [residentKey, requireResidentKey, userVerification]
+          properties:
+            residentKey: { type: string, const: required }
+            requireResidentKey: { type: boolean, const: true }
+            userVerification: { type: string, const: required }
+        attestation: { type: string, const: none }
+        extensions:
+          type: object
+          additionalProperties: false
+          required: [credProps]
+          properties:
+            credProps: { type: boolean, const: true }
+    PasskeyRegistrationResponse:
+      type: object
+      additionalProperties: true
+      required: [id, rawId, type, response, clientExtensionResults]
+      description: |
+        WebAuthn `RegistrationResponseJSON` as the platform's passkey API returns it; members this API does not use
+        are ignored.
+      properties:
+        id: { $ref: '#/components/schemas/CredentialId' }
+        rawId: { $ref: '#/components/schemas/CredentialId' }
+        type: { type: string, const: public-key }
+        authenticatorAttachment: { type: string, enum: [platform, cross-platform] }
+        clientExtensionResults: { type: object }
+        response:
+          type: object
+          additionalProperties: true
+          required: [clientDataJSON, attestationObject]
+          properties:
+            clientDataJSON: { $ref: '#/components/schemas/Base64Url' }
+            attestationObject: { $ref: '#/components/schemas/Base64Url' }
+            authenticatorData: { $ref: '#/components/schemas/Base64Url' }
+            transports:
+              type: array
+              maxItems: 10
+              items: { type: string, maxLength: 20 }
+            publicKeyAlgorithm: { type: integer }
+            publicKey: { $ref: '#/components/schemas/Base64Url' }
+    PasskeyAssertion:
+      type: object
+      additionalProperties: true
+      required: [id, rawId, type, response, clientExtensionResults]
+      description: |
+        WebAuthn `AuthenticationResponseJSON` as the platform's passkey API returns it, with the `userHandle` that
+        discoverable credentials always report; members this API does not use are ignored.
+      properties:
+        id: { $ref: '#/components/schemas/CredentialId' }
+        rawId: { $ref: '#/components/schemas/CredentialId' }
+        type: { type: string, const: public-key }
+        authenticatorAttachment: { type: string, enum: [platform, cross-platform] }
+        clientExtensionResults: { type: object }
+        response:
+          type: object
+          additionalProperties: true
+          required: [clientDataJSON, authenticatorData, signature, userHandle]
+          properties:
+            clientDataJSON: { $ref: '#/components/schemas/Base64Url' }
+            authenticatorData: { $ref: '#/components/schemas/Base64Url' }
+            signature: { $ref: '#/components/schemas/Base64Url' }
+            userHandle: { $ref: '#/components/schemas/Base64Url' }
+    PasskeyRegistrationRequest:
+      type: object
+      additionalProperties: false
+      required: [credential]
+      properties:
+        credential: { $ref: '#/components/schemas/PasskeyRegistrationResponse' }
+        name: { type: string, minLength: 1, maxLength: 50, description: Optional label shown in the passkey list. }
+    PasskeyLoginRequest:
+      type: object
+      additionalProperties: false
+      required: [credential, client]
+      properties:
+        credential: { $ref: '#/components/schemas/PasskeyAssertion' }
+        client: { $ref: '#/components/schemas/Client' }
+        device_label:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Optional user-chosen label shown in the session list (Q-09).
+    Passkey:
+      type: object
+      additionalProperties: false
+      required: [id, name, created_at, last_used_at, backed_up]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        name:
+          oneOf:
+            - { type: string, maxLength: 50 }
+            - { type: 'null' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        last_used_at:
+          oneOf:
+            - { $ref: '#/components/schemas/Timestamp' }
+            - { type: 'null' }
+        backed_up:
+          type: boolean
+          description: Synced by the platform (e.g. iCloud Keychain, Google Password Manager), so it outlives the device.
+    TotpEnrolment:
+      type: object
+      additionalProperties: false
+      required: [secret, otpauth_uri, algorithm, digits, period]
+      properties:
+        secret: { type: string, pattern: '^[A-Z2-7]{32}$', description: 'The 160-bit secret, base32 (RFC 4648) without padding.' }
+        otpauth_uri:
+          type: string
+          maxLength: 400
+          pattern: '^otpauth://totp/'
+          description: For a QR code; its label names Questline and the account's address.
+        algorithm: { type: string, const: SHA1 }
+        digits: { type: integer, const: 6 }
+        period: { type: integer, const: 30 }
+    RecoveryCodes:
+      type: object
+      additionalProperties: false
+      required: [recovery_codes]
+      properties:
+        recovery_codes:
+          type: array
+          minItems: 10
+          maxItems: 10
+          description: Shown only once; each works once instead of a TOTP code. Crockford base32, 80 bits each.
+          items: { type: string, pattern: '^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$' }
 
     # ── account ──
     Account:

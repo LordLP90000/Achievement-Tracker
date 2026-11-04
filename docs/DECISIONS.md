@@ -213,7 +213,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   snapshot is then renewed from the contract of that day, once it passed the check — as `0.3.1` with the export and
   as `0.3.2` with the deletion, since when every operation is frozen. From then on the snapshot is renewed with every
   approved change, after the check against the snapshot before it, so that additions are frozen as well (`0.3.3`:
-  Q-47; `0.3.4`: Q-48).
+  Q-47; `0.3.4`: Q-48). `0.4.0` adds M5's 11 operations (ADR-0019), each outside the freeze until implemented; the
+  generated suites classify an operation once it leaves `test/contract/not-yet-implemented.ts`.
   Chosen by the PM over oasdiff, which would have added a tool to CI.
 
 ## ADR-0011 · Timezone handling with `Intl` only; `local_date` stored per check-in

@@ -4,6 +4,7 @@ import { startAccountsApp, type AccountsApp } from '../helpers/accounts-app.ts';
 import { contractInject } from '../helpers/contract.ts';
 import { bearer, createAchievement, goalUser, type GoalUser } from '../helpers/goals.ts';
 import { resolveRef, specOperations, type SpecOperation } from '../helpers/openapi.ts';
+import { NOT_YET_IMPLEMENTED } from '../contract/not-yet-implemented.ts';
 
 const START = '2026-10-29T12:00:00Z';
 const TODAY = '2026-10-29';
@@ -35,7 +36,9 @@ const isPathParameter = (parameter: string) =>
   parameter.startsWith('path:') || (parameter.startsWith('#/') && resolveRef({ $ref: parameter })['in'] === 'path');
 const ownedParameterOf = (operation: SpecOperation) =>
   operation.parameters.find((parameter): parameter is keyof typeof OWNED => parameter in OWNED);
-const guarded = specOperations.filter((operation) => ownedParameterOf(operation) !== undefined);
+/** Operations not implemented yet are classified once they are built (`test/contract/not-yet-implemented.ts`). */
+const implemented = specOperations.filter((operation) => !NOT_YET_IMPLEMENTED.has(operation.operationId));
+const guarded = implemented.filter((operation) => ownedParameterOf(operation) !== undefined);
 
 interface Resource {
   readonly id: string;
@@ -46,7 +49,7 @@ interface Resource {
 /**
  * Ownership across the contract (R-AUTHZ-02/03, T-01, I-04, I-14): for every operation with a path ID, another user's
  * record does not exist — 404, never 403 — and nothing changes for either user. Generated from the contract: a new
- * path parameter or operation fails here until it is classified and has a fixture.
+ * path parameter or operation fails here, once implemented, until it is classified and has a fixture.
  */
 describe('ownership [R-AUTHZ-02, R-AUTHZ-03, T-01, I-04, I-14]', () => {
   let ctx: AccountsApp;
@@ -126,7 +129,7 @@ describe('ownership [R-AUTHZ-02, R-AUTHZ-03, T-01, I-04, I-14]', () => {
   });
 
   it('classifies every path parameter of the contract and has a body for every operation that takes one', () => {
-    const parameters = new Set(specOperations.flatMap((operation) => operation.parameters.filter(isPathParameter)));
+    const parameters = new Set(implemented.flatMap((operation) => operation.parameters.filter(isPathParameter)));
 
     expect([...parameters].sort()).toEqual([...Object.keys(OWNED), ...NOT_OWNED].sort());
     expect(guarded.filter((operation) => operation.hasRequestBody).map((operation) => operation.operationId)).toEqual(

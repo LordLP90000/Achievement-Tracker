@@ -4,6 +4,7 @@ import { startAccountsApp, type AccountsApp } from '../helpers/accounts-app.ts';
 import { contractInject } from '../helpers/contract.ts';
 import { bearer, createAchievement, goalUser, type GoalUser } from '../helpers/goals.ts';
 import { resolveRef, specOperations, type SpecOperation } from '../helpers/openapi.ts';
+import { NOT_YET_IMPLEMENTED } from '../contract/not-yet-implemented.ts';
 
 const START = '2026-10-29T12:00:00Z';
 const TODAY = '2026-10-29';
@@ -80,8 +81,10 @@ const propertiesOf = (schema: unknown): string[] => {
   return [...Object.keys(node['properties'] ?? {}), ...((node['allOf'] ?? []) as unknown[]).flatMap(propertiesOf)];
 };
 const withBody = specOperations.filter((operation) => operation.hasRequestBody);
+/** Operations not implemented yet are classified once they are built (`test/contract/not-yet-implemented.ts`). */
+const implementedWithBody = withBody.filter((operation) => !NOT_YET_IMPLEMENTED.has(operation.operationId));
 const operationsOf = (names: Readonly<Record<string, unknown>>) =>
-  withBody.filter((operation) => operation.operationId in names);
+  implementedWithBody.filter((operation) => operation.operationId in names);
 /** The resource's fields the request does not accept, and the owner, which no resource shows. */
 const serverFieldsOf = (operation: SpecOperation) => {
   const accepted = new Set(propertiesOf(operation.requestBodySchema));
@@ -206,7 +209,7 @@ describe('mass assignment [R-AUTHZ-04, T-02, E-04, T-17]', () => {
 
   it('finds every request body closed and every operation with one classified', () => {
     expect(withBody.filter((operation) => operation.requestBodySchema?.['additionalProperties'] !== false)).toEqual([]);
-    expect(withBody.map((operation) => operation.operationId).sort()).toEqual(
+    expect(implementedWithBody.map((operation) => operation.operationId).sort()).toEqual(
       [...Object.keys(RESOURCES), ...Object.keys(FLOWS)].sort(),
     );
     expect(operationsOf(RESOURCES).every((operation) => serverFieldsOf(operation).length >= 2)).toBe(true);

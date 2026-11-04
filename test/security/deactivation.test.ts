@@ -4,6 +4,7 @@ import { startAccountsApp, TEST_PASSWORD, type AccountsApp, type TestAccount } f
 import { contractInject } from '../helpers/contract.ts';
 import { bearer } from '../helpers/goals.ts';
 import { specOperations, type SpecOperation } from '../helpers/openapi.ts';
+import { NOT_YET_IMPLEMENTED } from '../contract/not-yet-implemented.ts';
 
 interface TokenPair {
   readonly access_token: string;
@@ -14,7 +15,9 @@ interface DeletedAccount extends TestAccount {
   readonly tokens: TokenPair;
 }
 
-const authenticated = specOperations.filter((operation) => operation.requiresAuth);
+const authenticated = specOperations.filter(
+  (operation) => operation.requiresAuth && !NOT_YET_IMPLEMENTED.has(operation.operationId),
+);
 
 /**
  * E-13: an account pending deletion (R-PRIV-06) is of no use to whoever holds its former tokens, gets no email but
