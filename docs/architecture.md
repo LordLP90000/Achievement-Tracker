@@ -251,6 +251,27 @@ its response (headers and body, encrypted with the user's data key) in the same 
   library: CBOR, authenticator data, `none` and `packed` attestations, ES256, EdDSA, RS256 — and every field a
   verifier must check bent in turn.
 
+### 4.9 Sign-in methods and step-up (`modules/sessions`, `modules/sign-in-methods`, M5)
+
+- `sign-in-methods` owns passkeys, TOTP and recovery codes: their management routes (re-authenticated), the code
+  check (`second-factor.ts`: a matching code is used up under a lock on the account's secret, a recovery code also
+  tells the owner), the passkey check (`passkey-assertion.ts`: looked up by its owner, verified, counter, backup
+  state and last use stored) and the notice of every change. `sessions` builds the sign-ins and the step-up on
+  them; every way in ends in one `signIn` (reactivation within 30 days, the session limit, the session's
+  `auth_method`, `login_succeeded`).
+- Lock order: each sign-in and step-up transaction takes the account row before any of its child rows, as the
+  deletion's cascade does, so a race with the hard delete waits instead of deadlocking; it also serialises one
+  account's second steps and step-ups.
+- A WebAuthn challenge is used up first, in the transaction that answers — a refused result returns instead of
+  throwing, so the consumption commits. The user handle only names the account: the passkey is looked up under that
+  account at sign-in and under the session's at step-up, where a handle naming anyone else is refused.
+- Backoff (S-01): at login, wrong second-factor codes count against the address's backoff, which the first step
+  does not clear; at step-up, wrong passwords and codes count against the user's. With TOTP on, the step-up names a
+  missing code (`second-factor-required`) before the password is checked, and that answer neither counts nor
+  clears. Passkeys stay outside both backoffs — they cannot be guessed.
+- At rest: the TOTP secret encrypted with the user's data key (bound to the user and `secret_enc`); recovery codes,
+  second-factor tokens and challenges only as SHA-256; passkeys as public keys.
+
 ## 5. Domain engine (`src/domain`)
 
 Pure, exhaustively tested functions:

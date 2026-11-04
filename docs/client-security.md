@@ -1,10 +1,11 @@
 # Client security guidance for the Questline app
 
-Status: M4, 2026-11-02 — brought forward from M6 for the app team (Q-45). Aligned with OWASP MASVS v2; the category
+Status: M5, 2026-11-04 (§6: passkeys and two-factor sign-in, ADR-0019); first written in M4, 2026-11-02 — brought
+forward from M6 for the app team (Q-45). Aligned with OWASP MASVS v2; the category
 of each section is in brackets. The backend never trusts the app (threat model §1): every rule there is enforced
 server-side. This document covers what only the app can protect — the user's data on the device and in transit
 (threat model §2 "compromised client device", DPIA R-11) — and how the app uses the API so that users' data stays
-correct. The contract is [`openapi/openapi.yaml`](../openapi/openapi.yaml), frozen as `0.3.0`.
+correct. The contract is [`openapi/openapi.yaml`](../openapi/openapi.yaml), frozen since `0.3.0` and grown only additively since.
 
 ## 1. Tokens and sessions [MASVS-STORAGE, MASVS-AUTH]
 
@@ -26,7 +27,7 @@ correct. The contract is [`openapi/openapi.yaml`](../openapi/openapi.yaml), froz
   ends every other session, a password reset all of them (R-AUTH-05). A 21st login ends the least recently used
   session (Q-29).
 - **Biometrics** may gate opening the app or reading the tokens (Keychain access control, `BiometricPrompt`), but they
-  never replace the password where the API asks for it (§5). Passkeys and 2FA come with M5.
+  never replace the password or a passkey where the API asks for them (§5, §6).
 
 ## 2. Network [MASVS-NETWORK]
 
@@ -108,13 +109,51 @@ target values and check-in notes are encrypted at rest on the server — the dev
   once, completed Achievements included, and cannot be undone: confirm with the user first, then clear the cache.
 - **Export** (R-PRIV-05, M4): `GET /me/export` after re-authentication, at most 2 per 24 hours; the JSON file holds
   all of the user's data. Hand it to the system's share sheet or document picker without keeping a copy in the app.
-- **Account deletion** (R-PRIV-06, Q-11, A-22, M4): explain before the user confirms that logging in again with the
-  password within 30 days cancels the deletion, and that afterwards everything is gone for good. After re-auth,
-  `DELETE /me` answers `202` with `deletion_scheduled_for` and ends **every** session, this one included: clear the
-  tokens and all local data, and show the date. Until then a password login brings the account back, and so does a
-  password reset through the emailed link if the password is forgotten (Q-48): say both before the user confirms.
+- **Account deletion** (R-PRIV-06, Q-11, A-22, M4): explain before the user confirms that signing in again within 30
+  days — with the password (and its code when TOTP is on) or a passkey — cancels the deletion, and that afterwards
+  everything is gone for good. After re-auth, `DELETE /me` answers `202` with `deletion_scheduled_for` and ends
+  **every** session, this one included: clear the tokens and all local data, and show the date. Until then a sign-in
+  brings the account back, and so does a password reset through the emailed link if the password is forgotten (Q-48):
+  say both before the user confirms.
 
-## 6. Email links [MASVS-PLATFORM]
+## 6. Passkeys and two-factor sign-in [MASVS-AUTH]
+
+Both are optional and the user's choice (M5, ADR-0019); the password stays, and a password reset keeps both, so a
+taken-over mailbox alone removes neither.
+
+- **Prefer passkeys.** They are bound to Questline's domain and cannot be phished, guessed or reused elsewhere
+  (threat model S-13); a TOTP code can be relayed by a fake site in real time (RR-7). The platform's passkey APIs
+  (iOS `ASAuthorizationPlatformPublicKeyCredentialProvider`, Android Credential Manager) need the domain association
+  on the relying party's domain (Q-51): `webcredentials` in `apple-app-site-association`, and in `assetlinks.json` the
+  `get_login_creds` permission for each app signing key, whose hash is also one of the server's allowed origins.
+- **Creating one** (re-authenticated, §5): `POST /me/passkeys/options` → the platform's create call → `POST
+  /me/passkeys` `{ credential, name? }`. At most 10 per account (`422 limit-reached`); a passkey the account already
+  has is refused (`422 invalid-passkey`). `GET /me/passkeys` lists them with name, last use and `backed_up` (synced by
+  the platform, so it outlives the device); removing one needs re-authentication.
+- **Signing in with one**: `POST /auth/passkey/options` names no account; pass the options to the platform, which
+  offers the user's passkeys; send the result to `POST /auth/passkey/login` `{ credential, client, device_label? }`.
+  Any failure is the same `401 invalid-credentials`: say only that it did not work, and offer the password. A passkey
+  needs no TOTP code — it already is two factors (the device and its unlock).
+- **Turning TOTP on** (re-authenticated): `POST /me/totp` returns the secret once, as an `otpauth://` URI for a QR
+  code and as base32 for typing in; keep it on screen only (§3: covered in the app switcher, no clipboard, no logs),
+  then `POST /me/totp/confirm` `{ code }` with the authenticator app's current code. A secret not confirmed within
+  24 hours is gone (`409 totp-not-started`: start again, Q-53).
+- **Recovery codes**: confirming answers 10 codes, once; so does `POST /me/recovery-codes`, which voids the old ones.
+  Let the user save them outside the app (the share sheet to a password manager, or print) and never keep them in the
+  app. Say it plainly: **losing the authenticator with no code left locks the account for good** — no one can help,
+  and only a request to the controller can erase it (Q-52, RR-6, DPIA R-17). `GET /me` shows `two_factor_enabled` and
+  `recovery_codes_left`: suggest new codes when few are left. Each code works once.
+- **Signing in with TOTP on**: after the correct password, `POST /auth/login` answers `202` with a
+  `second_factor_token`, its lifetime `expires_in` and the `methods` to offer (`recovery_code` only while codes are
+  left). Keep the token in memory only and send it with the app's code or a recovery code to `POST
+  /auth/login/second-factor` (`client`, `device_label?`). A wrong code → `401 invalid-credentials`, ask again; after 5
+  wrong codes, or once it expired → `401 invalid-token`: start again with the password. Wrong codes count against the
+  sign-in backoff like wrong passwords (`429`).
+- **Turning TOTP off** (`DELETE /me/totp`, re-authenticated) deletes the secret and the recovery codes.
+- **Every change** — a passkey added or removed, TOTP on or off, new recovery codes, a recovery code used — sends the
+  owner a notice without a link (A-33), so a change the user did not make stands out.
+
+## 7. Email links [MASVS-PLATFORM]
 
 Verification, password-reset and email-change links have the form `<base>/verify-email#token=…`,
 `/reset-password#token=…` and `/confirm-email-change#token=…` (A-32): the token sits in the fragment, which never
@@ -123,7 +162,7 @@ reaches a server. Handle them as Universal Links / Android App Links with verifi
 token to `POST /auth/verify-email`, `POST /auth/password/reset` or `POST /me/email-change/confirm`. Never log the link
 or put it on the clipboard. Security notices never contain a link (A-33): a "notice" with a link is phishing.
 
-## 7. Third-party code and logs [MASVS-CODE, MASVS-PRIVACY]
+## 8. Third-party code and logs [MASVS-CODE, MASVS-PRIVACY]
 
 - No third-party analytics, trackers, advertising or attribution SDKs and no crash reporters (R-PRIV-02); any SDK
   needs the PM's approval first (R-PRIV-03).
@@ -132,14 +171,14 @@ or put it on the clipboard. Security notices never contain a link (A-33): a "not
 - The app binary contains no secrets (the API needs none). WebViews, if any, get no JavaScript bridge to tokens.
 - Jailbreak and root detection are optional (MASVS-RESILIENCE): the backend does not rely on the device.
 
-## 8. Local development
+## 9. Local development
 
 The local stack (README, "Local stack for the app team") serves the API on `127.0.0.1:3000` and the mail catcher on
 `127.0.0.1:8025`, on the developer's machine only. The iOS simulator reaches it directly; the Android emulator at
 `10.0.2.2`; a USB-connected Android device after `adb reverse tcp:3000 tcp:3000`. It holds made-up data only — never
 use real addresses or real goals (R-SUP-05).
 
-## 9. Traceability
+## 10. Traceability
 
 | Guidance | Backend control | Backend tests |
 |----------|-----------------|---------------|
@@ -155,4 +194,6 @@ use real addresses or real goals (R-SUP-05).
 | `429` and `Retry-After` (§4) | Per-client and per-user limits (R-AUTH-08, A-31, Q-30) | `security/rate-limit.test.ts`, `contract/rate-limits.test.ts` |
 | Re-authentication (§5) | 10-minute window (R-AUTH-06, E-03); with a code or a passkey (ADR-0019) | `src/modules/sessions/reauth.test.ts`, `integration/passwords.test.ts`, `integration/email-change.test.ts`; export and deletion with M4; `integration/step-up.test.ts` with M5 |
 | Consent (§5) | Consent guard; withdrawal deletes all goal content (R-PRIV-04, Q-10) | `security/consent.test.ts`, `integration/consents.test.ts` |
-| Token in the link's fragment (§6) | Links built from `PUBLIC_LINK_BASE_URL` with `#token=` (A-32); notices without links (A-33) | `src/platform/email/templates.test.ts` |
+| Passkeys (§6) | Bound to the RP ID and origins (Q-51), user verification, single-use challenges, the counter (S-13…S-15, S-18) | `src/platform/webauthn/webauthn.test.ts`, `integration/passkeys.test.ts`, `integration/passkey-login.test.ts` |
+| TOTP and recovery codes (§6) | RFC 6238, no code twice, 5 wrong codes per token, the backoff, codes as digests and single use, kept through a reset (S-15…S-17, I-24) | `src/platform/crypto/totp.test.ts`, `src/platform/crypto/recovery-codes.test.ts`, `integration/totp.test.ts`, `integration/login-second-factor.test.ts`, `integration/sign-in-visibility.test.ts` |
+| Token in the link's fragment (§7) | Links built from `PUBLIC_LINK_BASE_URL` with `#token=` (A-32); notices without links (A-33) | `src/platform/email/templates.test.ts` |

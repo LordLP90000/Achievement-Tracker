@@ -3,9 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { startAccountsApp, type AccountsApp, type TestAccount } from '../helpers/accounts-app.ts';
 import { contractInject } from '../helpers/contract.ts';
 import { bearer } from '../helpers/goals.ts';
+import { register, type CreationOptions } from '../helpers/software-authenticator.ts';
 import { totpCode } from '../helpers/totp.ts';
 
 const STEP = 30_000;
+const ORIGIN = 'https://questline.test';
 const MINUTE = 60_000;
 
 interface SecondFactorRequired {
@@ -182,6 +184,32 @@ describe('login with a second factor', () => {
       status: 401,
       type: 'urn:questline:problem:invalid-credentials',
     });
+  });
+
+  it('keeps TOTP and the passkeys through a password reset, so a taken-over mailbox alone removes neither', async () => {
+    const account = await ctx.account();
+    const token = (await login(account)).json<{ access_token: string }>().access_token;
+    const options = (await call('POST', '/v1/me/passkeys/options', token)).json<CreationOptions>();
+    const { credential } = register(options, { origin: ORIGIN });
+    expect((await call('POST', '/v1/me/passkeys', token, { credential })).statusCode).toBe(201);
+    const { secret } = (await call('POST', '/v1/me/totp', token)).json<{ secret: string }>();
+    expect(
+      (await call('POST', '/v1/me/totp/confirm', token, { code: totpCode(secret, ctx.clock.now()) })).statusCode,
+    ).toBe(200);
+    nextStep();
+
+    expect((await ctx.post('/v1/auth/password/forgot', { email: account.email })).statusCode).toBe(202);
+    const link = (await ctx.emails()).findLast(
+      (email) => email.userId === account.userId && email.template === 'password_reset',
+    );
+    const newPassword = 'seven silver swans swimming';
+    const reset = await ctx.post('/v1/auth/password/reset', { token: link?.payload.token, new_password: newPassword });
+    expect(reset.statusCode).toBe(204);
+
+    expect((await login(account, newPassword)).statusCode).toBe(202);
+    const [passkeys] = await ctx.admin.sql<{ count: string }[]>`
+      select count(*) from passkeys where user_id = ${account.userId}`;
+    expect(passkeys?.count).toBe('1');
   });
 
   it('offers only the TOTP code once no recovery code is left', async () => {

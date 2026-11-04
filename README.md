@@ -71,10 +71,13 @@ anywhere, so use made-up addresses only.
 3. Sign up with `POST /v1/auth/register`: the verification email appears in the mail catcher. Its link ends in
    `#token=…` — the app sends that token to `POST /v1/auth/verify-email` (A-32). Set `PUBLIC_LINK_BASE_URL` in
    `docker/.env` to the address your app's links use; it is `https://questline.test` otherwise.
+4. Passkeys need a real domain: the platform offers a passkey only for a domain associated with the app (client
+   security §6). Set `WEBAUTHN_RP_ID` and `WEBAUTHN_ORIGINS` in `docker/.env` to that domain, its `https://` origin
+   and your Android signing key's `android:apk-key-hash:…`. TOTP works with any authenticator app as it is.
 
-The contract is [`openapi/openapi.yaml`](openapi/openapi.yaml), frozen as `0.3.0`: it only grows, so ignore
+The contract is [`openapi/openapi.yaml`](openapi/openapi.yaml), frozen since `0.3.0`: it only grows, so ignore
 properties and enum values you do not know yet. Read [`docs/client-security.md`](docs/client-security.md) before
-building against it (token storage, refreshing, retries, sensitive operations). The iOS simulator reaches the stack
+building against it (token storage, refreshing, retries, sensitive operations, passkeys and two-factor sign-in). The iOS simulator reaches the stack
 directly, the Android emulator at `10.0.2.2`, a USB-connected Android device after `adb reverse tcp:3000 tcp:3000`.
 Emails go over TLS only, with a throw-away certificate made inside Docker on the first start and kept for a year
 (ADR-0018). `docker compose -f docker/compose.yml down --volumes` resets everything: database, emails and

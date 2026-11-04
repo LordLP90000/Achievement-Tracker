@@ -118,7 +118,7 @@ end-to-end encryption (v2 evaluation), reward currency/coupons (v2).
 | R-AUTH-03 | Email verification and password reset: single-use tokens, ≤ 30 min, stored only as hashes. |
 | R-AUTH-04 | Access tokens opaque, ≤ 15 min. Refresh tokens rotate on every use, bound to a device session, hashed; reuse of a rotated token revokes the whole session. |
 | R-AUTH-05 | Users list and revoke sessions. Password change revokes all other sessions; password reset revokes all. |
-| R-AUTH-06 | Email change, password change, export, deletion request require re-authentication within **10 min** **[PM, Q-07]**. |
+| R-AUTH-06 | Email change, password change, export, deletion request require re-authentication within **10 min** **[PM, Q-07]**; since M5 also adding or removing passkeys and turning TOTP on or off or replacing recovery codes, and re-authentication may use a passkey, or the password with a code when TOTP is on (ADR-0019, Q-52). |
 | R-AUTH-07 | No account enumeration across register, login, resend-verification, forgot-password, email-change. |
 | R-AUTH-08 | Rate limiting with progressive backoff on auth endpoints (per account via email blind index, per IP via daily-keyed HMAC **[PM, Q-14]**); per-user limits elsewhere. `429` + `Retry-After`. |
 | R-AUTH-09 | Login only after email verification **[PM, Q-15]**; unverified accounts purged after 7 days. |

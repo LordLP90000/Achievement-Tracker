@@ -1,6 +1,7 @@
 # Data Protection Impact Assessment (DPIA) — draft
 
-Status: **draft v0.4** (2026-11-02, M4: the data-subject rights built and tested — export, deletion with the 30-day
+Status: **draft v0.5** (2026-11-04, M5: passkeys and optional TOTP with recovery codes, ADR-0019 — necessity, rights,
+R-1, R-2 and the new R-17 on being locked out, open item 8; v0.4 on 2026-11-02, M4: the data-subject rights built and tested — export, deletion with the 30-day
 window, hard delete with crypto-shredding and tombstone, no email to accounts pending deletion as decided with Q-46;
 R-6, R-14 and R-16 updated, open item 7 added and closed by the PM's decision Q-48 at the M4 review; v0.3 on 2026-10-29: the PM's product review of R-15 recorded, Q-32; v0.2 in M0, 2026-10-22, with the PM decisions applied), maintained every milestone; to be reviewed by a data-protection expert
 before launch (M6 review package). Legal bases: GDPR Art. 35; Swiss FADP Art. 22 (data protection impact
@@ -19,7 +20,7 @@ and "data processed on a large scale / systematic monitoring" apply.
 |--------|-------------|
 | Controller | Questline (legal entity, address and contact to be provided by the PM for the privacy policy) |
 | Data subjects | App users aged **13 or older** (self-declared at registration, no date of birth — Q-23, R-AUTH-11; see R-12) |
-| Purposes | (1) Provide the goal-tracking service: achievements, quests, check-ins, progress, XP, streaks, stats. (2) Authenticate users and secure their accounts. (3) Fulfil legal obligations (consent proof, data-subject rights). |
+| Purposes | (1) Provide the goal-tracking service: achievements, quests, check-ins, progress, XP, streaks, stats. (2) Authenticate users and secure their accounts — by password, and at the user's choice by passkeys and a second factor (TOTP with recovery codes, M5). (3) Fulfil legal obligations (consent proof, data-subject rights). |
 | Data categories | See `data-inventory.md` C1–C15. Sensitive: C6 goal content (possible health data). |
 | Sources | Only the user, through the mobile app. No third-party data, no enrichment. |
 | Recipients | Hosting provider (PM's own option, to be named — O-01), 1Password (holds the KEK only, no personal data — ADR-0013), SMTP relay operator (addresses + one-time links; to be named — O-02). No other recipients; no sale, no advertising, no analytics. |
@@ -43,11 +44,11 @@ and "data processed on a large scale / systematic monitoring" apply.
 
 | Question | Assessment |
 |----------|-----------|
-| Is each data element necessary? | Email: account recovery and verification (no username alternative chosen because recovery would be impossible). Password: authentication. Timezone: correctness of local dates/streaks. Locale: email language. Nickname: optional. Goal content: the product itself. Audit/rate-limit data: security, minimised (truncated/hashed IPs). |
+| Is each data element necessary? | Email: account recovery and verification (no username alternative chosen because recovery would be impossible). Password: authentication. Timezone: correctness of local dates/streaks. Locale: email language. Nickname: optional. Goal content: the product itself. Audit/rate-limit data: security, minimised (truncated/hashed IPs). Passkeys and TOTP (M5, optional, chosen by the user): stronger sign-in; stored minimally — a passkey's public key, counter, backup state, transports and an optional name (encrypted), the TOTP secret encrypted, recovery codes and one-time challenges only as digests, and each session's sign-in method; no biometric data ever reaches the service (the device checks it). |
 | Could the purpose be achieved with less data? | Considered: no email (device-only accounts) — rejected because of recovery and multi-device needs, but **end-to-end encryption** is evaluated for v2 (threat model §2). No analytics or crash reporters by design. |
 | Lawfulness | Contract (service), explicit consent for potentially sensitive content, legitimate interest for security-only processing, legal obligation for consent proof. |
 | Transparency | Privacy policy in the app (PM/legal), consent text at the point of collection, export shows exactly what is stored. |
-| Data-subject rights | All exercisable in-app without manual processing (`data-inventory.md` §5). |
+| Data-subject rights | All exercisable in-app without manual processing (`data-inventory.md` §5) — except by a user locked out after losing the authenticator with no recovery code left, whose erasure needs a request to the controller (Q-52, R-17). |
 | Processors | Each requires a DPA, CH/EU location, PM approval and an entry in `processors.md`. |
 | International transfers | Avoided by design (Q-01…Q-03). |
 
@@ -57,8 +58,8 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 
 | ID | Risk | L | S | Inherent | Measures (refs) | Residual |
 |----|------|---|---|----------|----------------|----------|
-| R-1 | Breach of the database or backups exposes goal content/emails (discrimination, embarrassment, blackmail) | 2 | 4 | 8 medium | Per-user envelope encryption, encrypted email + blind index, hashed tokens, Argon2id, RLS, private DB, encrypted disks/backups, 30-day backup expiry (R-ENC-*, threat model I-01, I-18) | 1 × 4 = **4 low** |
-| R-2 | Account takeover (credential stuffing, token theft) gives an attacker read/write access to a user's goals | 3 | 3 | 9 high | Argon2id, breach list, rate limits with backoff, no enumeration, rotating refresh tokens with reuse detection, 15-min access tokens, session list/revocation, re-auth for sensitive actions, audit events (R-AUTH-*, S-01…S-09) | 1 × 3 = **3 low** |
+| R-1 | Breach of the database or backups exposes goal content/emails (discrimination, embarrassment, blackmail) | 2 | 4 | 8 medium | Per-user envelope encryption, encrypted email + blind index, hashed tokens, Argon2id, RLS, private DB, encrypted disks/backups, 30-day backup expiry; since M5 TOTP secrets encrypted, recovery codes and challenges as digests, passkeys hold only public keys (R-ENC-*, threat model I-01, I-18, I-24) | 1 × 4 = **4 low** |
+| R-2 | Account takeover (credential stuffing, token theft) gives an attacker read/write access to a user's goals | 3 | 3 | 9 high | Argon2id, breach list, rate limits with backoff, no enumeration, rotating refresh tokens with reuse detection, 15-min access tokens, session list/revocation, re-auth for sensitive actions, audit events; since M5 phishing-resistant passkeys and optional TOTP with single-use recovery codes, kept through a password reset, re-auth by a code or a passkey, every change of the sign-in methods told to the owner (R-AUTH-*, S-01…S-09, S-13…S-19, ADR-0019) | 1 × 3 = **3 low** |
 | R-3 | Compromise of the application server (RCE, leaked runtime credentials) → decryption of user data | 1 | 4 | 4 low | Minimal non-root read-only container, SAST/dependency/container scanning, no secrets in images, 1Password Connect access logging, alerting (RR-1). **Updated 2026-10-22:** the KEK is loaded into process memory from a self-hosted 1Password Connect server (PM decision Q-02, ADR-0013), so a compromised process can decrypt all users, not only active ones; accepted by the PM, Connect server kept private, rotation runbook in M6 | 1 × 4 = **4 low** (E2E for v2) |
 | R-4 | Processing health-related content without a valid legal basis | 2 | 3 | 6 medium | Explicit, unticked, versioned consent before any content is stored; withdrawal deletes content; consent proof retained; content guard on create endpoints (R-PRIV-04, E-10) | 1 × 3 = **3 low** |
 | R-5 | Inference from plaintext metadata (counts, check-in dates, statuses, habit cadence, ranks) | 2 | 2 | 4 low | Only structural fields are plaintext; no categories/labels in plaintext; `target_date` encrypted (Q-24) | 2 × 1 = **2 low** |
@@ -73,12 +74,13 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | R-14 | Re-identification or interception of export files | 1 | 3 | 3 low | Re-auth, rate limiting, audit, `no-store`; the app should store exports only where the user chooses. M4: the password entered within 10 minutes, at most 2 exports in any 24 hours (rolling), each audited, served as an attachment with `no-store`; only the requester's rows (`security/export.test.ts`); app guidance in `client-security.md` | 1 × 3 = **3 low** |
 | R-15 | **Gambling-like mechanics** (double-or-nothing XP stakes, steep rank multipliers) may encourage compulsive behaviour, especially for users aged 13–15 (Q-23) | 2 | 2 | 4 low | XP only — no money, no purchases, no real-world value in v1; no chance element (the outcome depends only on the user finishing their own achievement); one pending gamble per user at a time; a loss removes at most the XP above the current level's threshold, so a level is never lost; a win pays at most the achievement's required XP and nothing within 7 days of the achievement's creation (Q-31); no cancel/re-roll loops. **Product review by the PM on 2026-10-29 (O-05 → Q-32): gambles stay available to all users ≥ 13 with these safeguards.** If a reward currency/coupons arrive in v2, this risk must be re-assessed with legal input (gambling law). | 2 × 1 = **2 low** |
 | R-16 | **Deactivated accounts retained 30 days** (Q-11) keeps data longer than an immediate deletion would | 1 | 2 | 2 low | All sessions revoked, account unusable, encrypted at rest, hard-deleted automatically with tombstone; user informed of the deadline. M4: every emailed link void as well; no endpoint but the password login and the password reset accepts the account, and none reveals it; no email but the deletion notice and a reset link the owner asks for, while notices queued before the request still reach the owner (A-22, Q-46). A deletion by someone who knew the password is told to the owner, who can take the account back by resetting the password within the 30 days (Q-48) | 1 × 2 = **2 low** |
+| R-17 | **Locked out after losing the authenticator** with TOTP on and no recovery code left: the user loses access to their data and cannot exercise their rights in the app | 1 | 3 | 3 low | TOTP is optional; 10 recovery codes shown once at confirmation, which the app urges the user to keep; `GET /me` shows how many are left, so the app can suggest new ones; a passkey is another way in; no support path around the second factor, which would be the weaker door; erasure then on a request to the controller, handled by hand (Q-52, threat model RR-6) | 1 × 3 = **3 low** |
 
 ## 5. Measures summary (mapped to requirements)
 
 - Encryption at rest per user with DEKs wrapped by a KEK from 1Password Connect; TLS in transit (R-ENC-*, R-TLS-*).
-- Strong authentication and session management (R-AUTH-*), deny-by-default authorization with per-endpoint
-  ownership tests (R-AUTHZ-*).
+- Strong authentication and session management (R-AUTH-*), with optional passkeys and TOTP since M5 (ADR-0019),
+  deny-by-default authorization with per-endpoint ownership tests (R-AUTHZ-*).
 - Minimisation and retention automation (R-PRIV-01/07), guard test (R-PRIV-08).
 - Rights handling in-app (R-PRIV-05/06, consent withdrawal) — built and tested in M4.
 - No third parties beyond approved processors (R-PRIV-02/03).
@@ -104,6 +106,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | 5 | Controller identity and contact for the privacy policy | PM |
 | 6 | Breach-notification runbook (FADP Art. 24: notify FDPIC "as soon as possible"; GDPR Art. 33: 72 h) | lead engineer, M6 |
 | 7 | Recovering an account deleted by someone who knew the password: decided by the PM on 2026-11-02 — a password reset within the 30 days reactivates it (Q-48, O-12) | done |
+| 8 | Privacy policy: describe passkeys, TOTP and recovery codes, and that losing the authenticator with no code left locks the account (R-17, Q-52) | PM / legal |
 
 ## 8. Sign-off
 
