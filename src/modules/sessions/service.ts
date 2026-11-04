@@ -19,14 +19,20 @@ import {
 import { emailField, withAccountKey } from '../accounts/account-mail.ts';
 import { findAccountById, requireWrappedKey } from '../accounts/repository.ts';
 import type { RequestContext } from '../audit/context.ts';
-import { recordAuditEvent, type AuditEvent } from '../audit/repository.ts';
+import { recordAuditEvent, type AuditEvent, type AuditEventType } from '../audit/repository.ts';
 import { queueSignInMethodsNotice } from '../sign-in-methods/notice.ts';
 import { checkPasskeyAssertion } from '../sign-in-methods/passkey-assertion.ts';
-import { consumeAuthenticationChallenge, insertWebauthnChallenge } from '../sign-in-methods/repository.ts';
+import {
+  consumeAuthenticationChallenge,
+  hasEnabledTotp,
+  insertWebauthnChallenge,
+} from '../sign-in-methods/repository.ts';
+import type { PasskeyAssertion } from '../sign-in-methods/schemas.ts';
 import {
   checkSecondFactor,
   secondFactorMethods,
   type SecondFactor,
+  type SecondFactorCheck,
   type SecondFactorMethod,
 } from '../sign-in-methods/second-factor.ts';
 import type { Authenticator, Principal } from './guard.ts';
@@ -56,7 +62,7 @@ import {
   type AuthMethod,
   type LoginAccount,
 } from './repository.ts';
-import type { LoginRequest, PasskeyLoginRequest, SecondFactorLoginRequest } from './schemas.ts';
+import type { LoginRequest, PasskeyLoginRequest, SecondFactorLoginRequest, StepUp } from './schemas.ts';
 
 /** Login and device sessions (R-AUTH-04, -09, -10; R-PRIV-06; Q-29). */
 
@@ -114,6 +120,11 @@ export type SecondFactorLoginResult =
 export type PasskeyLoginResult =
   { readonly outcome: 'signed_in'; readonly tokens: IssuedTokens } | { readonly outcome: 'invalid_credentials' };
 
+export type PasswordStepUp = Extract<StepUp, { readonly method: 'password' }>;
+
+/** `second_factor_required`: TOTP is on and no code came, so the step-up checked nothing and nothing counts. */
+export type ReauthResult = 'reauthenticated' | 'invalid_credentials' | 'second_factor_required';
+
 export interface SessionsService extends Authenticator {
   login(request: LoginRequest, context: RequestContext): Promise<LoginResult>;
   /** The backoff subject of a usable second-factor token: its account's normalised address, as the login keys it. */
@@ -134,8 +145,17 @@ export interface SessionsService extends Authenticator {
   listSessions(principal: Principal): Promise<SessionView[]>;
   /** Ends one of the user's active sessions; false when there is no such session (→ 404). */
   revokeSession(principal: Principal, sessionId: string, context: RequestContext): Promise<boolean>;
-  /** The password entered again unlocks sensitive operations for 10 minutes (R-AUTH-06); false when wrong. */
-  reauthenticate(principal: Principal, password: string, context: RequestContext): Promise<boolean>;
+  /**
+   * The password entered again unlocks sensitive operations for 10 minutes (R-AUTH-06); with TOTP on only with the
+   * app's code or a recovery code (ADR-0019), whose absence is named before the password is checked.
+   */
+  reauthenticate(principal: Principal, stepUp: PasswordStepUp, context: RequestContext): Promise<ReauthResult>;
+  /** A passkey of the principal's own account unlocks them as well, with no code (ADR-0019); false for any failure. */
+  reauthenticateWithPasskey(
+    principal: Principal,
+    credential: PasskeyAssertion,
+    context: RequestContext,
+  ): Promise<boolean>;
 }
 
 export interface SessionView {
@@ -169,6 +189,19 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
     if (event.userId !== null) await setUserContext(tx, event.userId);
     await recordAuditEvent(tx, event, now);
   };
+
+  /** Checks a code and uses it up; a used recovery code changes the sign-in methods, so the owner hears of it. */
+  const useSecondFactor = async (
+    tx: Transaction,
+    userId: string,
+    factor: SecondFactor,
+    now: Date,
+  ): Promise<SecondFactorCheck> =>
+    deps.dataKeys.withKey(userId, await requireWrappedKey(tx, userId), async (dataKey) => {
+      const result = await checkSecondFactor(tx, dataKey, userId, factor, now);
+      if (result === 'recovery_code') await queueSignInMethodsNotice(tx, dataKey, userId, now);
+      return result;
+    });
 
   const issueGeneration = async (
     tx: Transaction,
@@ -409,7 +442,7 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
               eventType: check === 'counter_not_increased' ? 'passkey_clone_suspected' : 'login_failed',
               outcome: 'failure',
               ...requestOf(context, device),
-              ...(check === 'counter_not_increased' ? {} : { metadata: { method: 'passkey' } }),
+              ...(check === 'counter_not_increased' ? {} : { metadata: BY_PASSKEY }),
             },
             now,
           );
@@ -463,12 +496,7 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
           await deleteSecondFactorChallenge(tx, challenge.id);
           return INVALID_TOKEN;
         }
-        const check = await deps.dataKeys.withKey(userId, await requireWrappedKey(tx, userId), async (dataKey) => {
-          const result = await checkSecondFactor(tx, dataKey, userId, factor, now);
-          // A used recovery code is a change of the sign-in methods: the owner hears of it.
-          if (result === 'recovery_code') await queueSignInMethodsNotice(tx, dataKey, userId, now);
-          return result;
-        });
+        const check = await useSecondFactor(tx, userId, factor, now);
         if (check === 'not_enabled') {
           await deleteSecondFactorChallenge(tx, challenge.id);
           return INVALID_TOKEN;
@@ -625,30 +653,92 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
       });
     },
 
-    async reauthenticate(principal, password, context) {
+    async reauthenticate(principal, stepUp, context) {
       const now = deps.clock.now();
-      const storedHash = await inTransaction(deps.db, (tx) => findPasswordHash(tx, principal.userId));
-      const valid = await deps.hasher.verify(storedHash, password);
-      await inTransaction(deps.db, async (tx) => {
-        await setUserContext(tx, principal.userId);
-        if (valid) await markReauthenticated(tx, principal.sessionId, now);
-        await audit(
-          tx,
-          {
-            userId: principal.userId,
-            eventType: valid ? 'reauth_succeeded' : 'reauth_failed',
-            outcome: valid ? 'success' : 'failure',
-            ipPrefix: context.ipPrefix,
-            client: null,
-            sessionId: principal.sessionId,
-          },
-          now,
-        );
+      const { userId } = principal;
+      const { storedHash, totpOn } = await inTransaction(deps.db, async (tx) => {
+        await setUserContext(tx, userId);
+        return { storedHash: await findPasswordHash(tx, userId), totpOn: await hasEnabledTotp(tx, userId) };
       });
-      return valid;
+      // The session can see whether TOTP is on (`GET /me`): a missing code is named before the password is checked.
+      if (totpOn && stepUp.secondFactor === undefined) return 'second_factor_required';
+      const valid = await deps.hasher.verify(storedHash, stepUp.password);
+
+      return inTransaction(deps.db, async (tx): Promise<ReauthResult> => {
+        await setUserContext(tx, userId);
+        // The account row first, as the deletion cascade takes it; it also serialises the account's step-ups.
+        await lockLoginAccount(tx, userId);
+        if (!valid) {
+          await audit(tx, stepUpEvent(principal, context, 'reauth_failed', 'failure'), now);
+          return 'invalid_credentials';
+        }
+        let check: SecondFactorCheck;
+        if (stepUp.secondFactor !== undefined) check = await useSecondFactor(tx, userId, stepUp.secondFactor, now);
+        // TOTP turned on while the password was checked: asked for after all.
+        else if (await hasEnabledTotp(tx, userId)) return 'second_factor_required';
+        else check = 'not_enabled';
+        if (check === 'wrong') {
+          await audit(tx, stepUpEvent(principal, context, 'second_factor_failed', 'failure'), now);
+          return 'invalid_credentials';
+        }
+        if (check === 'recovery_code') {
+          await audit(tx, stepUpEvent(principal, context, 'recovery_code_used', 'success'), now);
+        }
+        await markReauthenticated(tx, principal.sessionId, now);
+        await audit(tx, stepUpEvent(principal, context, 'reauth_succeeded', 'success'), now);
+        return 'reauthenticated';
+      });
+    },
+
+    async reauthenticateWithPasskey(principal, credential, context) {
+      const now = deps.clock.now();
+      const claim = claimedAssertion(credential);
+      const hash = claim === undefined ? undefined : challengeHash(claim.challenge);
+
+      return inTransaction(deps.db, async (tx) => {
+        await setUserContext(tx, principal.userId);
+        await lockLoginAccount(tx, principal.userId);
+        // Used up whatever follows, as at sign-in. The session's account is the one to prove: its passkeys are
+        // searched, and a user handle naming anyone else is refused, even with a passkey of this account.
+        const consumed = hash !== undefined && (await consumeAuthenticationChallenge(tx, hash, now));
+        const check =
+          consumed && claim?.userId === principal.userId
+            ? await checkPasskeyAssertion(tx, deps.webauthn, credential, { ...claim, userId: principal.userId }, now)
+            : 'invalid';
+        if (check === 'counter_not_increased') {
+          await audit(tx, stepUpEvent(principal, context, 'passkey_clone_suspected', 'failure'), now);
+          return false;
+        }
+        if (check === 'invalid') {
+          await audit(tx, stepUpEvent(principal, context, 'reauth_failed', 'failure', BY_PASSKEY), now);
+          return false;
+        }
+        await markReauthenticated(tx, principal.sessionId, now);
+        await audit(tx, stepUpEvent(principal, context, 'reauth_succeeded', 'success', BY_PASSKEY), now);
+        return true;
+      });
     },
   };
 }
+
+/** The audit metadata of a passkey sign-in or step-up that failed, or of a passkey step-up. */
+const BY_PASSKEY = Object.freeze({ method: 'passkey' });
+
+const stepUpEvent = (
+  principal: Principal,
+  context: RequestContext,
+  eventType: AuditEventType,
+  outcome: AuditEvent['outcome'],
+  metadata?: AuditEvent['metadata'],
+): AuditEvent => ({
+  userId: principal.userId,
+  eventType,
+  outcome,
+  ipPrefix: context.ipPrefix,
+  client: null,
+  sessionId: principal.sessionId,
+  ...(metadata === undefined ? {} : { metadata }),
+});
 
 const logoutEvent = (principal: Principal, context: RequestContext): AuditEvent => ({
   userId: principal.userId,

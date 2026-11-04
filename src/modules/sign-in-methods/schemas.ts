@@ -56,6 +56,8 @@ export const passkeyAssertion = z.looseObject({
   }),
 });
 
+export type PasskeyAssertion = z.output<typeof passkeyAssertion>;
+
 /** `PasskeyRegistrationRequest`: the result and an optional name (encrypted at rest). */
 export const passkeyRegistrationRequest = z.strictObject({
   credential: registrationCredential,

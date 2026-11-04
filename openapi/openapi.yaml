@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.4.5
+  version: 0.4.6
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -52,6 +52,9 @@ info:
     implemented as described and frozen; no operation changed.
     0.4.5 (2026-11-04): `createPasskeyChallenge` and `loginWithPasskey` implemented as described and frozen; no
     operation changed. Every M5 operation is now frozen.
+    0.4.6 (2026-11-04): `reauthenticate` also takes a passkey, and with TOTP on a code with the password, else
+    `401 second-factor-required` (`ReauthRequest`, `ReauthRejected`; ADR-0019, Q-52); the password stays enough while
+    TOTP is off.
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -384,21 +387,23 @@ paths:
     post:
       tags: [auth]
       operationId: reauthenticate
-      summary: Re-enter the password to unlock sensitive operations for 10 minutes
+      summary: Re-authenticate to unlock sensitive operations for 10 minutes
+      description: |
+        With the password — and, when TOTP is on, the authenticator app's current code or a recovery code, which is
+        used up, and the owner is told — or with a passkey of the signed-in account, its challenge from
+        `POST /auth/passkey/options`; a passkey needs no code (ADR-0019). With TOTP on, the password alone is answered
+        `401 urn:questline:problem:second-factor-required` without checking it (`GET /me` shows whether TOTP is on);
+        send the password again with a code. Wrong passwords and codes count against the user's backoff (`429`,
+        R-AUTH-08, S-01), a missing code does not; passkeys stay outside it, as they cannot be guessed.
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [password]
-              properties:
-                password: { $ref: '#/components/schemas/Password' }
+            schema: { $ref: '#/components/schemas/ReauthRequest' }
       responses:
         '204': { description: Session marked as recently authenticated. }
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '401': { $ref: '#/components/responses/ReauthRejected' }
         '413': { $ref: '#/components/responses/PayloadTooLarge' }
         '415': { $ref: '#/components/responses/UnsupportedMediaType' }
         '429': { $ref: '#/components/responses/RateLimited' }
@@ -1498,6 +1503,13 @@ components:
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/Problem' }
+    ReauthRejected:
+      description: |
+        A wrong password, code or passkey (`urn:questline:problem:invalid-credentials`, the same for each), or the
+        password alone with TOTP on (`urn:questline:problem:second-factor-required`: send it again with a code).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
     EmailNotVerified:
       description: Correct credentials but the email is not verified yet.
       content:
@@ -1945,6 +1957,17 @@ components:
       properties:
         credential: { $ref: '#/components/schemas/PasskeyRegistrationResponse' }
         name: { type: string, minLength: 1, maxLength: 50, description: Optional label shown in the passkey list. }
+    ReauthRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        Exactly one of `password` and `passkey` (`400` otherwise); with the password at most one of `totp_code` and
+        `recovery_code`, with a passkey neither.
+      properties:
+        password: { $ref: '#/components/schemas/Password' }
+        totp_code: { $ref: '#/components/schemas/TotpCode' }
+        recovery_code: { $ref: '#/components/schemas/RecoveryCode' }
+        passkey: { $ref: '#/components/schemas/PasskeyAssertion' }
     PasskeyLoginRequest:
       type: object
       additionalProperties: false

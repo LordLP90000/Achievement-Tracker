@@ -96,9 +96,13 @@ target values and check-in notes are encrypted at rest on the server — the dev
 
 ## 5. Sensitive operations [MASVS-AUTH, MASVS-PRIVACY]
 
-- **Re-authentication window** (R-AUTH-06, E-03): changing the email or the password, the data export and the
-  account deletion need the password entered within the last 10 minutes. Ask for it, call `POST /auth/reauth`, then
-  run the operation; on `403 reauthentication-required` ask again. Never store the password to do this silently.
+- **Re-authentication window** (R-AUTH-06, E-03): changing the email or the password, the data export, the account
+  deletion and changes of passkeys or TOTP need a re-authentication within the last 10 minutes. Call
+  `POST /auth/reauth`, then run the operation; on `403 reauthentication-required` ask again. Never store the password
+  to do this silently. Offer the account's passkey first where there is one: `POST /auth/passkey/options`, the
+  platform's passkey API, then `{ passkey }` — no code needed (ADR-0019). With the password and TOTP on, send the
+  app's code (or a recovery code) along with it; `401 second-factor-required` means one was missing — ask for it and
+  send both again.
 - **Consent** (R-PRIV-04, Q-10): goal content needs the explicit, unticked `goal_content` consent, given in the app
   with the consent text's version (`POST /me/consents`; text: O-04). Withdrawing it deletes **all** goal content at
   once, completed Achievements included, and cannot be undone: confirm with the user first, then clear the cache.
@@ -149,6 +153,6 @@ use real addresses or real goals (R-SUP-05).
 | Effects from the server (§4) | Exactly-once XP, ranks and gambles in the goal engine (R-XP-01, T-06, T-17) | `integration/goal-engine.test.ts`, `integration/check-ins.test.ts`, `integration/quest-changes.test.ts` |
 | Undo window (§4) | `409 check-in-final` after the day (Q-36) | `integration/check-ins.test.ts` |
 | `429` and `Retry-After` (§4) | Per-client and per-user limits (R-AUTH-08, A-31, Q-30) | `security/rate-limit.test.ts`, `contract/rate-limits.test.ts` |
-| Re-authentication (§5) | 10-minute window (R-AUTH-06, E-03) | `src/modules/sessions/reauth.test.ts`, `integration/passwords.test.ts`, `integration/email-change.test.ts`; export and deletion with M4 |
+| Re-authentication (§5) | 10-minute window (R-AUTH-06, E-03); with a code or a passkey (ADR-0019) | `src/modules/sessions/reauth.test.ts`, `integration/passwords.test.ts`, `integration/email-change.test.ts`; export and deletion with M4; `integration/step-up.test.ts` with M5 |
 | Consent (§5) | Consent guard; withdrawal deletes all goal content (R-PRIV-04, Q-10) | `security/consent.test.ts`, `integration/consents.test.ts` |
 | Token in the link's fragment (§6) | Links built from `PUBLIC_LINK_BASE_URL` with `#token=` (A-32); notices without links (A-33) | `src/platform/email/templates.test.ts` |

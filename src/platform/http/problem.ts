@@ -32,6 +32,7 @@ export const Problems = {
   validation: { status: 400, slug: 'validation', title: 'Request validation failed' },
   invalidCredentials: { status: 401, slug: 'invalid-credentials', title: 'Invalid email or password' },
   invalidToken: { status: 401, slug: 'invalid-token', title: 'Invalid or expired token' },
+  secondFactorRequired: { status: 401, slug: 'second-factor-required', title: 'A second factor is required' },
   /** Missing, expired or revoked access token (contract `Unauthorized`). */
   unauthorized: { status: 401, slug: 'unauthorized', title: 'Unauthorized', headers: { 'www-authenticate': 'Bearer' } },
   emailNotVerified: { status: 403, slug: 'email-not-verified', title: 'Email address not verified' },

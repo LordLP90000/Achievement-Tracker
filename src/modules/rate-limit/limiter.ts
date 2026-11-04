@@ -46,7 +46,7 @@ const PASSWORD_BACKOFF: Backoff = { freeFailures: 5, firstBlockMs: 60_000, maxBl
 export const BACKOFFS = {
   /** Wrong passwords at login, per submitted address (registered or not): 5 free, then 1 min doubling to 15 min. */
   emailLogin: { scope: 'email-login', backoff: PASSWORD_BACKOFF },
-  /** Wrong current passwords at re-authentication and password change, per user. */
+  /** Wrong current passwords at re-authentication and password change, and wrong codes at re-authentication (S-01). */
   userPassword: { scope: 'user-password', backoff: PASSWORD_BACKOFF },
 } as const satisfies Record<string, BackoffLimit>;
 

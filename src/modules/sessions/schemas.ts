@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { boundedText } from '../../platform/http/validation.ts';
 import { email, opaqueToken, password } from '../accounts/schemas.ts';
-import { passkeyAssertion, totpCode } from '../sign-in-methods/schemas.ts';
+import { passkeyAssertion, totpCode, type PasskeyAssertion } from '../sign-in-methods/schemas.ts';
+import type { SecondFactor } from '../sign-in-methods/second-factor.ts';
 
 /** Request bodies of the session endpoints (`LoginRequest`, refresh), mirroring `openapi/openapi.yaml`. */
 
@@ -18,8 +19,6 @@ export const loginRequest = z.strictObject({
 export type LoginRequest = z.output<typeof loginRequest>;
 
 export const refreshRequest = z.strictObject({ refresh_token: opaqueToken });
-
-export const reauthRequest = z.strictObject({ password });
 
 /** `RecoveryCode` in the contract: as shown (`XXXX-XXXX-XXXX-XXXX`), any case, with or without hyphens and spaces. */
 export const recoveryCode = z
@@ -43,6 +42,43 @@ export const secondFactorLoginRequest = z
   });
 
 export type SecondFactorLoginRequest = z.output<typeof secondFactorLoginRequest>;
+
+/** How a step-up proves the user (ADR-0019): the password — with TOTP on, a code as well — or a passkey. */
+export type StepUp =
+  | { readonly method: 'password'; readonly password: string; readonly secondFactor: SecondFactor | undefined }
+  | { readonly method: 'passkey'; readonly credential: PasskeyAssertion };
+
+const secondFactorOf = (totp: string | undefined, recovery: string | undefined): SecondFactor | undefined => {
+  if (totp !== undefined) return { totpCode: totp };
+  return recovery === undefined ? undefined : { recoveryCode: recovery };
+};
+
+/**
+ * `ReauthRequest` in the contract: exactly one of `password` and `passkey`; with the password at most one code,
+ * with the passkey none.
+ */
+export const reauthRequest = z
+  .strictObject({
+    password: password.optional(),
+    totp_code: totpCode.optional(),
+    recovery_code: recoveryCode.optional(),
+    passkey: passkeyAssertion.optional(),
+  })
+  .transform((body, ctx): StepUp => {
+    const codes = [body.totp_code, body.recovery_code].filter((code) => code !== undefined).length;
+    if (body.passkey !== undefined && body.password === undefined && codes === 0) {
+      return { method: 'passkey', credential: body.passkey };
+    }
+    if (body.password !== undefined && body.passkey === undefined && codes < 2) {
+      return {
+        method: 'password',
+        password: body.password,
+        secondFactor: secondFactorOf(body.totp_code, body.recovery_code),
+      };
+    }
+    ctx.issues.push({ code: 'custom', message: 'needs a password, with at most one code, or a passkey', input: body });
+    return z.NEVER;
+  });
 
 /** `PasskeyLoginRequest` in the contract: the platform's assertion and the device. */
 export const passkeyLoginRequest = z.strictObject({

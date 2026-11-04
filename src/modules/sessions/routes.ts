@@ -106,15 +106,23 @@ export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app
   });
 
   app.post('/auth/reauth', async (request, reply) => {
-    const { password } = parseRequest(reauthRequest, request.body);
+    const stepUp = parseRequest(reauthRequest, request.body);
     const principal = principalOf(request);
+    const context = requestContext(request);
+    if (stepUp.method === 'passkey') {
+      // Outside the password backoff: a passkey cannot be guessed (ADR-0019).
+      if (!(await sessions.reauthenticateWithPasskey(principal, stepUp.credential, context))) {
+        throw new ProblemError(Problems.invalidCredentials);
+      }
+      return reply.code(204).send();
+    }
     const backoff = BACKOFFS.userPassword;
     await enforce(limiter.blocked(backoff, principal.userId), request, backoff.scope);
-    const valid = await sessions.reauthenticate(principal, password, requestContext(request));
-    await limiter.record(backoff, principal.userId, valid);
-    if (!valid) {
-      throw new ProblemError(Problems.invalidCredentials);
-    }
+    const result = await sessions.reauthenticate(principal, stepUp, context);
+    // Nothing was checked: a missing code neither counts against the backoff nor clears it (S-01).
+    if (result === 'second_factor_required') throw new ProblemError(Problems.secondFactorRequired);
+    await limiter.record(backoff, principal.userId, result === 'reauthenticated');
+    if (result === 'invalid_credentials') throw new ProblemError(Problems.invalidCredentials);
     return reply.code(204).send();
   });
 
