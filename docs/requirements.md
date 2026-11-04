@@ -9,7 +9,7 @@ open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.
 refined and A-29…A-33 accepted; decisions Q-30…Q-32 (§6.3) close O-05, O-06 and O-07; A-34 and A-35 proposed.
 Later on 2026-10-29: Q-33…Q-38 on habit periods, undo, habit edits and locked habits (§6.4); A-36…A-38 proposed.
 2026-11-02 (M4): Q-46 refines A-22 (§6.6); open items O-11 and O-12 for the M4 review. 2026-11-02 (M4 review): Q-47…Q-49
-(§6.7) close O-11 and O-12. 2026-11-04 (start of M5): Q-50 and Q-51 (§6.8).
+(§6.7) close O-11 and O-12. 2026-11-04 (start of M5): Q-50…Q-52 (§6.8).
 
 ## 1. Product summary
 
@@ -340,6 +340,7 @@ the emails) stays open until launch.
 |----|----------|
 | Q-50 | **WebAuthn library:** `@simplewebauthn/server` 14.0.3 becomes a runtime dependency, pinned exactly — the de facto standard verifier (MIT, published 2026-09-25), 25 packages with it from SimpleWebAuthn and Peculiar Ventures (MIT, BSD-3-Clause, Apache-2.0, 0BSD; no known vulnerabilities in OSV on 2026-11-04). Not chosen: verifying WebAuthn ourselves (own cryptographic verification code); postponing passkeys. |
 | Q-51 | **The passkey domain (Q-19):** M5 is built now; the relying-party ID and the allowed origins (`https://<domain>` and the Android apps' `android:apk-key-hash:…`, from the app team) become required production settings; tests and the local stack use `questline.test`. Passkeys work in the apps once the domain exists and serves the association files (`apple-app-site-association`, `assetlinks.json`; O-01). Not chosen: naming the domain now; postponing passkeys until the domain is known. |
+| Q-52 | **M5's design, ADR-0019, approved as proposed:** passkeys with sign-in without an address (discoverable credentials, attestation `none`, user verification, a counter check), reactivating an account pending deletion like a password login; TOTP (RFC 6238 on `node:crypto`) with 10 single-use recovery codes; a login with TOTP on answers `202` with a 5-minute second-factor token after the correct password; step-up by passkey, or by password plus a code when TOTP is on; 11 new operations and additive changes to `login`, `reauthenticate`, `Account`, `Session` and the export (contract `0.4.0`). **Accepted: an account whose authenticator is lost with no recovery code left stays locked out** — its erasure then needs a request to the controller. Not chosen: a password reset that turns TOTP off after a 7-day wait; passkey sign-in without reactivation. |
 
 ## 7. Open items (non-blocking)
 

@@ -407,8 +407,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0019 · Passkeys, TOTP, recovery codes and step-up (M5)
 
-- **Status:** proposed (2026-11-04). Approved already: the library (Q-50) and the relying-party ID as a production
-  setting (Q-51); the contract additions below wait for the PM.
+- **Status:** accepted (2026-11-04: the PM approved the design as proposed, Q-52; the library, Q-50, and the
+  relying-party ID as a production setting, Q-51, before it).
 - **Context:** M5 adds passkeys and optional TOTP 2FA to email and password (R-AUTH-01, plan M5). The contract is
   frozen (Q-45): new operations and additive changes only, each approved. What stays: no enumeration (R-AUTH-07),
   the 10-minute re-authentication for sensitive operations (R-AUTH-06), rate limits and backoff (R-AUTH-08, S-01),
