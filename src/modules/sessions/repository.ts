@@ -1,7 +1,8 @@
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne } from 'drizzle-orm';
 import type { Transaction } from '../../platform/db/database.ts';
 import { increment } from '../../platform/db/expressions.ts';
-import { sessions, sessionTokens, users } from '../../platform/db/schema/index.ts';
+import { secondFactorChallenges, sessions, sessionTokens, users } from '../../platform/db/schema/index.ts';
 
 /**
  * Device sessions and their token generations (data-model §3.1). `sessions` is under row-level security (bind the
@@ -27,6 +28,7 @@ export interface LoginAccount {
   readonly passwordHash: string;
   readonly emailVerifiedAt: Date | null;
   readonly deactivatedAt: Date | null;
+  readonly passwordChangedAt: Date;
 }
 
 export interface NewSession {
@@ -54,6 +56,7 @@ const loginColumns = {
   passwordHash: users.passwordHash,
   emailVerifiedAt: users.emailVerifiedAt,
   deactivatedAt: users.deactivatedAt,
+  passwordChangedAt: users.passwordChangedAt,
 };
 
 export async function findLoginAccount(tx: Transaction, blindIndex: Buffer): Promise<LoginAccount | undefined> {
@@ -282,4 +285,57 @@ export async function findPasswordHash(tx: Transaction, userId: string): Promise
 /** R-AUTH-06: the session entered the password just now. */
 export async function markReauthenticated(tx: Transaction, sessionId: string, now: Date): Promise<void> {
   await tx.update(sessions).set({ lastReauthAt: now }).where(eq(sessions.id, sessionId));
+}
+
+/** A pending second login step (ADR-0019): `second_factor_challenges` is looked up by token hash, before RLS applies. */
+export interface SecondFactorChallenge {
+  readonly id: string;
+  readonly userId: string;
+  readonly createdAt: Date;
+}
+
+export async function insertSecondFactorChallenge(
+  tx: Transaction,
+  challenge: { readonly userId: string; readonly tokenHash: Buffer; readonly expiresAt: Date },
+  now: Date,
+): Promise<void> {
+  await tx.insert(secondFactorChallenges).values({ id: randomUUID(), ...challenge, createdAt: now });
+}
+
+const usableChallenge = (tokenHash: Buffer, now: Date, maxFailures: number) =>
+  and(
+    eq(secondFactorChallenges.tokenHash, tokenHash),
+    gt(secondFactorChallenges.expiresAt, now),
+    lt(secondFactorChallenges.failedAttempts, maxFailures),
+  );
+
+const challengeColumns = {
+  id: secondFactorChallenges.id,
+  userId: secondFactorChallenges.userId,
+  createdAt: secondFactorChallenges.createdAt,
+};
+
+/** The challenge of the token while it is usable: unexpired, with fewer than `maxFailures` wrong codes. */
+export async function findSecondFactorChallenge(
+  tx: Transaction,
+  tokenHash: Buffer,
+  now: Date,
+  maxFailures: number,
+): Promise<SecondFactorChallenge | undefined> {
+  const [row] = await tx
+    .select(challengeColumns)
+    .from(secondFactorChallenges)
+    .where(usableChallenge(tokenHash, now, maxFailures));
+  return row;
+}
+
+export async function countSecondFactorFailure(tx: Transaction, challengeId: string): Promise<void> {
+  await tx
+    .update(secondFactorChallenges)
+    .set({ failedAttempts: increment(secondFactorChallenges.failedAttempts) })
+    .where(eq(secondFactorChallenges.id, challengeId));
+}
+
+export async function deleteSecondFactorChallenge(tx: Transaction, challengeId: string): Promise<void> {
+  await tx.delete(secondFactorChallenges).where(eq(secondFactorChallenges.id, challengeId));
 }

@@ -1,4 +1,3 @@
-import type { FieldContext } from '../../platform/crypto/aead.ts';
 import { base32 } from '../../platform/crypto/base32.ts';
 import type { DataKeys } from '../../platform/crypto/data-keys.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
@@ -12,6 +11,7 @@ import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent, type AuditEventType } from '../audit/repository.ts';
 import { hasRecentReauth, type Principal } from '../sessions/guard.ts';
 import { queueSignInMethodsNotice } from './notice.ts';
+import { totpSecretField } from './second-factor.ts';
 import {
   deleteEnabledTotpSecret,
   deleteRecoveryCodes,
@@ -76,9 +76,6 @@ export interface TotpService {
 
 const REAUTHENTICATION_REQUIRED: ReauthenticationRequired = Object.freeze({ outcome: 'reauthentication_required' });
 
-/** Where `totp_secrets.secret_enc` is bound: AD record id = user id (one secret per account). */
-const secretField = (userId: string): FieldContext => ({ userId, recordId: userId, field: 'secret_enc' });
-
 export function createTotpService(deps: TotpServiceDependencies): TotpService {
   /** In one transaction bound to the account, with its data key. */
   const inAccount = <T>(userId: string, work: (tx: Transaction, dataKey: Uint8Array) => Promise<T>): Promise<T> =>
@@ -126,7 +123,7 @@ export function createTotpService(deps: TotpServiceDependencies): TotpService {
       return inAccount(principal.userId, async (tx, dataKey): Promise<StartTotpResult> => {
         const { userId } = principal;
         const secret = newTotpSecret();
-        const secretEnc = encryptText(dataKey, secretField(userId), secret.toString('base64'));
+        const secretEnc = encryptText(dataKey, totpSecretField(userId), secret.toString('base64'));
         if (!(await storePendingTotpSecret(tx, userId, secretEnc, now))) return { outcome: 'totp_enabled' };
         const account = await findAccountById(tx, userId);
         if (account === undefined) throw new Error('the signed-in account is gone');
@@ -147,7 +144,7 @@ export function createTotpService(deps: TotpServiceDependencies): TotpService {
         if (stored.createdAt.getTime() <= now.getTime() - PENDING_TOTP_LIFETIME_MS) {
           return { outcome: 'totp_not_started' };
         }
-        const secret = Buffer.from(decryptText(dataKey, secretField(userId), stored.secretEnc), 'base64');
+        const secret = Buffer.from(decryptText(dataKey, totpSecretField(userId), stored.secretEnc), 'base64');
         const step = acceptTotp(secret, code, now, stored.lastUsedStep);
         if (step === undefined) return { outcome: 'invalid_code' };
         await enableTotp(tx, userId, step, now);

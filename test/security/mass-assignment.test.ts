@@ -49,6 +49,7 @@ const FLOWS: Readonly<Record<string, Record<string, unknown>>> = {
   requestEmailChange: { new_email: 'mass-next@example.test' },
   confirmEmailChange: { token: TOKEN },
   confirmTotp: { code: '123456' },
+  loginSecondFactor: { second_factor_token: `ql_sf_${'A'.repeat(43)}`, totp_code: '123456', client: 'ios' },
 };
 
 /** What a client would like to set; values the server would never give it. */

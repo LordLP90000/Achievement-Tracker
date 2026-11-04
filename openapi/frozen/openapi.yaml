@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.4.2
+  version: 0.4.3
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -46,6 +46,8 @@ info:
     24 hours (Q-53; `startTotp`, `confirmTotp`).
     0.4.2 (2026-11-04): `startTotp`, `confirmTotp`, `disableTotp` and `replaceRecoveryCodes` implemented as described
     and frozen; no operation changed.
+    0.4.3 (2026-11-04): `login` answers `202` with a `second_factor_token` when TOTP is on (`SecondFactorRequired`,
+    ADR-0019, Q-52); `loginSecondFactor` implemented as described and frozen.
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -210,6 +212,9 @@ paths:
         `403 urn:questline:problem:email-not-verified` (only disclosed to someone who knows the password).
         A successful login to an account that is pending deletion (requested less than 30 days ago) **reactivates**
         it: the scheduled deletion is cancelled and the reactivation is audited (R-PRIV-06, A-22).
+        With two-factor authentication on, the correct password → `202` with a `second_factor_token` instead of
+        tokens (ADR-0019): the login completes with `POST /auth/login/second-factor`, and only then reactivates an
+        account pending deletion. Only someone who knows the password learns that TOTP is on.
       security: []
       requestBody:
         required: true
@@ -224,6 +229,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPair' }
+        '202':
+          description: The password is correct and two-factor authentication is on; no session yet.
+          headers:
+            Cache-Control: { $ref: '#/components/headers/CacheControlNoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SecondFactorRequired' }
         '400': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/InvalidCredentials' }
         '403': { $ref: '#/components/responses/EmailNotVerified' }
@@ -1762,6 +1774,19 @@ components:
       maxLength: 32
       pattern: '^[0-9A-Za-z -]+$'
       description: A recovery code as shown (`XXXX-XXXX-XXXX-XXXX`); case, spaces and hyphens do not matter.
+    SecondFactorRequired:
+      type: object
+      additionalProperties: false
+      required: [second_factor_token, expires_in, methods]
+      properties:
+        second_factor_token: { $ref: '#/components/schemas/OpaqueToken' }
+        expires_in: { type: integer, description: 'Seconds the token stays valid: 300.' }
+        methods:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, enum: [totp, recovery_code] }
+          description: What `POST /auth/login/second-factor` accepts for the account; `recovery_code` while one is left.
     SecondFactorLoginRequest:
       type: object
       additionalProperties: false

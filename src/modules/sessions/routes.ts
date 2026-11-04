@@ -6,7 +6,7 @@ import { requestContext } from '../audit/context.ts';
 import { enforce } from '../rate-limit/http.ts';
 import { BACKOFFS, type RateLimiter } from '../rate-limit/limiter.ts';
 import { principalOf } from './guard.ts';
-import { loginRequest, reauthRequest, refreshRequest } from './schemas.ts';
+import { loginRequest, reauthRequest, refreshRequest, secondFactorLoginRequest } from './schemas.ts';
 import type { IssuedTokens, SessionsService } from './service.ts';
 
 /** Session endpoints of `openapi/openapi.yaml` (tag `auth`), mounted under `/v1` behind the auth guard. */
@@ -40,9 +40,34 @@ export const sessionsRoutes: FastifyPluginCallback<SessionsRoutesOptions> = (app
     const backoff = BACKOFFS.emailLogin;
     await enforce(limiter.blocked(backoff, subject), request, backoff.scope);
     const result = await sessions.login(body, requestContext(request));
-    await limiter.record(backoff, subject, result.outcome !== 'invalid_credentials');
+    // A correct password with TOTP on clears nothing: only a completed second step does (S-01).
+    if (result.outcome !== 'second_factor_required') {
+      await limiter.record(backoff, subject, result.outcome !== 'invalid_credentials');
+    }
     if (result.outcome === 'invalid_credentials') throw new ProblemError(Problems.invalidCredentials);
     if (result.outcome === 'email_not_verified') throw new ProblemError(Problems.emailNotVerified);
+    if (result.outcome === 'second_factor_required') {
+      const { challenge } = result;
+      return reply.code(202).send({
+        second_factor_token: challenge.token,
+        expires_in: Math.floor((challenge.expiresAt.getTime() - challenge.issuedAt.getTime()) / 1000),
+        methods: challenge.methods,
+      });
+    }
+    return reply.code(200).send(tokenPair(result.tokens));
+  });
+
+  app.post('/auth/login/second-factor', PUBLIC, async (request, reply) => {
+    const body = parseRequest(secondFactorLoginRequest, request.body);
+    const subject = await sessions.secondFactorSubject(body.second_factor_token);
+    if (subject === undefined) throw new ProblemError(Problems.invalidToken);
+    // The login backoff of the account's address: wrong codes count like wrong passwords (ADR-0019, S-01).
+    const backoff = BACKOFFS.emailLogin;
+    await enforce(limiter.blocked(backoff, subject), request, backoff.scope);
+    const result = await sessions.loginSecondFactor(body, requestContext(request));
+    if (result.outcome === 'invalid_token') throw new ProblemError(Problems.invalidToken);
+    await limiter.record(backoff, subject, result.outcome === 'signed_in');
+    if (result.outcome === 'invalid_code') throw new ProblemError(Problems.invalidCredentials);
     return reply.code(200).send(tokenPair(result.tokens));
   });
 

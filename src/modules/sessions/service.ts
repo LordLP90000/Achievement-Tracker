@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { emailBlindIndex } from '../../platform/crypto/blind-index.ts';
+import { emailBlindIndex, normalizeEmail } from '../../platform/crypto/blind-index.ts';
 import { constantTimeEqual } from '../../platform/crypto/compare.ts';
 import type { DataKeys } from '../../platform/crypto/data-keys.ts';
 import { decryptText, encryptText } from '../../platform/crypto/field-cipher.ts';
@@ -7,15 +7,27 @@ import type { PasswordHasher } from '../../platform/crypto/password.ts';
 import { issueToken, tokenHash } from '../../platform/crypto/tokens.ts';
 import { inTransaction, setUserContext, type Database, type Transaction } from '../../platform/db/database.ts';
 import type { Clock } from '../../platform/time/clock.ts';
-import { requireWrappedKey } from '../accounts/repository.ts';
+import { emailField, withAccountKey } from '../accounts/account-mail.ts';
+import { findAccountById, requireWrappedKey } from '../accounts/repository.ts';
 import type { RequestContext } from '../audit/context.ts';
 import { recordAuditEvent, type AuditEvent } from '../audit/repository.ts';
+import { queueSignInMethodsNotice } from '../sign-in-methods/notice.ts';
+import {
+  checkSecondFactor,
+  secondFactorMethods,
+  type SecondFactor,
+  type SecondFactorMethod,
+} from '../sign-in-methods/second-factor.ts';
 import type { Authenticator, Principal } from './guard.ts';
 import {
+  countSecondFactorFailure,
+  deleteSecondFactorChallenge,
   findAccessToken,
   findLiveSession,
   findLoginAccount,
   findPasswordHash,
+  findSecondFactorChallenge,
+  insertSecondFactorChallenge,
   insertSession,
   insertTokenGeneration,
   listActiveSessions,
@@ -30,9 +42,10 @@ import {
   revokeLiveSession,
   revokeSessions,
   touchSession,
+  type AuthMethod,
   type LoginAccount,
 } from './repository.ts';
-import type { LoginRequest } from './schemas.ts';
+import type { LoginRequest, SecondFactorLoginRequest } from './schemas.ts';
 
 /** Login and device sessions (R-AUTH-04, -09, -10; R-PRIV-06; Q-29). */
 
@@ -67,11 +80,30 @@ export interface IssuedTokens {
 
 export type LoginResult =
   | { readonly outcome: 'signed_in'; readonly tokens: IssuedTokens }
+  | { readonly outcome: 'second_factor_required'; readonly challenge: IssuedSecondFactorChallenge }
   | { readonly outcome: 'invalid_credentials' }
   | { readonly outcome: 'email_not_verified' };
 
+/** The first login step's answer with TOTP on (ADR-0019): a token for the second step, handed out once. */
+export interface IssuedSecondFactorChallenge {
+  readonly token: string;
+  readonly issuedAt: Date;
+  readonly expiresAt: Date;
+  readonly methods: readonly SecondFactorMethod[];
+}
+
+export type SecondFactorLoginResult =
+  | { readonly outcome: 'signed_in'; readonly tokens: IssuedTokens }
+  /** Unknown, expired, used up, or void since: the password changed, TOTP was turned off, the account is gone. */
+  | { readonly outcome: 'invalid_token' }
+  | { readonly outcome: 'invalid_code' };
+
 export interface SessionsService extends Authenticator {
   login(request: LoginRequest, context: RequestContext): Promise<LoginResult>;
+  /** The backoff subject of a usable second-factor token: its account's normalised address, as the login keys it. */
+  secondFactorSubject(token: string): Promise<string | undefined>;
+  /** Completes a login with TOTP on (ADR-0019); a wrong code counts against the token (at most 5) and is audited. */
+  loginSecondFactor(request: SecondFactorLoginRequest, context: RequestContext): Promise<SecondFactorLoginResult>;
   /** A new token pair for the session, or `undefined` for an unknown, expired, reused or foreign token. */
   refresh(refreshToken: string, context: RequestContext): Promise<IssuedTokens | undefined>;
   /** Ends the principal's session (R-AUTH-05). */
@@ -96,6 +128,11 @@ export interface SessionView {
 }
 
 const INVALID_CREDENTIALS = Object.freeze({ outcome: 'invalid_credentials' as const });
+const INVALID_TOKEN = Object.freeze({ outcome: 'invalid_token' as const });
+
+/** ADR-0019: the second login step's token lives 5 minutes and takes at most 5 wrong codes. */
+export const SECOND_FACTOR_LIFETIME_MS = 5 * MINUTE_MS;
+export const MAX_SECOND_FACTOR_FAILURES = 5;
 
 /**
  * From 30 days after its deletion request on, an account counts as deleted even before the purge job ran: no login
@@ -208,6 +245,65 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
     );
   };
 
+  /**
+   * Opens the device session of a completed login — by password, a second factor or a passkey — in the transaction
+   * that holds the account row: reactivates an account pending deletion (R-PRIV-06), makes room under the session
+   * limit (Q-29), issues the first token generation and audits the login.
+   */
+  const signIn = async (
+    tx: Transaction,
+    account: LoginAccount,
+    device: { readonly client: 'ios' | 'android'; readonly deviceLabel: string | undefined },
+    authMethod: AuthMethod,
+    context: RequestContext,
+    now: Date,
+  ): Promise<IssuedTokens> => {
+    const userId = account.id;
+    if (account.deactivatedAt !== null) {
+      await reactivateAccount(tx, userId, now);
+      await audit(
+        tx,
+        { userId, eventType: 'account_reactivated', outcome: 'success', ...requestOf(context, device) },
+        now,
+      );
+    }
+    await enforceSessionLimit(tx, userId, context, now);
+    const sessionId = randomUUID();
+    const absoluteExpiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS);
+    await insertSession(
+      tx,
+      {
+        id: sessionId,
+        userId,
+        client: device.client,
+        deviceLabelEnc: await encryptDeviceLabel(tx, { userId, sessionId }, device.deviceLabel),
+        absoluteExpiresAt,
+        authMethod,
+      },
+      now,
+    );
+    const tokens = await issueGeneration(tx, { sessionId, userId, generation: 1, absoluteExpiresAt }, now);
+    await audit(
+      tx,
+      { userId, eventType: 'login_succeeded', outcome: 'success', sessionId, ...requestOf(context, device) },
+      now,
+    );
+    return tokens;
+  };
+
+  /** The token of the second login step, stored as its hash only (ADR-0019). */
+  const issueChallenge = async (
+    tx: Transaction,
+    userId: string,
+    methods: readonly SecondFactorMethod[],
+    now: Date,
+  ): Promise<IssuedSecondFactorChallenge> => {
+    const { token, hash } = issueToken('secondFactor');
+    const expiresAt = new Date(now.getTime() + SECOND_FACTOR_LIFETIME_MS);
+    await insertSecondFactorChallenge(tx, { userId, tokenHash: hash, expiresAt }, now);
+    return { token, issuedAt: now, expiresAt, methods };
+  };
+
   return {
     async login(request, context) {
       const now = deps.clock.now();
@@ -237,55 +333,93 @@ export function createSessionsService(deps: SessionsServiceDependencies): Sessio
           current !== undefined &&
           constantTimeEqual(Buffer.from(current.passwordHash), Buffer.from(account.passwordHash));
         if (!unchanged || isGone(current, now)) return INVALID_CREDENTIALS;
-        if (current.deactivatedAt !== null) {
-          await reactivateAccount(tx, account.id, now);
-          await audit(
-            tx,
-            {
-              userId: account.id,
-              eventType: 'account_reactivated',
-              outcome: 'success',
-              ...requestOf(context, request),
-            },
-            now,
-          );
-        }
         if (rehash !== undefined) {
           await replacePasswordHash(tx, account.id, { previous: account.passwordHash, next: rehash }, now);
         }
-        await enforceSessionLimit(tx, account.id, context, now);
+        // TOTP on: no session yet, and no reactivation either — both wait for the second step (ADR-0019).
+        const methods = await secondFactorMethods(tx, account.id);
+        if (methods !== undefined) {
+          return { outcome: 'second_factor_required', challenge: await issueChallenge(tx, account.id, methods, now) };
+        }
+        const device = { client: request.client, deviceLabel: request.device_label };
+        return { outcome: 'signed_in', tokens: await signIn(tx, current, device, 'password', context, now) };
+      });
+    },
 
-        const sessionId = randomUUID();
-        const absoluteExpiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS);
-        await insertSession(
-          tx,
-          {
-            id: sessionId,
-            userId: account.id,
-            client: request.client,
-            deviceLabelEnc: await encryptDeviceLabel(tx, { userId: account.id, sessionId }, request.device_label),
-            absoluteExpiresAt,
-            authMethod: 'password',
-          },
-          now,
+    async secondFactorSubject(token) {
+      const hash = tokenHash('secondFactor', token);
+      if (hash === undefined) return undefined;
+      const now = deps.clock.now();
+      return inTransaction(deps.db, async (tx) => {
+        const challenge = await findSecondFactorChallenge(tx, hash, now, MAX_SECOND_FACTOR_FAILURES);
+        if (challenge === undefined) return undefined;
+        const account = await findAccountById(tx, challenge.userId);
+        if (account === undefined) return undefined;
+        const address = await withAccountKey(tx, deps.dataKeys, challenge.userId, (dataKey) =>
+          Promise.resolve(decryptText(dataKey, emailField(challenge.userId), account.emailEnc)),
         );
-        const tokens = await issueGeneration(
-          tx,
-          { sessionId, userId: account.id, generation: 1, absoluteExpiresAt },
-          now,
-        );
-        await audit(
-          tx,
-          {
-            userId: account.id,
-            eventType: 'login_succeeded',
-            outcome: 'success',
-            sessionId,
-            ...requestOf(context, request),
-          },
-          now,
-        );
-        return { outcome: 'signed_in', tokens };
+        return normalizeEmail(address);
+      });
+    },
+
+    async loginSecondFactor(request, context) {
+      const hash = tokenHash('secondFactor', request.second_factor_token);
+      if (hash === undefined) return INVALID_TOKEN;
+      const now = deps.clock.now();
+      const factor: SecondFactor =
+        request.totp_code === undefined
+          ? { recoveryCode: request.recovery_code ?? '' }
+          : { totpCode: request.totp_code };
+
+      return inTransaction(deps.db, async (tx): Promise<SecondFactorLoginResult> => {
+        const pending = await findSecondFactorChallenge(tx, hash, now, MAX_SECOND_FACTOR_FAILURES);
+        if (pending === undefined) return INVALID_TOKEN;
+        const { userId } = pending;
+        await setUserContext(tx, userId);
+        // The account row serialises the second steps of one account; the token is read again under it, so a
+        // token another request just used or used up is seen as such.
+        const current = await lockLoginAccount(tx, userId);
+        const challenge = await findSecondFactorChallenge(tx, hash, now, MAX_SECOND_FACTOR_FAILURES);
+        if (challenge === undefined) return INVALID_TOKEN;
+        // A password changed since the first step makes the token void, like a login with the old password.
+        if (
+          current === undefined ||
+          isGone(current, now) ||
+          current.passwordChangedAt.getTime() > challenge.createdAt.getTime()
+        ) {
+          await deleteSecondFactorChallenge(tx, challenge.id);
+          return INVALID_TOKEN;
+        }
+        const check = await deps.dataKeys.withKey(userId, await requireWrappedKey(tx, userId), async (dataKey) => {
+          const result = await checkSecondFactor(tx, dataKey, userId, factor, now);
+          // A used recovery code is a change of the sign-in methods: the owner hears of it.
+          if (result === 'recovery_code') await queueSignInMethodsNotice(tx, dataKey, userId, now);
+          return result;
+        });
+        if (check === 'not_enabled') {
+          await deleteSecondFactorChallenge(tx, challenge.id);
+          return INVALID_TOKEN;
+        }
+        if (check === 'wrong') {
+          await countSecondFactorFailure(tx, challenge.id);
+          await audit(
+            tx,
+            { userId, eventType: 'second_factor_failed', outcome: 'failure', ...requestOf(context, request) },
+            now,
+          );
+          return { outcome: 'invalid_code' };
+        }
+        await deleteSecondFactorChallenge(tx, challenge.id);
+        if (check === 'recovery_code') {
+          await audit(
+            tx,
+            { userId, eventType: 'recovery_code_used', outcome: 'success', ...requestOf(context, request) },
+            now,
+          );
+        }
+        const device = { client: request.client, deviceLabel: request.device_label };
+        const method = check === 'totp' ? 'password_totp' : 'password_recovery_code';
+        return { outcome: 'signed_in', tokens: await signIn(tx, current, device, method, context, now) };
       });
     },
 
@@ -452,7 +586,7 @@ const logoutEvent = (principal: Principal, context: RequestContext): AuditEvent 
   sessionId: principal.sessionId,
 });
 
-const requestOf = (context: RequestContext, request: LoginRequest) => ({
+const requestOf = (context: RequestContext, request: { readonly client: 'ios' | 'android' }) => ({
   ipPrefix: context.ipPrefix,
   client: request.client,
 });

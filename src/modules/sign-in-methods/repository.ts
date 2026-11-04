@@ -80,3 +80,31 @@ export async function replaceRecoveryCodes(
 export async function deleteRecoveryCodes(tx: Transaction, userId: string): Promise<void> {
   await tx.delete(recoveryCodes).where(eq(recoveryCodes.userId, userId));
 }
+
+/** Whether TOTP is on for the account. */
+export async function hasEnabledTotp(tx: Transaction, userId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ userId: totpSecrets.userId })
+    .from(totpSecrets)
+    .where(and(eq(totpSecrets.userId, userId), isNotNull(totpSecrets.enabledAt)));
+  return rows.length > 0;
+}
+
+/** Remembers the step of an accepted code: no code of it or an earlier step is accepted again. */
+export async function recordTotpStep(tx: Transaction, userId: string, step: number): Promise<void> {
+  await tx.update(totpSecrets).set({ lastUsedStep: step }).where(eq(totpSecrets.userId, userId));
+}
+
+/** Uses up the account's recovery code with this digest; `false` when it has none such (any more). */
+export async function useRecoveryCode(tx: Transaction, userId: string, codeHash: Buffer): Promise<boolean> {
+  const used = await tx
+    .delete(recoveryCodes)
+    .where(and(eq(recoveryCodes.userId, userId), eq(recoveryCodes.codeHash, codeHash)))
+    .returning({ id: recoveryCodes.id });
+  return used.length > 0;
+}
+
+export async function countRecoveryCodes(tx: Transaction, userId: string): Promise<number> {
+  const rows = await tx.select({ id: recoveryCodes.id }).from(recoveryCodes).where(eq(recoveryCodes.userId, userId));
+  return rows.length;
+}

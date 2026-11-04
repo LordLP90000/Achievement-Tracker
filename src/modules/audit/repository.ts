@@ -26,7 +26,9 @@ export type AuditEventType =
   | 'account_deleted'
   | 'totp_enabled'
   | 'totp_disabled'
-  | 'recovery_codes_generated';
+  | 'recovery_codes_generated'
+  | 'recovery_code_used'
+  | 'second_factor_failed';
 
 export interface AuditEvent {
   /** `null` only for events about unknown accounts; otherwise the transaction's user context must be this user. */
