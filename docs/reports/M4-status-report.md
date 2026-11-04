@@ -223,3 +223,14 @@ Semgrep 0 findings; CI runs #99–#103 green, the last one with the extended exc
 
 **Still open**: Node 26.13.0 LTS on or after 2026-11-04 (one maintenance commit). **M5 waits for your "go"** and
 two approvals: the WebAuthn library (`@simplewebauthn/server` recommended) and the relying-party ID/domain (Q-19).
+
+## Addendum 2026-11-04 — "go" for M5
+
+- **"Go" for M5**, and the two approvals M5 needed before its start (`docs/requirements.md` §6.8): **Q-50** —
+  `@simplewebauthn/server` 14.0.3 as a runtime dependency, pinned exactly (25 packages, permissive licences, no
+  known vulnerabilities on 2026-11-04); **Q-51** — the relying-party ID and the allowed origins become required
+  production settings, tests use `questline.test`, and passkeys work in the apps once the domain exists.
+- **Node 26.13.0**: published on 2026-10-28 at 16:57 UTC, so the 7-day rule allows it from 17:58 today, not from the
+  morning; it follows as its own commit, with the e2e suite before the push.
+
+**Status**: M4 is **DONE** (closed with the PM's "go" for M5 on 2026-11-04).

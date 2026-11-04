@@ -9,7 +9,7 @@ open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.
 refined and A-29…A-33 accepted; decisions Q-30…Q-32 (§6.3) close O-05, O-06 and O-07; A-34 and A-35 proposed.
 Later on 2026-10-29: Q-33…Q-38 on habit periods, undo, habit edits and locked habits (§6.4); A-36…A-38 proposed.
 2026-11-02 (M4): Q-46 refines A-22 (§6.6); open items O-11 and O-12 for the M4 review. 2026-11-02 (M4 review): Q-47…Q-49
-(§6.7) close O-11 and O-12.
+(§6.7) close O-11 and O-12. 2026-11-04 (start of M5): Q-50 and Q-51 (§6.8).
 
 ## 1. Product summary
 
@@ -333,6 +333,13 @@ the emails) stays open until launch.
 | Q-47 | **No work taken away while a gamble is pending (O-11):** while a gamble on an achievement is pending, a quest edit or deletion that lowers what the achievement's open required quests still ask for is refused with `409 urn:questline:problem:gamble-pending` and changes nothing, as Q-44 refuses one that completes the achievement: deleting an open required quest, making it a bonus quest, bringing an open target quest's target closer to its current value — the latest check-in, else the start value, measured in the target's own direction, so a new start value counts too while no check-in exists — or asking a habit whose settings may still change (Q-37) for fewer check-ins (`times_per_period × period_count`) or a shorter run (its days, a week counting 7 as in R-XP-02). Everything else goes through: more work, completed and bonus quests, titles, notes, sizes, units, positions, a habit's start date. Additive contract change (descriptions; the slug exists). Not chosen: accepting it as a change of the goal; letting such a change lose the gamble. |
 | Q-48 | **A password reset reactivates an account pending deletion (O-12):** within the 30 days, forgot-password emails a reset link to an account pending deletion as to an active one (the answer stays the same for every address, R-AUTH-07), and completing the reset reactivates the account (audited `account_reactivated`); after the 30 days the account counts as deleted for the reset as for the login. The reset link proves control of the address, which already recovers an active account; the deletion notice says so. Accepted: whoever controls the mailbox can also undo a deletion the owner wanted. Not chosen: no recovery without the password. Additive contract change (descriptions). |
 | Q-49 | **Dependency exceptions extended:** GHSA-3g3m-2fjr-6pw4 (`glob`) and GHSA-g3hv-75wg-m249 (`minimatch`) stay accepted until **2027-01-31**, as GHSA-67mh-4wv8-2f99 (`esbuild`): dev only, not in the image, no attacker-controlled pattern; no parent package accepted a fixed version on 2026-11-02. Re-checked at every milestone. Not chosen: forcing `glob` 14 and `minimatch` 11 with npm overrides outside the ranges ESLint, Stryker and testcontainers declare. |
+
+### 6.8 Decisions at the start of M5 (PM, 2026-11-04)
+
+| ID | Decision |
+|----|----------|
+| Q-50 | **WebAuthn library:** `@simplewebauthn/server` 14.0.3 becomes a runtime dependency, pinned exactly — the de facto standard verifier (MIT, published 2026-09-25), 25 packages with it from SimpleWebAuthn and Peculiar Ventures (MIT, BSD-3-Clause, Apache-2.0, 0BSD; no known vulnerabilities in OSV on 2026-11-04). Not chosen: verifying WebAuthn ourselves (own cryptographic verification code); postponing passkeys. |
+| Q-51 | **The passkey domain (Q-19):** M5 is built now; the relying-party ID and the allowed origins (`https://<domain>` and the Android apps' `android:apk-key-hash:…`, from the app team) become required production settings; tests and the local stack use `questline.test`. Passkeys work in the apps once the domain exists and serves the association files (`apple-app-site-association`, `assetlinks.json`; O-01). Not chosen: naming the domain now; postponing passkeys until the domain is known. |
 
 ## 7. Open items (non-blocking)
 
