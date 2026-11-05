@@ -1,17 +1,24 @@
 import { createHash } from 'node:crypto';
 import { inBatches } from '../../platform/db/batches.ts';
-import { inReadOnlyTransaction, inTransaction, type Database } from '../../platform/db/database.ts';
+import { inReadOnlyTransaction, inTransaction, type Database, type Transaction } from '../../platform/db/database.ts';
+import { deleteGoalContent } from '../achievements/repository.ts';
 import {
   accountIdsAfter,
   accountsHoldingAddresses,
   deleteAccounts,
   deleteSessions,
   readAccountStates,
+  readConsents,
+  readSignInRows,
+  replaceConsents,
+  replaceSignInRows,
   setBlindIndex,
   updateAccount,
   type AccountChanges,
   type AccountState,
   type AddressHolder,
+  type ConsentRow,
+  type SignInRows,
 } from './restore-repository.ts';
 import { REPLAY_BATCH_SIZE, replayTombstones, type ReplayResult } from './tombstone-replay.ts';
 
@@ -29,6 +36,12 @@ export interface AccountsResult {
   readonly addressConflicts: number;
   /** Unverified accounts the replaced database had purged, deleted because another account took their address. */
   readonly unverifiedDeleted: number;
+  /** Accounts whose passkeys, TOTP secret or recovery codes were taken over. */
+  readonly signInMethods: number;
+  /** Accounts whose consent records were taken over. */
+  readonly consents: number;
+  /** Accounts whose goal content was deleted again: their consent was withdrawn after the restore point. */
+  readonly goalContentDeleted: number;
 }
 
 export interface RestoreReplayResult extends ReplayResult, AccountsResult {
@@ -50,12 +63,16 @@ const NOTHING_TAKEN_OVER: AccountsResult = {
   addresses: 0,
   addressConflicts: 0,
   unverifiedDeleted: 0,
+  signInMethods: 0,
+  consents: 0,
+  goalContentDeleted: 0,
 };
 
 /**
  * Replays after a restore what happened since the restore point (Q-13, Q-57, ADR-0020 as amended): the tombstones of
- * the replaced database first; then, for every account both databases hold, its deletion state, password and
- * address as the replaced database has them; then every session of the restored database is deleted. Without the
+ * the replaced database first; then, for every account both databases hold, its deletion state, password, address,
+ * sign-in methods and consents as the replaced database has them, a withdrawal since deleting the goal content again;
+ * then every session of the restored database is deleted. Without the
  * replaced database only the restored one's own tombstones are replayed and the sessions deleted. Run again, it
  * changes nothing.
  */
@@ -102,45 +119,145 @@ function differenceOf(ours: AccountState, theirs: AccountState): Difference {
 /** Above both databases' versions, so no ETag a client kept from either matches the changed account. */
 const nextVersion = (ours: number, theirs: number) => Math.max(ours, theirs) + 1;
 
+/** What one database holds for a batch of accounts: the account rows, their sign-in methods and consents. */
+interface Batch {
+  readonly accounts: readonly AccountState[];
+  readonly signIn: SignInRows;
+  readonly consents: readonly ConsentRow[];
+}
+
+async function readBatch(tx: Transaction, ids: readonly string[]): Promise<Batch> {
+  return {
+    accounts: await readAccountStates(tx, ids),
+    signIn: await readSignInRows(tx, ids),
+    consents: await readConsents(tx, ids),
+  };
+}
+
+type Totals = Omit<AccountsResult, 'addresses' | 'addressConflicts' | 'unverifiedDeleted'>;
+
+const NO_TOTALS: Totals = {
+  deletionStates: 0,
+  passwords: 0,
+  verifications: 0,
+  signInMethods: 0,
+  consents: 0,
+  goalContentDeleted: 0,
+};
+
+const added = (sum: Totals, more: Totals): Totals => ({
+  deletionStates: sum.deletionStates + more.deletionStates,
+  passwords: sum.passwords + more.passwords,
+  verifications: sum.verifications + more.verifications,
+  signInMethods: sum.signInMethods + more.signInMethods,
+  consents: sum.consents + more.consents,
+  goalContentDeleted: sum.goalContentDeleted + more.goalContentDeleted,
+});
+
 async function reapplyAccounts(
   restored: Database,
   replaced: Database,
   batchSize: number,
   now: Date,
 ): Promise<AccountsResult> {
-  let deletionStates = 0;
-  let passwords = 0;
-  let verifications = 0;
+  let totals = NO_TOTALS;
   let moves: AccountState[] = [];
   for (let after: string | undefined; ;) {
     const ids = await inReadOnlyTransaction(restored, (tx) => accountIdsAfter(tx, after, batchSize));
     after = ids.at(-1);
     if (after === undefined) break;
-    const theirs = new Map(
-      (await inReadOnlyTransaction(replaced, (tx) => readAccountStates(tx, ids))).map((state) => [state.id, state]),
-    );
-    await inTransaction(restored, async (tx) => {
-      for (const ours of await readAccountStates(tx, ids)) {
-        const replacedState = theirs.get(ours.id);
-        if (replacedState === undefined) continue;
-        const difference = differenceOf(ours, replacedState);
-        if (difference.address) moves = [...moves, replacedState];
-        if (Object.keys(difference.changes).length === 0) continue;
-        await updateAccount(tx, ours.id, difference.changes, nextVersion(ours.version, replacedState.version), now);
-        deletionStates += Number(difference.deletionState);
-        passwords += Number(difference.password);
-        verifications += Number(difference.verification);
-      }
-    });
+    const theirs = await inReadOnlyTransaction(replaced, (tx) => readBatch(tx, ids));
+    const batch = await inTransaction(restored, (tx) => reapplyBatch(tx, theirs, now));
+    totals = added(totals, batch.totals);
+    moves = [...moves, ...batch.moves];
   }
-  return {
-    deletionStates,
-    passwords,
-    verifications,
-    ...(await moveAddresses(restored, replaced, moves, batchSize, now)),
-  };
+  return { ...totals, ...(await moveAddresses(restored, replaced, moves, batchSize, now)) };
 }
 
+/** The accounts of a batch that both databases hold, made as the replaced database has them; addresses move later. */
+async function reapplyBatch(
+  tx: Transaction,
+  theirs: Batch,
+  now: Date,
+): Promise<{ totals: Totals; moves: readonly AccountState[] }> {
+  const ids = theirs.accounts.map((state) => state.id);
+  const ours = await readBatch(tx, ids);
+  const accounts = await reapplyAccountRows(tx, ours.accounts, theirs.accounts, now);
+  const signInMethods = await reapplySignInRows(tx, ids, ours.signIn, theirs.signIn);
+  const consents = await reapplyConsents(tx, ids, ours.consents, theirs.consents);
+  return { totals: { ...accounts.totals, signInMethods, ...consents }, moves: accounts.moves };
+}
+
+async function reapplyAccountRows(
+  tx: Transaction,
+  ours: readonly AccountState[],
+  theirs: readonly AccountState[],
+  now: Date,
+): Promise<{ totals: Pick<Totals, 'deletionStates' | 'passwords' | 'verifications'>; moves: AccountState[] }> {
+  const replacedById = new Map(theirs.map((state) => [state.id, state]));
+  let totals = { deletionStates: 0, passwords: 0, verifications: 0 };
+  let moves: AccountState[] = [];
+  for (const own of ours) {
+    const replacedState = replacedById.get(own.id);
+    if (replacedState === undefined) continue;
+    const difference = differenceOf(own, replacedState);
+    if (difference.address) moves = [...moves, replacedState];
+    if (Object.keys(difference.changes).length === 0) continue;
+    await updateAccount(tx, own.id, difference.changes, nextVersion(own.version, replacedState.version), now);
+    totals = {
+      deletionStates: totals.deletionStates + Number(difference.deletionState),
+      passwords: totals.passwords + Number(difference.password),
+      verifications: totals.verifications + Number(difference.verification),
+    };
+  }
+  return { totals, moves };
+}
+
+const signInRowsOf = (rows: SignInRows, ids: readonly string[]): SignInRows => ({
+  passkeys: rows.passkeys.filter((row) => ids.includes(row.userId)),
+  totpSecrets: rows.totpSecrets.filter((row) => ids.includes(row.userId)),
+  recoveryCodes: rows.recoveryCodes.filter((row) => ids.includes(row.userId)),
+});
+
+/** Passkeys, TOTP secret and recovery codes as the replaced database has them: removed, added, used or replaced. */
+async function reapplySignInRows(
+  tx: Transaction,
+  ids: readonly string[],
+  ours: SignInRows,
+  theirs: SignInRows,
+): Promise<number> {
+  const changed = ids.filter(
+    (id) => JSON.stringify(signInRowsOf(ours, [id])) !== JSON.stringify(signInRowsOf(theirs, [id])),
+  );
+  await replaceSignInRows(tx, changed, signInRowsOf(theirs, changed));
+  return changed.length;
+}
+
+/**
+ * The consents as the replaced database has them. A withdrawal the restored database lacks deleted the goal content
+ * there (Q-10): it is deleted here too, before the consents are taken over.
+ */
+async function reapplyConsents(
+  tx: Transaction,
+  ids: readonly string[],
+  ours: readonly ConsentRow[],
+  theirs: readonly ConsentRow[],
+): Promise<Pick<Totals, 'consents' | 'goalContentDeleted'>> {
+  const of = (rows: readonly ConsentRow[], id: string) => rows.filter((row) => row.userId === id);
+  const withdrawnSince = (id: string) =>
+    of(theirs, id).some(
+      (row) => row.withdrawnAt !== null && !of(ours, id).some((own) => own.id === row.id && own.withdrawnAt !== null),
+    );
+  const withdrawn = ids.filter(withdrawnSince);
+  for (const id of withdrawn) await deleteGoalContent(tx, id);
+  const changed = ids.filter((id) => JSON.stringify(of(ours, id)) !== JSON.stringify(of(theirs, id)));
+  await replaceConsents(
+    tx,
+    changed,
+    theirs.filter((row) => changed.includes(row.userId)),
+  );
+  return { consents: changed.length, goalContentDeleted: withdrawn.length };
+}
 /** A blind index no address has: an account's address moves in two steps, so addresses can change hands. */
 function temporaryBlindIndex(id: string): Buffer {
   return createHash('sha256').update(`questline|restore|address|${id}`).digest();

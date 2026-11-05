@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from 'vitest';
 import { MaintenanceIncompleteError, runMaintenance } from '../../src/main/maintenance.ts';
 import { replayAfterRestore } from '../../src/modules/privacy/restore-replay.ts';
@@ -8,6 +8,7 @@ import { createDatabaseClient, type DatabaseClient } from '../../src/platform/db
 import { createDatabase } from '../../src/platform/db/database.ts';
 import { createLogger } from '../../src/platform/logging/logger.ts';
 import { startAccountsApp, type AccountsApp, type TestAccount } from '../helpers/accounts-app.ts';
+import { createAchievement, goalUser } from '../helpers/goals.ts';
 import { LogCapture } from '../helpers/log-capture.ts';
 
 const NEW_PASSWORD = 'seven silver swans swimming';
@@ -59,7 +60,7 @@ describe('replay after a restore: the changes since the restore point [Q-57, ADR
     return backup;
   };
   const replay = (backup: Backup, batchSize?: number) =>
-    replayAfterRestore(createDatabase(client(backup.migratorUrl)), createDatabase(client(ctx.database.urls.worker)), {
+    replayAfterRestore(createDatabase(client(backup.migratorUrl)), createDatabase(client(ctx.database.urls.migrator)), {
       now: ctx.clock.now(),
       ...(batchSize === undefined ? {} : { batchSize }),
     });
@@ -124,6 +125,43 @@ describe('replay after a restore: the changes since the restore point [Q-57, ADR
   });
   const count = async (db: DatabaseClient, table: string) =>
     (await db.sql<{ count: number }[]>`select count(*)::int as count from ${db.sql(table)}`)[0]?.count;
+  const countFor = async (db: DatabaseClient, table: string, userId: string) =>
+    (
+      await db.sql<{ count: number }[]>`
+        select count(*)::int as count from ${db.sql(table)} where user_id = ${userId}`
+    )[0]?.count;
+  /** Every column of the account's sign-in-method rows, as JSON, so both databases' rows compare alike. */
+  const signInRowsIn = async (db: DatabaseClient, userId: string) =>
+    (
+      await db.sql<{ passkeys: unknown; totp: unknown; codes: unknown }[]>`
+        select
+          (select coalesce(jsonb_agg(to_jsonb(p) order by p.id), '[]') from passkeys p where p.user_id = ${userId})
+            as passkeys,
+          (select coalesce(jsonb_agg(to_jsonb(t)), '[]') from totp_secrets t where t.user_id = ${userId}) as totp,
+          (select coalesce(jsonb_agg(to_jsonb(r) order by r.id), '[]') from recovery_codes r where r.user_id = ${userId})
+            as codes`
+    )[0];
+  const consentsIn = async (db: DatabaseClient, userId: string) =>
+    (
+      await db.sql<{ rows: unknown }[]>`
+        select coalesce(jsonb_agg(to_jsonb(c) order by c.id), '[]') as rows from consents c where c.user_id = ${userId}`
+    )[0]?.rows;
+  // Rows as the app writes them: every timestamp from its clock, in milliseconds, as JavaScript dates carry them.
+  const addPasskey = (db: DatabaseClient, userId: string) =>
+    db.sql`
+      insert into passkeys (id, user_id, credential_id, public_key, sign_count, transports, backed_up, created_at)
+      values (${randomUUID()}, ${userId}, ${randomBytes(32)}, ${randomBytes(77)}, 0, array['internal']::text[], false,
+              ${ctx.clock.now()})`;
+  const turnOnTotp = async (db: DatabaseClient, userId: string) => {
+    await db.sql`
+      insert into totp_secrets (user_id, secret_enc, enabled_at, created_at)
+      values (${userId}, ${randomBytes(73)}, ${ctx.clock.now()}, ${ctx.clock.now()})`;
+    for (let code = 0; code < 2; code += 1) {
+      await db.sql`
+        insert into recovery_codes (id, user_id, code_hash, created_at)
+        values (${randomUUID()}, ${userId}, ${randomBytes(32)}, ${ctx.clock.now()})`;
+    }
+  };
 
   beforeAll(async () => {
     ctx = await startAccountsApp();
@@ -290,7 +328,7 @@ describe('replay after a restore: the changes since the restore point [Q-57, ADR
       appEnv: 'test',
       logLevel: 'info',
       databaseUrl: backup.migratorUrl,
-      replacedDatabaseUrl: ctx.database.urls.worker,
+      replacedDatabaseUrl: ctx.database.urls.migrator,
     };
 
     await expect(
@@ -312,6 +350,72 @@ describe('replay after a restore: the changes since the restore point [Q-57, ADR
     expect(logs.text).not.toContain(taking.userId);
   });
 
+  it('takes over the sign-in methods: a passkey removed and another added, TOTP turned on or off with its codes', async () => {
+    const changing = await ctx.account();
+    const turningOff = await ctx.account();
+    const keeping = await ctx.account();
+    await addPasskey(ctx.admin, changing.userId);
+    await turnOnTotp(ctx.admin, turningOff.userId);
+    await addPasskey(ctx.admin, keeping.userId);
+    await turnOnTotp(ctx.admin, keeping.userId);
+    const backup = await takeBackup();
+    const kept = await signInRowsIn(backup.admin, keeping.userId);
+    await ctx.admin.sql`delete from passkeys where user_id = ${changing.userId}`;
+    await addPasskey(ctx.admin, changing.userId);
+    await turnOnTotp(ctx.admin, changing.userId);
+    await ctx.admin.sql`delete from totp_secrets where user_id = ${turningOff.userId}`;
+    await ctx.admin.sql`delete from recovery_codes where user_id = ${turningOff.userId}`;
+
+    expect(await replay(backup)).toMatchObject({ signInMethods: 2 });
+
+    for (const account of [changing, turningOff]) {
+      expect(await signInRowsIn(backup.admin, account.userId)).toEqual(await signInRowsIn(ctx.admin, account.userId));
+    }
+    expect(await signInRowsIn(backup.admin, turningOff.userId)).toEqual({ passkeys: [], totp: [], codes: [] });
+    expect(await signInRowsIn(backup.admin, keeping.userId)).toEqual(kept);
+  });
+
+  it('deletes the goal content again after a consent withdrawn since the restore point, and takes over the consents', async () => {
+    const withdrawing = await goalUser(ctx);
+    const again = await goalUser(ctx);
+    const keeping = await goalUser(ctx);
+    const withdraw = async (token: string) => {
+      const response = await ctx.app.inject({
+        method: 'DELETE',
+        url: '/v1/me/consents/goal_content',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      if (response.statusCode !== 204) throw new Error(`withdrawal answered ${String(response.statusCode)}`);
+    };
+    // An earlier withdrawal on record: the account granted its consent again before the backup.
+    await withdraw(again.token);
+    await ctx.post(
+      '/v1/me/consents',
+      { type: 'goal_content', version: '2026-10-01' },
+      { authorization: `Bearer ${again.token}` },
+    );
+    for (const user of [withdrawing, again, keeping]) {
+      const created = await createAchievement(ctx, user.token, { title: 'Run a marathon' });
+      if (created.statusCode !== 201) throw new Error(`achievement answered ${String(created.statusCode)}`);
+    }
+    const backup = await takeBackup();
+    const keptContent = await countFor(backup.admin, 'achievements', keeping.userId);
+    await withdraw(withdrawing.token);
+    await withdraw(again.token);
+
+    expect(await countFor(backup.admin, 'achievements', withdrawing.userId)).toBe(1);
+    expect(await replay(backup)).toMatchObject({ consents: 2, goalContentDeleted: 2 });
+
+    for (const user of [withdrawing, again]) {
+      for (const table of ['achievements', 'xp_events', 'idempotency_keys']) {
+        expect(await countFor(backup.admin, table, user.userId)).toBe(0);
+      }
+      expect(await consentsIn(backup.admin, user.userId)).toEqual(await consentsIn(ctx.admin, user.userId));
+    }
+    expect(await countFor(backup.admin, 'achievements', keeping.userId)).toBe(keptContent);
+    expect(keptContent).toBe(1);
+  });
+
   it('revokes every session of the restored database with its tokens: every user signs in again', async () => {
     const account = await ctx.account();
     await login(account);
@@ -328,8 +432,16 @@ describe('replay after a restore: the changes since the restore point [Q-57, ADR
   it('changes nothing on a second run', async () => {
     const leaving = await ctx.account();
     const changing = await ctx.account();
+    const withdrawing = await goalUser(ctx);
+    await createAchievement(ctx, withdrawing.token, { title: 'Learn the cello' });
     const backup = await takeBackup();
     await requestDeletion(leaving);
+    await addPasskey(ctx.admin, changing.userId);
+    await ctx.app.inject({
+      method: 'DELETE',
+      url: '/v1/me/consents/goal_content',
+      headers: { authorization: `Bearer ${withdrawing.token}` },
+    });
     const moved = newAddress();
     await changeAddress(changing, moved);
     await changePassword({ ...changing, email: moved });
@@ -345,6 +457,9 @@ describe('replay after a restore: the changes since the restore point [Q-57, ADR
       addresses: 0,
       addressConflicts: 0,
       unverifiedDeleted: 0,
+      signInMethods: 0,
+      consents: 0,
+      goalContentDeleted: 0,
       sessions: 0,
     });
     expect([await accountIn(backup.admin, leaving.userId), await accountIn(backup.admin, changing.userId)]).toEqual(

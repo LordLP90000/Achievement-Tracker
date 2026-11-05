@@ -2,8 +2,8 @@
 
 Status: M6, 2026-11-05. Rehearsed on the local Compose stack and automated: the e2e suite runs this drill on every
 CI run (`test/e2e/smoke.test.ts`, "rehearses a restore"). The staging rehearsal waits for the hosting option (O-01).
-Controls: Q-13, ADR-0006, ADR-0020; threats I-18 and RR-4; DPIA R-8. Being built: re-applying what a restore loses
-besides deletions (§6, Q-57).
+Controls: Q-13, Q-57, ADR-0006, ADR-0020; threats I-18 and RR-4; DPIA R-8. The replay also re-applies what a restore loses
+besides deletions (§6).
 
 ## 1. When
 
@@ -42,19 +42,20 @@ The commands are those of the local stack, as rehearsed (`docker compose -f dock
    every role can connect to the restored database (PUBLIC's default `CONNECT`).
 5. **Migrations**: `compose run --rm --no-deps migrate`. This is needed when the backup predates a migration of the
    running image; otherwise it does nothing.
-6. **Replay what happened since the restore point** (ADR-0020, Q-13, Q-57), with the migrator's role and the
-   replaced database read only, through the worker's role:
-   `compose run --rm --no-deps -T -e REPLACED_DATABASE_URL=postgres://questline_worker:<password>@db:5432/questline_replaced migrate dist/maintenance.js replay-after-restore`.
+6. **Replay what happened since the restore point** (ADR-0020, Q-13, Q-57), with the migrator's role on both
+   databases. It reads the replaced database only in read-only transactions, which refuse any change, DDL included:
+   `compose run --rm --no-deps -T -e REPLACED_DATABASE_URL=postgres://questline_migrator:<password>@db:5432/questline_replaced migrate dist/maintenance.js replay-after-restore`.
    In this order it:
    - takes over the replaced database's tombstones with their dates and deletes every account they name;
    - for every account both databases hold, takes over its deletion state (requests with their dates, and
      reactivations), a newer password, an address verified since, and a changed address. Accounts that swapped
      addresses are included. An unverified account the replaced database purged is deleted when another account
-     took its address;
+     took its address. It also takes over the account's passkeys, TOTP secret and recovery codes, and its consents;
+     a consent withdrawn since deletes the goal content again;
    - deletes every session with its tokens: every user signs in again.
    - Expected: exit code 0 and one log line `replayed after restore` with counts only: `imported`, `deleted`,
      `deletionStates`, `passwords`, `verifications`, `addresses`, `addressConflicts`, `unverifiedDeleted`,
-     `sessions`. Run it a second time: every count is 0.
+     `signInMethods`, `consents`, `goalContentDeleted`, `sessions`. Run it a second time: every count is 0.
    - Exit code 1 with `MaintenanceIncompleteError: address_conflicts`: some addresses stayed as restored. Each is held
      by a verified account the replaced database lacks without a tombstone, or by an account whose own move was held
      back. Everything else was replayed. Compare `users.email_blind_index` in both databases for those accounts,
@@ -68,8 +69,8 @@ The commands are those of the local stack, as rehearsed (`docker compose -f dock
    `reindex-email-blind-index`, ADR-0020, M6, to come) before the API starts.
 8. **Start the worker and the API**: `compose up --detach --wait --no-deps api worker`. Check `/health/ready`, the
    worker's `worker ready` line, and a sign-in with a test account.
-9. **Changes lost after the restore point** (§6): until the rest of Q-57 is built (the sign-in methods and the
-   consents), list in the incident record what the period changed there, as far as the replaced database shows it.
+9. **What is lost for good** (§6): accounts and data created after the restore point. Record in the incident record
+   what the period contained, as far as the replaced database shows it: the breach assessment needs it.
 10. **The replaced database** is a copy of personal data: keep it only as long as the investigation needs it, and at
     most 30 days, like a backup (data inventory C14). Then drop it.
 11. **Record the restore** in the incident record: the restore point, the replay's counts, the duration.
@@ -100,7 +101,6 @@ users made for their privacy or security:
 - **New accounts, goals, check-ins and audit events** are gone. The owners are not told.
 
 The PM decided (Q-57) that the replay re-applies all of these but the new data, and revokes every session (ADR-0020,
-amendment). Built so far: completed deletions, deletion requests and reactivations, passwords, address changes and
-verifications, and every session revoked. Still to come in M6: the sign-in methods (passkeys, TOTP, recovery codes)
-and the consents (a withdrawal deletes the goal content again). New data stays lost: choose the latest possible
-restore point, and record what the period contained (step 9).
+amendment), and it does (step 6). It also takes over an address verified since: unverified, the account would be
+purged after its 7 days. New data stays lost: choose the latest possible restore point, and record what the period
+contained (step 9).

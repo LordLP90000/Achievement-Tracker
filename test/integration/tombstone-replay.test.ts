@@ -34,7 +34,7 @@ describe('tombstone replay after a restore [Q-13, I-18, RR-4]', () => {
     return created;
   };
   const restored = () => createDatabase(client(ctx.database.urls.migrator, 'questline-maintenance'));
-  const replaced = () => createDatabase(client(before.urls.worker, 'questline-maintenance'));
+  const replaced = () => createDatabase(client(before.urls.migrator, 'questline-maintenance'));
   const bury = (admin: DatabaseClient, userId: string) =>
     admin.sql`insert into deleted_user_tombstones (user_id, deleted_at) values (${userId}, ${DELETED_AT})`;
   const tombstonesIn = async (admin: DatabaseClient) =>
@@ -200,7 +200,7 @@ describe('tombstone replay after a restore [Q-13, I-18, RR-4]', () => {
       appEnv: 'test',
       logLevel: 'info',
       databaseUrl: ctx.database.urls.migrator,
-      replacedDatabaseUrl: before.urls.worker,
+      replacedDatabaseUrl: before.urls.migrator,
     });
     const loggerFor = (logs: LogCapture) =>
       createLogger({ service: 'questline-maintenance', level: 'info' }, logs.stream);

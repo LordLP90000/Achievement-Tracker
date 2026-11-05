@@ -421,7 +421,7 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
   the worker are stopped: `node dist/maintenance.js <command>`. Each refuses while a `questline-api` or
   `questline-worker` session is connected to a database it would read or change, is idempotent, and logs only counts.
   `replay-after-restore` follows every restore: it takes over the tombstones of the database the restore replaced
-  (`REPLACED_DATABASE_URL`, read only) with their dates and deletes every account they name, 100 per
+  (`REPLACED_DATABASE_URL`, the migrator's role, read-only transactions) with their dates and deletes every account they name, 100 per
   transaction, with the hard delete's cascade. The restore runbook: `docs/runbooks/restore.md`.
 - Health: `/health/live` (process up), `/health/ready` (DB reachable, KEK loaded at startup and wrap/unwrap
   self-test passed).

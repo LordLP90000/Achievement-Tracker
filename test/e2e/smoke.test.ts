@@ -377,7 +377,7 @@ describe('container smoke test', () => {
     await sqlIn('postgres', 'alter database questline_restored rename to questline');
     const bootstrapped = await compose('run', '--rm', '--no-deps', '-T', 'db-init');
     const restoredAccounts = await sql(`select count(*) from users where id in ('${kept.id}', '${deleted.id}')`);
-    const source = `REPLACED_DATABASE_URL=postgres://questline_worker:${secrets.DB_PASSWORD_WORKER}@db:5432/questline_replaced`;
+    const source = `REPLACED_DATABASE_URL=postgres://questline_migrator:${secrets.DB_PASSWORD_MIGRATOR}@db:5432/questline_replaced`;
     const replayed = await maintenance('-e', source);
     const again = await maintenance('-e', source);
     await compose('up', '--detach', '--wait', '--no-deps', 'api', 'worker');

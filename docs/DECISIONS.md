@@ -547,11 +547,14 @@ Format: Context → Decision → Consequences → Tests that enforce it.
     finishes everything else and exits 1 (`MaintenanceIncompleteError`, `address_conflicts`) for a decision by
     hand. It never deletes an account the replaced database holds.
   - The passkeys, TOTP secret and recovery codes, replaced row for row. The rows keep their IDs, so the data key and
-    the associated data still fit.
+    the associated data still fit; they travel as JavaScript values, exact because every timestamp the app writes
+    comes from its clock in milliseconds.
   - The consents. When the replaced database holds a withdrawal the restored one lacks, the goal content is deleted
     first, as a withdrawal does.
 
   An account row it changes gets a version above both databases', so no ETag a client kept from either matches.
+  The replaced database is read with the migrator's role as well, in read-only transactions only: the worker may not
+  read passkeys, recovery codes or consents, and granting it that would widen what the running worker can see.
   Then it deletes every session with its tokens: every user signs in again. It works in batches of 100 accounts per
   transaction, is idempotent and logs counts per kind. Migration 0010 gives the migrator permissive policies on the
   tables with forced RLS that it touches: `user_keys`, `sessions`, `consents`, `passkeys`, `totp_secrets`,
