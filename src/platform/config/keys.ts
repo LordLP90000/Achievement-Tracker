@@ -144,6 +144,27 @@ export function loadRotationKeys(env: Env, appEnv: AppEnv): RotationKeys {
   return Object.freeze({ current, previous });
 }
 
+/** The keys a blind-index rotation needs (ADR-0020): the KEK opens the addresses, which are indexed again. */
+export interface ReindexKeys {
+  readonly kek: KekSourceConfig;
+  readonly blindIndexKey: Buffer;
+  readonly previousBlindIndexKey: Buffer | undefined;
+}
+
+/** `reindex-email-blind-index`: the current KEK and blind-index key, as the API loads them, and the previous key. */
+export function loadReindexKeys(env: Env, appEnv: AppEnv): ReindexKeys {
+  const issues: string[] = [];
+  const kek = parseKek(env, appEnv, issues);
+  const used = kek?.kind === 'env' ? [kek.localKek] : [];
+  const blindIndexKey = parseKey(env, 'BLIND_INDEX_KEY', issues, used);
+  const previousBlindIndexKey =
+    value(env, 'PREVIOUS_BLIND_INDEX_KEY') === undefined
+      ? undefined
+      : parseKey(env, 'PREVIOUS_BLIND_INDEX_KEY', issues, [...used, ...(blindIndexKey ? [blindIndexKey] : [])]);
+  if (issues.length > 0 || kek === undefined || blindIndexKey === undefined) throw new ConfigError(issues);
+  return Object.freeze({ kek, blindIndexKey, previousBlindIndexKey });
+}
+
 export function loadWorkerKeys(env: Env, appEnv: AppEnv): WorkerKeys {
   const issues: string[] = [];
   const kek = parseKek(env, appEnv, issues);

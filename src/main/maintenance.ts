@@ -1,14 +1,18 @@
 import type { Logger } from 'pino';
+import { reindexEmailBlindIndexes } from '../modules/accounts/reindex.ts';
 import { rewrapDataKeys, type RewrapKeks } from '../modules/accounts/rewrap.ts';
 import { replayAfterRestore } from '../modules/privacy/restore-replay.ts';
 import { ConfigError, type MaintenanceConfig } from '../platform/config/config.ts';
+import { createDataKeys } from '../platform/crypto/data-keys.ts';
+import type { Kek } from '../platform/crypto/kek-source.ts';
+import { localKeyWrapper } from '../platform/crypto/key-wrapper.ts';
 import { createDatabaseClient } from '../platform/db/client.ts';
 import { createDatabase, type Database } from '../platform/db/database.ts';
 import { connectedApplications } from '../platform/db/sessions.ts';
 import { systemClock, type Clock } from '../platform/time/clock.ts';
 
 /** The one-off maintenance commands (ADR-0020): `node dist/maintenance.js <command>`, with the migrator's role. */
-export const MAINTENANCE_COMMANDS = ['replay-after-restore', 'rewrap-data-keys'] as const;
+export const MAINTENANCE_COMMANDS = ['replay-after-restore', 'rewrap-data-keys', 'reindex-email-blind-index'] as const;
 export type MaintenanceCommand = (typeof MAINTENANCE_COMMANDS)[number];
 
 /** The processes that must be stopped first: they read and write the rows a command changes. */
@@ -31,6 +35,8 @@ const INCOMPLETE = {
   address_conflicts: 'some addresses were left as restored: decide by hand which account keeps each',
   /** `rewrap-data-keys`: no given KEK opens them (key-rotation runbook). */
   unknown_data_keys: 'some data keys open with no given KEK: they were left as they are',
+  /** `reindex-email-blind-index`: under neither key, or unreadable with the KEK (key-rotation runbook). */
+  unknown_blind_indexes: 'some blind indexes are under neither key or unreadable: they were left as they are',
 } as const;
 
 /** The command did everything it could and left the rest for a decision by hand; its log line has the counts. */
@@ -48,6 +54,12 @@ export interface MaintenanceDependencies {
   readonly clock?: Clock;
   /** `rewrap-data-keys` only: the current KEK and the previous ones, fetched by the entrypoint from their sources. */
   readonly keks?: RewrapKeks;
+  /** `reindex-email-blind-index` only: the KEK opens the addresses; the blind-index keys, current and previous. */
+  readonly blindIndex?: {
+    readonly kek: Kek;
+    readonly current: Uint8Array;
+    readonly previous: Uint8Array | undefined;
+  };
 }
 
 /** The command named by the arguments: exactly one known command, nothing else. */
@@ -93,9 +105,9 @@ export async function runMaintenance(
       logger.error({ command, connected }, 'maintenance refused');
       throw new MaintenanceRefusedError();
     }
-    await (command === 'rewrap-data-keys'
-      ? rewrap(restored, dependencies, logger)
-      : replay(restored, replaced, dependencies, logger));
+    if (command === 'rewrap-data-keys') await rewrap(restored, dependencies, logger);
+    else if (command === 'reindex-email-blind-index') await reindex(restored, dependencies, logger);
+    else await replay(restored, replaced, dependencies, logger);
   } finally {
     await Promise.all([target.close(), source?.close()]);
   }
@@ -117,4 +129,12 @@ async function rewrap(db: Database, dependencies: MaintenanceDependencies, logge
   const result = await rewrapDataKeys(db, dependencies.keks, (dependencies.clock ?? systemClock).now());
   logger.info({ command: 'rewrap-data-keys', ...result }, 'data keys re-wrapped');
   if (result.unknown > 0) throw new MaintenanceIncompleteError('unknown_data_keys');
+}
+
+async function reindex(db: Database, dependencies: MaintenanceDependencies, logger: Logger): Promise<void> {
+  const keys = dependencies.blindIndex;
+  if (keys === undefined) throw new TypeError('reindex-email-blind-index needs the keys');
+  const result = await reindexEmailBlindIndexes(db, createDataKeys(localKeyWrapper(keys.kek)), keys);
+  logger.info({ command: 'reindex-email-blind-index', ...result }, 'blind indexes re-indexed');
+  if (result.unknown > 0) throw new MaintenanceIncompleteError('unknown_blind_indexes');
 }

@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { BLIND_INDEX_KEY_MIN_BYTES, emailBlindIndex, normalizeEmail } from './blind-index.ts';
+import { BLIND_INDEX_KEY_MIN_BYTES, emailBlindIndex, normalizeEmail, reindexBlindIndex } from './blind-index.ts';
 
 const KEY = Buffer.alloc(32, 0x0b);
 
@@ -46,5 +46,40 @@ describe('emailBlindIndex [R-ENC-02]', () => {
     expect(() => emailBlindIndex(Buffer.alloc(31, 1), 'alice@example.test')).toThrow(
       new RangeError('blind-index key must be at least 32 bytes'),
     );
+  });
+});
+
+/** Rotating the blind-index key (ADR-0020, RR-3): each stored index ends up under the current key. */
+describe('reindexBlindIndex (ADR-0020) [R-ENC-02, RR-3]', () => {
+  const [previous, current] = [randomBytes(32), randomBytes(32)];
+  const address = 'Alice@Example.test';
+
+  it('keeps an index already under the current key', () => {
+    expect(reindexBlindIndex(emailBlindIndex(current, address), address, current, previous)).toEqual({
+      outcome: 'current',
+    });
+  });
+
+  it('replaces an index under the previous key with the one under the current key', () => {
+    expect(reindexBlindIndex(emailBlindIndex(previous, address), address, current, previous)).toEqual({
+      outcome: 'reindexed',
+      blindIndex: emailBlindIndex(current, address),
+    });
+  });
+
+  it('reports an index under neither key, or of another address, and one when no previous key is given', () => {
+    expect(reindexBlindIndex(emailBlindIndex(randomBytes(32), address), address, current, previous)).toEqual({
+      outcome: 'unknown',
+    });
+    expect(reindexBlindIndex(emailBlindIndex(previous, 'bob@example.test'), address, current, previous)).toEqual({
+      outcome: 'unknown',
+    });
+    expect(reindexBlindIndex(emailBlindIndex(previous, address), address, current, undefined)).toEqual({
+      outcome: 'unknown',
+    });
+  });
+
+  it('compares a stored index of another length as unknown, not as an error', () => {
+    expect(reindexBlindIndex(Buffer.alloc(31), address, current, previous)).toEqual({ outcome: 'unknown' });
   });
 });

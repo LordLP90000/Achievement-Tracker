@@ -60,6 +60,8 @@ export interface AccountsApp {
   readonly dataKeys: DataKeys;
   /** The KEK of the API instances, for starting a worker on the same database. */
   readonly kek: Kek;
+  /** The API instances' blind-index key, for rotating it (ADR-0020). */
+  readonly blindIndexKey: Uint8Array;
   /** Runs after every successful or failed password verification, before the login continues (race tests). */
   afterPasswordVerified: (() => Promise<void>) | undefined;
   blindIndex(email: string): Buffer;
@@ -232,6 +234,7 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
     admin,
     dataKeys: createDataKeys(wrapper),
     kek,
+    blindIndexKey,
     afterPasswordVerified: undefined,
     blindIndex: (email) => emailBlindIndex(blindIndexKey, email),
     hashCount: () => hashes,

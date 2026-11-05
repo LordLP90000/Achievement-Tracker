@@ -446,6 +446,43 @@ describe('container smoke test', () => {
     }
   }, 240_000);
 
+  it('rehearses a blind-index key rotation: every address indexed again, the API restarted with the new key [RR-3, ADR-0020]', async () => {
+    const account = await signedUp('indexed');
+    const [previous, next] = [env['BLIND_INDEX_KEY'] ?? '', key()];
+    const reindex = () =>
+      compose(
+        ...['run', '--rm', '--no-deps', '-T', '-e', 'KEK_SOURCE=env', '-e', `LOCAL_KEK=${env['LOCAL_KEK'] ?? ''}`],
+        ...['-e', `BLIND_INDEX_KEY=${next}`, '-e', `PREVIOUS_BLIND_INDEX_KEY=${previous}`],
+        ...['migrate', 'dist/maintenance.js', 'reindex-email-blind-index'],
+      );
+    const accounts = () => sql('select count(*) from users');
+
+    await compose('stop', 'api', 'worker');
+    const reindexed = await reindex();
+    const again = await reindex();
+    env['BLIND_INDEX_KEY'] = next;
+    await compose('up', '--detach', '--wait', '--no-deps', 'api', 'worker');
+    const before = await accounts();
+    const registeredAgain = await api('/v1/auth/register', {
+      body: {
+        email: account.email,
+        password: acceptedPassword(),
+        privacy_policy_version: '2026-10-01',
+        age_confirmed: true,
+      },
+    });
+
+    expect(summaryOf(reindexed, 'blind indexes re-indexed')).toMatchObject({ current: 0, unknown: 0 });
+    expect(summaryOf(reindexed, 'blind indexes re-indexed')['reindexed']).toBeGreaterThan(0);
+    expect(summaryOf(again, 'blind indexes re-indexed')).toMatchObject({ reindexed: 0, unknown: 0 });
+    // The API finds the address under the new key: the account signs in, and registering it again adds no account.
+    expect(await loginStatus(account)).toBe(200);
+    expect([registeredAgain.status, await accounts()]).toEqual([202, before]);
+    for (const output of [reindexed, again]) {
+      for (const value of [previous, next, account.email]) expect(output.stdout + output.stderr).not.toContain(value);
+    }
+  }, 240_000);
+
   it('never writes a password to any container log', async () => {
     const { stdout, stderr } = await compose('logs', '--no-color');
 

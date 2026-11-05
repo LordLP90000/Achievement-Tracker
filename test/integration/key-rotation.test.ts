@@ -3,8 +3,11 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { MaintenanceIncompleteError, MaintenanceRefusedError, runMaintenance } from '../../src/main/maintenance.ts';
 import { emailField } from '../../src/modules/accounts/account-mail.ts';
 import { storeRewrappedKey } from '../../src/modules/accounts/rewrap-repository.ts';
+import { storeAddressIndex, storePendingIndex } from '../../src/modules/accounts/reindex-repository.ts';
+import { reindexEmailBlindIndexes } from '../../src/modules/accounts/reindex.ts';
 import { rewrapDataKeys } from '../../src/modules/accounts/rewrap.ts';
 import type { MaintenanceConfig } from '../../src/platform/config/config.ts';
+import { emailBlindIndex } from '../../src/platform/crypto/blind-index.ts';
 import { createDataKeys } from '../../src/platform/crypto/data-keys.ts';
 import { decryptText } from '../../src/platform/crypto/field-cipher.ts';
 import { envKekSource, type Kek } from '../../src/platform/crypto/kek-source.ts';
@@ -189,5 +192,154 @@ describe('KEK rotation: every data key re-wrapped under the new KEK [ADR-0020, Q
 
       expect(await storedKey(account.userId)).toEqual(before);
     });
+  });
+});
+
+/**
+ * Blind-index key rotation (ADR-0020, RR-3): `reindex-email-blind-index` decrypts every address, and every new address
+ * of a pending email change, and stores its blind index under the new key. The app's accounts are indexed under its
+ * key, the old one.
+ */
+describe('blind-index key rotation: every address indexed again under the new key [ADR-0020, RR-3, R-ENC-02]', () => {
+  let ctx: AccountsApp;
+  let opened: DatabaseClient[] = [];
+
+  const client = (url: string, applicationName = 'questline-maintenance') => {
+    const created = createDatabaseClient({ url, applicationName });
+    opened = [...opened, created];
+    return created;
+  };
+  const migrator = () => createDatabase(client(ctx.database.urls.migrator));
+  const dataKeys = () => createDataKeys(localKeyWrapper(ctx.kek));
+  const indexOf = async (userId: string) =>
+    (await ctx.admin.sql<{ index: Buffer }[]>`select email_blind_index as index from users where id = ${userId}`)[0]
+      ?.index;
+  const pendingIndexOf = async (userId: string) =>
+    (
+      await ctx.admin.sql<{ index: Buffer }[]>`
+        select new_email_blind_index as index from one_time_tokens
+        where user_id = ${userId} and new_email_blind_index is not null`
+    )[0]?.index;
+  const requestAddressChange = async (account: { email: string; password: string }, address: string) => {
+    const login = await ctx.post('/v1/auth/login', { email: account.email, password: account.password, client: 'ios' });
+    const { access_token: token } = login.json<{ access_token: string }>();
+    const requested = await ctx.post(
+      '/v1/me/email-change',
+      { new_email: address },
+      { authorization: `Bearer ${token}` },
+    );
+    if (requested.statusCode !== 202) throw new Error(`email change answered ${String(requested.statusCode)}`);
+  };
+
+  beforeAll(async () => {
+    ctx = await startAccountsApp();
+  });
+
+  beforeEach(async () => {
+    await ctx.admin.sql`delete from users`;
+  });
+
+  afterEach(async () => {
+    await Promise.all(opened.map((created) => created.close()));
+    opened = [];
+  });
+
+  afterAll(async () => {
+    await ctx.close();
+  });
+
+  it('indexes every address and every pending new address under the new key, batch by batch', async () => {
+    const [first, second] = [await ctx.account(), await ctx.account()];
+    const moving = 'moving-on@example.test';
+    await requestAddressChange(first, moving);
+    const next = randomBytes(32);
+
+    const result = await reindexEmailBlindIndexes(
+      migrator(),
+      dataKeys(),
+      {
+        current: next,
+        previous: ctx.blindIndexKey,
+      },
+      { batchSize: 1 },
+    );
+
+    expect(result).toEqual({ current: 0, reindexed: 3, unknown: 0 });
+    expect([await indexOf(first.userId), await indexOf(second.userId), await pendingIndexOf(first.userId)]).toEqual([
+      emailBlindIndex(next, first.email),
+      emailBlindIndex(next, second.email),
+      emailBlindIndex(next, moving),
+    ]);
+  });
+
+  it('changes nothing on a second run', async () => {
+    const account = await ctx.account();
+    const next = randomBytes(32);
+    await reindexEmailBlindIndexes(migrator(), dataKeys(), { current: next, previous: ctx.blindIndexKey });
+
+    expect(
+      await reindexEmailBlindIndexes(migrator(), dataKeys(), { current: next, previous: ctx.blindIndexKey }),
+    ).toEqual({ current: 1, reindexed: 0, unknown: 0 });
+    expect(await indexOf(account.userId)).toEqual(emailBlindIndex(next, account.email));
+  });
+
+  it('stores a new index only over the one it replaces, for an address and for a pending one', async () => {
+    const account = await ctx.account();
+    await requestAddressChange(account, 'elsewhere@example.test');
+    const [before, pendingBefore] = [await indexOf(account.userId), await pendingIndexOf(account.userId)];
+    const [token] = await ctx.admin.sql<{ id: string }[]>`
+      select id from one_time_tokens where user_id = ${account.userId} and new_email_blind_index is not null`;
+
+    await inTransaction(migrator(), async (tx) => {
+      await storeAddressIndex(tx, account.userId, randomBytes(32), randomBytes(32));
+      await storePendingIndex(tx, token?.id ?? '', randomBytes(32), randomBytes(32));
+    });
+
+    expect([await indexOf(account.userId), await pendingIndexOf(account.userId)]).toEqual([before, pendingBefore]);
+  });
+
+  it('as the command: leaves an index under neither key as it is, counts it, and fails for a decision by hand', async () => {
+    const account = await ctx.account();
+    const stray = await ctx.account();
+    const strayIndex = emailBlindIndex(randomBytes(32), stray.email);
+    await ctx.admin.sql`update users set email_blind_index = ${strayIndex} where id = ${stray.userId}`;
+    const next = randomBytes(32);
+    const logs = new LogCapture();
+
+    await expect(
+      runMaintenance(
+        'reindex-email-blind-index',
+        {
+          appEnv: 'test',
+          logLevel: 'info',
+          databaseUrl: ctx.database.urls.migrator,
+          replacedDatabaseUrl: undefined,
+        },
+        createLogger({ service: 'questline-maintenance', level: 'info' }, logs.stream),
+        { blindIndex: { kek: ctx.kek, current: next, previous: ctx.blindIndexKey } },
+      ),
+    ).rejects.toBeInstanceOf(MaintenanceIncompleteError);
+
+    expect(logs.records().find((record) => record['msg'] === 'blind indexes re-indexed')).toMatchObject({
+      current: 0,
+      reindexed: 1,
+      unknown: 1,
+    });
+    expect(await indexOf(stray.userId)).toEqual(strayIndex);
+    expect(await indexOf(account.userId)).toEqual(emailBlindIndex(next, account.email));
+    expect(logs.text).not.toContain(stray.email);
+  });
+
+  it('counts an account whose data key the KEK does not open as unknown, and goes on with the rest', async () => {
+    const account = await ctx.account();
+    const locked = await ctx.account();
+    const stray = localKeyWrapper(await envKekSource(randomBytes(32))()).wrap(generateDataKey(), locked.userId);
+    await ctx.admin.sql`update user_keys set wrapped_dek = ${stray.blob} where user_id = ${locked.userId}`;
+    const next = randomBytes(32);
+
+    expect(
+      await reindexEmailBlindIndexes(migrator(), dataKeys(), { current: next, previous: ctx.blindIndexKey }),
+    ).toEqual({ current: 0, reindexed: 1, unknown: 1 });
+    expect(await indexOf(account.userId)).toEqual(emailBlindIndex(next, account.email));
   });
 });

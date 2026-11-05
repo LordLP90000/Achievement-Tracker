@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, type Env } from './config.ts';
-import { loadApiKeys, loadRotationKeys, loadWorkerKeys } from './keys.ts';
+import { loadApiKeys, loadReindexKeys, loadRotationKeys, loadWorkerKeys } from './keys.ts';
 
 const key = (bytes = 32) => randomBytes(bytes).toString('base64');
 const VAULT = 'a1b2c3d4e5f6g7h8i9j0k1l2m3';
@@ -222,5 +222,42 @@ describe('loadRotationKeys (ADR-0020) [R-ENC-05, E-11]', () => {
 
     expect(issues).toEqual(expected);
     expect(issues.join(' ')).not.toContain(localKek);
+  });
+});
+
+describe('loadReindexKeys (ADR-0020) [R-ENC-02, RR-3]', () => {
+  const blindIndexKey = devEnv['BLIND_INDEX_KEY'] ?? '';
+
+  it('reads the current KEK, which opens the addresses, the blind-index key and the previous one', () => {
+    const previous = key(48);
+
+    expect(loadReindexKeys({ ...devEnv, PREVIOUS_BLIND_INDEX_KEY: previous }, 'development')).toEqual({
+      kek: { kind: 'env', localKek: Buffer.from(localKek, 'base64') },
+      blindIndexKey: Buffer.from(blindIndexKey, 'base64'),
+      previousBlindIndexKey: Buffer.from(previous, 'base64'),
+    });
+  });
+
+  it('runs without a previous key: every index must then be under the current one', () => {
+    expect(loadReindexKeys(devEnv, 'development').previousBlindIndexKey).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'a previous key that is too short',
+      { ...devEnv, PREVIOUS_BLIND_INDEX_KEY: key(16) },
+      ['PREVIOUS_BLIND_INDEX_KEY: must be 32 to 64 random bytes in base64'],
+    ],
+    [
+      'the current key again',
+      { ...devEnv, PREVIOUS_BLIND_INDEX_KEY: blindIndexKey },
+      ['PREVIOUS_BLIND_INDEX_KEY: must differ from the other keys'],
+    ],
+    ['no blind-index key', { KEK_SOURCE: 'env', LOCAL_KEK: localKek }, ['BLIND_INDEX_KEY: is required']],
+  ] as const)('refuses %s, naming the variable but not its value', (_name, env, expected) => {
+    const issues = issuesOf(() => loadReindexKeys(env, 'development'));
+
+    expect(issues).toEqual(expected);
+    expect(issues.join(' ')).not.toContain(blindIndexKey);
   });
 });
