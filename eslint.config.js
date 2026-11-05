@@ -89,8 +89,8 @@ export default defineConfig(
     rules: { 'no-restricted-syntax': ['error', ...CLOCK_READS] },
   },
   {
-    // The end-to-end smoke test drives the Docker CLI; nothing else may spawn processes.
-    files: ['test/e2e/**/*.ts'],
+    // The end-to-end smoke test and the load and DAST runner drive the Docker CLI; nothing else may spawn processes.
+    files: ['test/e2e/**/*.ts', 'test/perf/**/*.ts'],
     rules: { 'no-restricted-imports': 'off' },
   },
   {

@@ -20,6 +20,8 @@
     "test:unit": "vitest run --project unit",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:load": "node test/perf/run.ts k6",
+    "test:dast": "node test/perf/run.ts zap",
     "build:password-filter": "node scripts/build-password-filter.ts",
     "deps:check": "depcruise src test --config .dependency-cruiser.mjs",
     "mutation": "stryker run",

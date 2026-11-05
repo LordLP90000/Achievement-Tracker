@@ -1,0 +1,6 @@
+10021	FAIL	(X-Content-Type-Options Header Missing)
+10036	FAIL	(Server Leaks Version Information via "Server" HTTP Response Header Field)
+10037	FAIL	(Server Leaks Information via "X-Powered-By" HTTP Response Header Field(s))
+10062	FAIL	(PII Disclosure)
+10098	FAIL	(Cross-Domain Misconfiguration)
+90022	FAIL	(Application Error Disclosure)

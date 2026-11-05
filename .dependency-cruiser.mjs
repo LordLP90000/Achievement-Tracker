@@ -81,7 +81,8 @@ export default {
       name: 'no-unresolvable-imports',
       severity: 'error',
       from: {},
-      to: { couldNotResolve: true },
+      // k6 provides its own modules to the load test (test/perf/limits.js) at run time.
+      to: { couldNotResolve: true, pathNot: '^k6(/|$)' },
     },
   ],
   options: {
