@@ -277,6 +277,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   `src/platform/crypto/kek-source.test.ts` (Connect client against a local stub: happy path, 401/403/404/500, redirect,
   timeout, unreachable, malformed items and keys → startup failure; no token or key in any error),
   `key-wrapper.test.ts`, `integration/key-rotation.test.ts`.
+- **Rotation (2026-11-05):** a new version of the KEK item cannot be re-wrapped from, because the Connect server
+  returns only an item's current version; ADR-0020 (proposed) rotates with a new item and checks only `kek_id` when
+  unwrapping.
 
 ## ADR-0014 · Email delivery via generic SMTP (`nodemailer`)
 
@@ -473,3 +476,53 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   software authenticator (a forged signature, a wrong origin or RP ID, a reused, expired or foreign challenge, a
   counter rollback, another account's credential), login with a second factor, step-up, enumeration, rate limits,
   and the generated contract and security suites for every new operation.
+
+## ADR-0020 · Maintenance commands: tombstone replay after a restore, KEK re-wrap, blind-index re-index (M6)
+
+- **Status:** proposed (2026-11-05, M6 kickoff)
+- **Context:** M6 owes three operations that rewrite rows of every account at once: replaying tombstones after a
+  restore (Q-13, ADR-0006; threats I-18, RR-4), re-wrapping every data key under a new KEK (ADR-0013, E-11) and
+  re-indexing every address under a new blind-index key (RR-3). Neither running process can do them: the API's role
+  sees one user at a time, the worker never holds the blind-index key, and while the API answers with the old key a
+  re-index would let a second account register an address that is already taken. Preparing them found two problems
+  in M2's KEK handling:
+  - ADR-0013 rotates by "a new KEK item version → re-wrap job", but the Connect server returns only an item's
+    current version: once the key in the item is changed, the old one is gone, and nothing can unwrap the data keys
+    it wrapped.
+  - `localKeyWrapper.unwrap` refuses a data key whose `kek_version` differs from the item's version, and every edit
+    of the item raises that version — a note, a tag, a new title. One edit would make every data key unreadable:
+    fail closed, but an outage of the whole service until a code change.
+- **Decision:**
+  - **One maintenance entrypoint** in the same image (`src/maintenance.ts`, run as
+    `node dist/maintenance.js <command>`), started as a one-off job like the migration and with the migrator's
+    database role (`DATABASE_URL_MIGRATOR`), so the API and the worker gain no privilege. Migration 0010 gives
+    `questline_migrator` a policy on `user_keys`, the one table it needs whose RLS is forced against its owner. The
+    owner could lift RLS anyway, so the policy crosses no boundary, but it keeps the access explicit and tested.
+  - **Offline**: each command runs while the API and the worker are stopped. It refuses to start while a session of
+    `questline-api` or `questline-worker` is connected (a best-effort guard; the runbook's "stop them first" is the
+    control). Each command is idempotent and resumable: after any failure, run it again.
+  - `replay-tombstones`: copies the tombstones of the database the restore replaces
+    (`TOMBSTONE_SOURCE_DATABASE_URL`, read only) into the restored one, each with its date, so it still expires 35
+    days after the deletion, and deletes every account a tombstone names, 100 per statement with the hard delete's
+    cascade. Without a source it replays the restored database's own tombstones.
+  - `rewrap-data-keys`: opens every data key with the current KEK or one of the previous KEKs given
+    (`OP_PREVIOUS_KEK_ITEM_ID`, a second item in the same vault; `PREVIOUS_LOCAL_KEK` in development) — the AEAD
+    tells which key fits, so labels never decide — and stores it wrapped by the current KEK, with its labels. A data
+    key that no given KEK opens is counted and left as it is, and the command fails.
+  - `reindex-email-blind-index`: decrypts every address, and every pending new address of an email change, with the
+    user's data key. A blind index under the previous key (`PREVIOUS_BLIND_INDEX_KEY`) is replaced by one under the
+    current key (`BLIND_INDEX_KEY`), and one under the current key is kept; one under neither is counted and left as
+    it is, and the command fails.
+  - **KEK labels**: `kek_id` names the 1Password item (`onepassword:<vault>/<item>`), and unwrapping checks it
+    alone; `kek_version` records the item's version when the key was wrapped, for information. A rotation creates a
+    **new item** and never changes the key of an existing one. The old item stays, archived, until the last backup
+    taken before the rotation has expired (30 days), because restoring such a backup needs it.
+- **Consequences:** a rotation or a restore takes a maintenance window: stop the API and the worker, run the
+  command, start them with the new settings (timings in the runbooks, from the drills). The rate-limit key needs no
+  command: a new key only resets the buckets, which live 24 hours. A restore to an earlier point also loses what
+  happened after it besides completed deletions — deletion requests, consent withdrawals, revoked sessions: put to
+  the PM with the restore drill.
+- **Tests:** `test/integration/tombstone-replay.test.ts`, `test/integration/restore-drill.test.ts`,
+  `test/integration/key-rotation.test.ts` (named in ADR-0006 and ADR-0013 since M0),
+  `src/platform/crypto/key-wrapper.test.ts`, `test/security/db-roles.test.ts`, `test/security/rls-coverage.test.ts`;
+  the drills on the local Compose stack, recorded in the runbooks.

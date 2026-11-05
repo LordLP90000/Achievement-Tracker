@@ -12,7 +12,7 @@ Updated after every completed task (date, task, tests, commit). Newest entries a
 | M3 | Core domain | DONE | `master` | [docs/reports/M3-status-report.md](reports/M3-status-report.md) |
 | M4 | Privacy rights | DONE | `master` | [docs/reports/M4-status-report.md](reports/M4-status-report.md) |
 | M5 | Auth hardening | DONE | `master` | [docs/reports/M5-status-report.md](reports/M5-status-report.md) |
-| M6 | Hardening & handover | not started | – | – |
+| M6 | Hardening & handover | IN PROGRESS | `master` | – |
 
 Legend: `not started` · `IN PROGRESS` · `REVIEW` (report sent, waiting for PM "go") · `DONE`
 
@@ -244,4 +244,29 @@ test strategy, client guidance) → report · `m5-node-26-13` today from 17:58 (
 | 2026-11-04 | **M5 status report** (`docs/reports/M5-status-report.md`): every deliverable done — 51 of 51 operations implemented and frozen (contract `0.4.7`); milestone table M5 → REVIEW; README status. O-08 now counts the eighth email (the M5 notice). One correction in this log: the passkey sign-in row named the challenge's 5-minute boundary among its 4 new tests, where it extended an existing one, and left out the new backup-state test | Final numbers: 2 138 tests in 130 files and 13 e2e checks, all green; coverage 98.99 % / 97.5 %, the domain all 268 branches; Stryker full run **99.26 %** (domain 100 %, `platform/crypto` 97.4 % with only M2's 12 survivors left, `platform/webauthn` 100 %); M5 fault injection 142 of 142 caught; Semgrep 0 findings; CI runs #108–#121 green; the dev-only exceptions re-checked (no parent accepts a fixed version yet) | `9965cb3` |
 | 2026-11-04 | **Node 26.13.0 LTS** (the last M4 task, planned since `eebf046`; the 7-day rule of ADR-0016): `.nvmrc` 26.12.1 → 26.13.0 for the local toolchain and CI; the build stages on `node:26.13.0-trixie-slim` (the digest built 2026-10-28 20:56 UTC) and the runtime on the distroless `nodejs26-debian13:nonroot` digest uploaded 2026-10-28 21:35 UTC, with Node 26.13.0 inside; both pinned by digest and adopted once 7 days old, at 22:35 local. The newer `nonroot` digest of 2026-10-31 stays out until it is 7 days old as well | Full suite on Node 26.13.0: 2 138 tests in 130 files, coverage unchanged (98.99 % / 97.5 %); the image built (300 MB) and scanned with CI's Trivy 0.76.1: 0 HIGH/CRITICAL including unfixed, no secrets (Debian 13.7); e2e 13/13 on the new image; `node --version` in the runtime image → v26.13.0 | `e75c204` |
 | 2026-11-04 | **M5 report: two decisions for M6 added** (found while preparing the handoff): the plan's M6 row lists O-04 (the consent and policy texts) and a budget among what M6 needs from the PM, but the report asked only for O-01…O-03 and the domain. Both are now in its decisions table, with options and a recommendation, and in its summary and M6 preview | n/a (docs only); Prettier and the cross-reference check clean | `89dbe8c` |
-| 2026-11-05 | **M5 closed: the PM's "go" for M6**, with no decisions on the open items: O-01 (hosting), O-02 (SMTP relay), O-03 (Connect), Q-19 (domain), the staging budget and O-04 (consent and policy texts) stay open, so M6 starts with the work that needs none of them. Aligned: M5 report addendum (what stays blocked until they are decided), plan (the M6 row); milestone table: M5 DONE | n/a (docs); cross-reference check; CI runs #122–#124 and the nightly run of 2026-11-04 (#106) green | this commit |
+| 2026-11-05 | **M5 closed: the PM's "go" for M6**, with no decisions on the open items: O-01 (hosting), O-02 (SMTP relay), O-03 (Connect), Q-19 (domain), the staging budget and O-04 (consent and policy texts) stay open, so M6 starts with the work that needs none of them. Aligned: M5 report addendum (what stays blocked until they are decided), plan (the M6 row); milestone table: M5 DONE | n/a (docs); cross-reference check; CI runs #122–#124 and the nightly run of 2026-11-04 (#106) green | `d5cf4a7` |
+
+## M6 – Hardening & handover
+
+Goal: make Questline operable and reviewable before launch: the API reference, the restore drill with tombstone
+replay, key rotation (KEK re-wrap, blind-index re-index) with its runbook, the operations and breach-notification
+runbooks, load tests (k6) and a DAST scan (ZAP), the staging deployment, and the review package for the
+data-protection expert. Started on 2026-11-05 with the PM's "go" but without the host (O-01), the SMTP relay (O-02),
+the Connect details (O-03), the domain (Q-19), a staging budget and the policy texts (O-04), so the work that needs
+none of them comes first. The maintenance commands are designed in ADR-0020 (proposed). Scope: `docs/plan.md` → M6.
+All commits are pushed directly to `master`.
+
+Task order (arrows are real dependencies): `m6-api-reference` (a Redoc build of the contract) ·
+`m6-tombstone-replay` (the maintenance entrypoint, ADR-0020) → `m6-restore-drill` (an automated drill, one on the
+local stack, the restore runbook) · `m6-kek-labels` (unwrapping checks the KEK's item, not its version) →
+`m6-kek-rewrap` (migration 0010; also needs the entrypoint) → `m6-blind-index-reindex` → `m6-key-rotation-runbook`
+(the KEK drill on the local stack, E-11) · `m6-crypto-survivors` (M2's 12 Stryker survivors) · `m6-breach-runbook` ·
+`m6-ops-runbook` (after the other runbooks) · `m6-k6` and `m6-zap` (new images, approved by the PM first; rehearsed
+against the local stack) → `m6-review-package` → report. **Blocked** until the PM decides: `m6-staging` (O-01 and a
+budget; the IaC tool needs approval) → `m6-staging-runs` (ZAP, k6, the restore and KEK drills against staging) ·
+`m6-real-services` (O-02, O-03) · `m6-domain` (Q-19: the TLS check I-08, the association files, the RP ID) · the
+policy draft in the review package (O-04).
+
+| Date | Task | Tests | Commit |
+|------|------|-------|--------|
+| 2026-11-05 | Kickoff after the PM's "go" (`d5cf4a7`): milestone table M6 IN PROGRESS, the tasks above with their dependencies, **ADR-0020 proposed**: maintenance commands for a restore (tombstone replay) and for key rotation (KEK re-wrap, blind-index re-index), run offline as one-off jobs with the migrator's role, which migration 0010 gives a policy on `user_keys`. Two findings in M2's KEK handling while preparing them: ADR-0013's "new item version → re-wrap job" cannot work, as the Connect server returns only an item's current version; and unwrapping refuses a data key whose `kek_version` differs from the item's version, which every edit of the item raises, so one edit would make every data key unreadable (fail closed, an outage). A pointer in ADR-0013. Baseline: 2 138 tests in 130 files and 13 e2e checks, coverage 98.99 % / 97.5 %, Stryker 99.26 %, 51 of 51 operations, contract `0.4.7`; README status | n/a (plan); CI run #124 and the nightly run of 2026-11-04 green; cross-reference check | this commit |
