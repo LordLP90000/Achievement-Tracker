@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import sodium from 'sodium-native';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { envKekSource, KekSourceError, onePasswordConnectKekSource } from './kek-source.ts';
 
 const VAULT = 'a1b2c3d4e5f6g7h8i9j0k1l2m3';
@@ -24,7 +25,7 @@ const kekItem = (value: string = KEK.toString('base64'), extra: Record<string, u
 
 interface Stub {
   readonly url: URL;
-  readonly requests: { method: string; path: string; authorization: string | undefined }[];
+  readonly requests: { method: string; path: string; authorization: string | undefined; accept: string | undefined }[];
   close(): Promise<void>;
 }
 
@@ -37,6 +38,7 @@ async function connectStub(handler: (request: IncomingMessage, response: ServerR
       method: request.method ?? '',
       path: request.url ?? '',
       authorization: request.headers.authorization,
+      accept: request.headers.accept,
     });
     handler(request, response);
   });
@@ -88,7 +90,12 @@ describe('onePasswordConnectKekSource (ADR-0013) [R-ENC-05, E-11]', () => {
     const kek = await source(stub.url)();
 
     expect(stub.requests).toEqual([
-      { method: 'GET', path: `/v1/vaults/${VAULT}/items/${ITEM}`, authorization: `Bearer ${TOKEN}` },
+      {
+        method: 'GET',
+        path: `/v1/vaults/${VAULT}/items/${ITEM}`,
+        authorization: `Bearer ${TOKEN}`,
+        accept: 'application/json',
+      },
     ]);
     expect(Buffer.from(kek.key)).toEqual(KEK);
     expect(kek.key.secure).toBe(true);
@@ -101,7 +108,7 @@ describe('onePasswordConnectKekSource (ADR-0013) [R-ENC-05, E-11]', () => {
     expect(Buffer.from((await source(stub.url)()).key)).toEqual(KEK);
   });
 
-  it.each([401, 403, 404, 500])('refuses to start when Connect answers %s', async (status) => {
+  it.each([304, 401, 403, 404, 500])('refuses to start when Connect answers %s', async (status) => {
     const stub = await connectStub(json(status, { status, message: 'nope' }));
 
     expect((await failure(source(stub.url)())).code).toBe(`connect_http_${String(status)}`);
@@ -148,11 +155,31 @@ describe('onePasswordConnectKekSource (ADR-0013) [R-ENC-05, E-11]', () => {
     expect((await failure(source(stub.url)())).code).toBe(code);
   });
 
+  it('accepts an item of exactly 64 KiB', async () => {
+    const item = JSON.stringify(kekItem());
+    const stub = await connectStub(json(200, item + ' '.repeat(64 * 1024 - Buffer.byteLength(item))));
+
+    expect(Buffer.from((await source(stub.url)()).key)).toEqual(KEK);
+  });
+
+  it('wipes the decoded key once it is in guarded memory', async () => {
+    const stub = await connectStub(json(200, kekItem()));
+    const memzero = vi.spyOn(sodium, 'sodium_memzero');
+
+    const kek = await source(stub.url)();
+
+    const wiped = memzero.mock.calls.map(([buffer]) => [buffer.length, buffer.every((byte) => byte === 0)]);
+    expect(wiped).toEqual([[32, true]]);
+    expect(Buffer.from(kek.key)).toEqual(KEK);
+  });
+
   it.each([
     { vaultId: '../../v1/health', itemId: ITEM },
     { vaultId: VAULT, itemId: `${ITEM}?x=1` },
     { vaultId: VAULT.toUpperCase(), itemId: ITEM },
     { vaultId: VAULT.slice(1), itemId: ITEM },
+    { vaultId: `../${VAULT}`, itemId: ITEM },
+    { vaultId: VAULT, itemId: `x/${ITEM}` },
   ])('refuses identifiers that could change the request path: %j', (ids) => {
     expect(() =>
       onePasswordConnectKekSource({ url: new URL('https://connect.example.test'), token: TOKEN, timeoutMs: 1, ...ids }),

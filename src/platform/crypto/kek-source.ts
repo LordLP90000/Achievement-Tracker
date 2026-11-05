@@ -83,18 +83,17 @@ async function fetchItem(endpoint: URL, options: OnePasswordConnectOptions): Pro
 }
 
 function kekField(body: string, vaultId: string): { value: string; version: number } {
-  let json: unknown;
+  if (Buffer.byteLength(body) > MAX_ITEM_BYTES) throw new KekSourceError('invalid_item');
+  let item: z.infer<typeof itemSchema>;
   try {
-    json = JSON.parse(body);
+    item = itemSchema.parse(JSON.parse(body));
   } catch {
+    // Neither error may leave: a JSON syntax error quotes the body, and the body holds the key.
     throw new KekSourceError('invalid_item');
   }
-  const item = itemSchema.safeParse(json);
-  const value = item.data?.fields.find((field) => field.label === 'kek')?.value;
-  if (Buffer.byteLength(body) > MAX_ITEM_BYTES || item.data?.vault.id !== vaultId || value === undefined) {
-    throw new KekSourceError('invalid_item');
-  }
-  return { value, version: item.data.version };
+  const value = item.fields.find((field) => field.label === 'kek')?.value;
+  if (item.vault.id !== vaultId || value === undefined) throw new KekSourceError('invalid_item');
+  return { value, version: item.version };
 }
 
 /** Production: `GET /v1/vaults/{vault}/items/{item}` on the Connect server; the KEK is the item's `kek` field. */

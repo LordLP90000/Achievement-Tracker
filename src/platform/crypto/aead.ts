@@ -38,12 +38,13 @@ export function fieldAssociatedData(context: FieldContext): Buffer {
   if (!COLUMN.test(context.field)) throw new RangeError('field must be a lower-case column name');
   const userId = requireUuid(context.userId, 'userId');
   const recordId = requireUuid(context.recordId, 'recordId');
-  return Buffer.from(`questline|v1|${userId}|${recordId}|${context.field}`, 'utf8');
+  // Buffer.from encodes a string as UTF-8.
+  return Buffer.from(`questline|v1|${userId}|${recordId}|${context.field}`);
 }
 
 /** `questline|v1|dek|<user_id>`: a wrapped data key only unwraps for its user and never as a field value. */
 export function keyWrapAssociatedData(userId: string): Buffer {
-  return Buffer.from(`questline|v1|dek|${requireUuid(userId, 'userId')}`, 'utf8');
+  return Buffer.from(`questline|v1|dek|${requireUuid(userId, 'userId')}`);
 }
 
 function requireKey(key: Uint8Array): void {

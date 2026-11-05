@@ -152,6 +152,7 @@ describe('associated data (ADR-0006, ADR-0013)', () => {
       'userId must be a lower-case UUID v4',
     ],
     [{ userId, recordId: `${recordId}|x`, field: 'email_enc' }, 'recordId must be a lower-case UUID v4'],
+    [{ userId: `x|${userId}`, recordId, field: 'email_enc' }, 'userId must be a lower-case UUID v4'],
     [{ userId, recordId, field: 'email|enc' }, 'field must be a lower-case column name'],
     [{ userId, recordId, field: 'Email_enc' }, 'field must be a lower-case column name'],
     [{ userId, recordId, field: '' }, 'field must be a lower-case column name'],
