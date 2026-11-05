@@ -453,7 +453,7 @@ and a `password_reset` the owner asked for (A-22, Q-46, Q-48): the API queues no
 | Column | Type | Notes |
 |--------|------|-------|
 | `user_id` | uuid PK | random UUID of the deleted account, nothing else |
-| `deleted_at` | timestamptz NOT NULL | retained 35 days, replayed after a restore |
+| `deleted_at` | timestamptz NOT NULL | retained 35 days, replayed after a restore (`replay-tombstones`, ADR-0020) with the date kept |
 
 #### `job_runs` (operational, no personal data)
 
@@ -498,7 +498,9 @@ CREATE POLICY sessions_worker ON sessions TO questline_worker USING (true) WITH 
 **no rows** and can insert **nothing** — a fail-closed default.
 
 **Least-privilege grants (M2).** Tested exactly by `test/security/db-roles.test.ts`: a new table fails until its
-row is added here and in the test. Cascading deletes need no grant (they run as the table owner).
+row is added here and in the test. Cascading deletes need no grant (they run as the table owner). The maintenance
+commands of ADR-0020 run with `questline_migrator`, the owner: `replay-tombstones` (M6) inserts tombstones and
+deletes the accounts they name — neither table has row-level security, and the cascade runs as the owner.
 
 | Table | `questline_app` (API) | `questline_worker` | Row-level security |
 |-------|----------------------|--------------------|--------------------|

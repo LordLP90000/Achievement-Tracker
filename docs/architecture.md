@@ -100,11 +100,12 @@ Rules enforced by lint/tests:
   SMTP setting without TLS, and a missing `WEBAUTHN_RP_ID` or `WEBAUTHN_ORIGINS` or a reserved or local RP ID
   (`localhost`, `.test`, `.example`, `.invalid`, `.local`; Q-51).
 - Variables (final list in M1): `APP_ENV`, `PORT`, `LOG_LEVEL`, `TRUST_PROXY_HOPS`, `PUBLIC_LINK_BASE_URL`,
-  `DATABASE_URL_APP`, `DATABASE_URL_WORKER`, `DATABASE_URL_MIGRATOR` (migration job only), `KEK_SOURCE`
+  `DATABASE_URL_APP`, `DATABASE_URL_WORKER`, `DATABASE_URL_MIGRATOR` (migration job and maintenance commands), `KEK_SOURCE`
   (`env` | `onepassword-connect`), `LOCAL_KEK` (dev/test only), `OP_CONNECT_URL`, `OP_CONNECT_TOKEN`,
   `OP_KEK_VAULT_ID`, `OP_KEK_ITEM_ID`, `BLIND_INDEX_KEY`, `RATE_LIMIT_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`
   (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`; since M5 `WEBAUTHN_RP_ID` and
-  `WEBAUTHN_ORIGINS` (API). Secrets are injected as environment
+  `WEBAUTHN_ORIGINS` (API); since M6 `TOMBSTONE_SOURCE_DATABASE_URL` (`replay-tombstones` only: the database a restore
+  replaced, read only). Secrets are injected as environment
   variables (from 1Password or the host's secret store); only the KEK is fetched from Connect at runtime.
 - The passkey relying party (API, ADR-0019, Q-51): `WEBAUTHN_RP_ID` is a lower-case domain name, not an IP address;
   `WEBAUTHN_ORIGINS` lists, comma-separated, at most 10 origins: `https://` the RP ID or one of its subdomains,
@@ -339,7 +340,7 @@ the archive has no limit (Q-40).
 ├── src/
 │   ├── app.ts                         # buildApp(deps): Fastify instance with all plugins and modules
 │   ├── server.ts                      # API entrypoint
-│   ├── worker.ts                      # worker entrypoint (also migrate.ts, bootstrap-db.ts; logic in main/)
+│   ├── worker.ts                      # worker entrypoint (also migrate.ts, bootstrap-db.ts, maintenance.ts; logic in main/)
 │   ├── domain/                        # pure functions (see §5), *.test.ts colocated
 │   ├── platform/
 │   │   ├── config/
@@ -416,6 +417,12 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
   with 30-day expiry, point-in-time recovery if the provider offers it.
 - Migrations run as a separate job before the new API version starts (expand/contract strategy for zero
   downtime).
+- Maintenance commands (ADR-0020) run from the same image as one-off jobs with the migrator's role, while the API and
+  the worker are stopped: `node dist/maintenance.js <command>`. Each refuses while a `questline-api` or
+  `questline-worker` session is connected to a database it would read or change, is idempotent, and logs only counts.
+  `replay-tombstones` follows every restore: it takes over the tombstones of the database the restore replaced
+  (`TOMBSTONE_SOURCE_DATABASE_URL`, read only) with their dates and deletes every account they name, 100 per
+  transaction, with the hard delete's cascade.
 - Health: `/health/live` (process up), `/health/ready` (DB reachable, KEK loaded at startup and wrap/unwrap
   self-test passed).
 - Observability without personal data: request metrics (count, duration, status by route), job metrics, error

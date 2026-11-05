@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadApiConfig, loadBootstrapConfig, loadMigrateConfig, loadWorkerConfig } from './config.ts';
+import {
+  ConfigError,
+  loadApiConfig,
+  loadBootstrapConfig,
+  loadMaintenanceConfig,
+  loadMigrateConfig,
+  loadWorkerConfig,
+} from './config.ts';
 
 const STRONG_PASSWORD = 'Vq7mXr2pLk9sTz4wNb6c'; // gitleaks:allow — synthetic test value
 const devUrl = 'postgres://questline_app:dev@localhost:5432/questline';
@@ -467,6 +474,71 @@ describe('loadMigrateConfig', () => {
       appEnv: 'development',
       logLevel: 'info',
       databaseUrl: devUrl,
+    });
+  });
+});
+
+describe('loadMaintenanceConfig', () => {
+  it('requires the migrator database URL: the maintenance commands run with the migrator role (ADR-0020)', () => {
+    expect(configErrorOf(() => loadMaintenanceConfig({ APP_ENV: 'test' })).issues).toEqual([
+      'DATABASE_URL_MIGRATOR: is required',
+    ]);
+  });
+
+  it('takes the database a restore replaced as an optional source of tombstones', () => {
+    expect(loadMaintenanceConfig({ APP_ENV: 'development', DATABASE_URL_MIGRATOR: devUrl })).toEqual({
+      appEnv: 'development',
+      logLevel: 'info',
+      databaseUrl: devUrl,
+      tombstoneSourceUrl: undefined,
+    });
+    const base = { APP_ENV: 'development', DATABASE_URL_MIGRATOR: devUrl };
+    expect(loadMaintenanceConfig({ ...base, TOMBSTONE_SOURCE_DATABASE_URL: '' }).tombstoneSourceUrl).toBeUndefined();
+    expect(
+      loadMaintenanceConfig({ ...base, TOMBSTONE_SOURCE_DATABASE_URL: `${devUrl}_before_restore` }).tombstoneSourceUrl,
+    ).toBe(`${devUrl}_before_restore`);
+  });
+
+  it('refuses a source that is not a PostgreSQL URL', () => {
+    const env = {
+      APP_ENV: 'test',
+      DATABASE_URL_MIGRATOR: devUrl,
+      TOMBSTONE_SOURCE_DATABASE_URL: 'https://db.internal',
+    };
+
+    expect(configErrorOf(() => loadMaintenanceConfig(env)).issues).toEqual([
+      'TOMBSTONE_SOURCE_DATABASE_URL: must be a postgres:// or postgresql:// URL',
+    ]);
+  });
+
+  it('holds both connections to the production rules: verified TLS, a strong password, no debug logs', () => {
+    const env = {
+      APP_ENV: 'production',
+      LOG_LEVEL: 'debug',
+      DATABASE_URL_MIGRATOR: `postgres://questline_migrator:${STRONG_PASSWORD}@db.internal/questline`,
+      TOMBSTONE_SOURCE_DATABASE_URL: 'postgres://questline_worker:Short1Password@db-before.internal/questline',
+    };
+
+    expect(configErrorOf(() => loadMaintenanceConfig(env)).issues).toEqual([
+      'LOG_LEVEL: debug and trace are not allowed in production',
+      'DATABASE_URL_MIGRATOR: must use sslmode=verify-full in production',
+      'TOMBSTONE_SOURCE_DATABASE_URL: must use sslmode=verify-full in production',
+      'TOMBSTONE_SOURCE_DATABASE_URL: password is missing or too weak for production',
+    ]);
+  });
+
+  it('accepts a production configuration with a source', () => {
+    const config = loadMaintenanceConfig({
+      APP_ENV: 'production',
+      DATABASE_URL_MIGRATOR: prodUrl('questline_migrator'),
+      TOMBSTONE_SOURCE_DATABASE_URL: prodUrl('questline_worker'),
+    });
+
+    expect(config).toEqual({
+      appEnv: 'production',
+      logLevel: 'info',
+      databaseUrl: prodUrl('questline_migrator'),
+      tombstoneSourceUrl: prodUrl('questline_worker'),
     });
   });
 });

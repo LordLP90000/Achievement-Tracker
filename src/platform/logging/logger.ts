@@ -1,7 +1,8 @@
 import { pino, type DestinationStream, type LogFn, type Logger } from 'pino';
 import type { LogLevel } from '../config/config.ts';
 
-export type ServiceName = 'questline-api' | 'questline-worker' | 'questline-migrate' | 'questline-db-init';
+export type ServiceName =
+  'questline-api' | 'questline-worker' | 'questline-migrate' | 'questline-db-init' | 'questline-maintenance';
 
 export interface LoggerSettings {
   readonly service: ServiceName;

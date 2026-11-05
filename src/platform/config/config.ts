@@ -64,6 +64,12 @@ export interface WorkerConfig extends ProcessConfig {
 
 export type MigrateConfig = ProcessConfig;
 
+/** The one-off maintenance commands (ADR-0020), with the migrator's role. */
+export interface MaintenanceConfig extends ProcessConfig {
+  /** The database a restore replaced, read only for its tombstones by `replay-tombstones` (Q-13). */
+  readonly tombstoneSourceUrl: string | undefined;
+}
+
 export interface BootstrapConfig {
   readonly appEnv: AppEnv;
   readonly logLevel: LogLevel;
@@ -125,6 +131,10 @@ const trustProxyHopsSchema = z.preprocess(
 const databaseUrlSchema = z.preprocess(
   blankToUndefined,
   z.string({ error: requiredOr(URL_RULE) }).refine(isPostgresUrl, { error: URL_RULE }),
+);
+const optionalDatabaseUrlSchema = z.preprocess(
+  blankToUndefined,
+  z.string().refine(isPostgresUrl, { error: URL_RULE }).optional(),
 );
 const databaseNameSchema = z.preprocess(
   blankToUndefined,
@@ -414,6 +424,36 @@ export function loadMigrateConfig(env: Env): MigrateConfig {
     env,
   );
   return processConfig(parsed.APP_ENV, parsed.LOG_LEVEL, 'DATABASE_URL_MIGRATOR', parsed.DATABASE_URL_MIGRATOR);
+}
+
+/**
+ * The maintenance commands run with the migrator's role; `replay-tombstones` may also read the database a restore
+ * replaced (`TOMBSTONE_SOURCE_DATABASE_URL`), which production holds to the same rules as every other connection.
+ */
+export function loadMaintenanceConfig(env: Env): MaintenanceConfig {
+  const parsed = parseEnv(
+    {
+      APP_ENV: appEnvSchema,
+      LOG_LEVEL: logLevelSchema,
+      DATABASE_URL_MIGRATOR: databaseUrlSchema,
+      TOMBSTONE_SOURCE_DATABASE_URL: optionalDatabaseUrlSchema,
+    },
+    env,
+  );
+  const source = parsed.TOMBSTONE_SOURCE_DATABASE_URL;
+  if (parsed.APP_ENV === 'production') {
+    assertNoIssues([
+      ...logLevelIssues(parsed.LOG_LEVEL),
+      ...productionDatabaseIssues('DATABASE_URL_MIGRATOR', parsed.DATABASE_URL_MIGRATOR),
+      ...(source === undefined ? [] : productionDatabaseIssues('TOMBSTONE_SOURCE_DATABASE_URL', source)),
+    ]);
+  }
+  return Object.freeze({
+    appEnv: parsed.APP_ENV,
+    logLevel: parsed.LOG_LEVEL,
+    databaseUrl: parsed.DATABASE_URL_MIGRATOR,
+    tombstoneSourceUrl: source,
+  });
 }
 
 function rolePasswordIssues(passwords: readonly (readonly [string, string])[]): string[] {

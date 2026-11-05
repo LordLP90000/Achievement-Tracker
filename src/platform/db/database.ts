@@ -23,6 +23,11 @@ export function inTransaction<T>(db: Database, work: (tx: Transaction) => Promis
   return db.transaction(work);
 }
 
+/** A read-only transaction without a user: it can change nothing. */
+export function inReadOnlyTransaction<T>(db: Database, work: (tx: Transaction) => Promise<T>): Promise<T> {
+  return db.transaction(work, { accessMode: 'read only' });
+}
+
 /** A transaction in which row-level security shows and accepts only `userId`'s rows. */
 export function inUserTransaction<T>(db: Database, userId: string, work: (tx: Transaction) => Promise<T>): Promise<T> {
   return db.transaction(async (tx) => {
