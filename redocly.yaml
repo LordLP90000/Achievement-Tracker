@@ -4,3 +4,12 @@
 extends:
   - recommended
 telemetry: off
+# The API reference (`npm run docs:api`, scripts/build-api-reference.ts) is a static page without Redoc's script:
+# everything expanded, and nothing shown that needs the script (search, the download button).
+openapi:
+  expandResponses: all
+  schemaExpansionLevel: all
+  jsonSampleExpandLevel: all
+  expandSingleSchemaField: true
+  hideDownloadButtons: true
+  disableSearch: true

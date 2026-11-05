@@ -77,7 +77,9 @@ anywhere, so use made-up addresses only.
 
 The contract is [`openapi/openapi.yaml`](openapi/openapi.yaml), frozen since `0.3.0`: it only grows, so ignore
 properties and enum values you do not know yet. Read [`docs/client-security.md`](docs/client-security.md) before
-building against it (token storage, refreshing, retries, sensitive operations, passkeys and two-factor sign-in). The iOS simulator reaches the stack
+building against it (token storage, refreshing, retries, sensitive operations, passkeys and two-factor sign-in).
+`npm run docs:api` turns the contract into one readable page, `reports/api-reference/index.html`, that loads
+nothing from the internet; every CI run keeps it too (artifact `api-reference-<commit>`). The iOS simulator reaches the stack
 directly, the Android emulator at `10.0.2.2`, a USB-connected Android device after `adb reverse tcp:3000 tcp:3000`.
 Emails go over TLS only, with a throw-away certificate made inside Docker on the first start and kept for a year
 (ADR-0018). `docker compose -f docker/compose.yml down --volumes` resets everything: database, emails and

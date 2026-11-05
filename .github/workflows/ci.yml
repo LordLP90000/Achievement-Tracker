@@ -58,6 +58,15 @@ jobs:
         run: npm run -s deps:check
       - name: OpenAPI lint
         run: npm run -s lint:openapi
+      - name: API reference (a static page that loads nothing; fails if it misses an operation)
+        run: npm run -s docs:api
+      - name: Upload the API reference
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: api-reference-${{ github.sha }}
+          path: reports/api-reference/index.html
+          if-no-files-found: error
+          retention-days: 90
       - name: Workflow lint
         run: docker run --rm -v "$PWD:/repo:ro" -w /repo "$ACTIONLINT_IMAGE" -color
       - name: Commit messages (Conventional Commits)

@@ -333,6 +333,7 @@ the archive has no limit (Q-40).
 ├── docs/                              # see README documentation map
 ├── openapi/openapi.yaml               # contract (source of truth)
 ├── scripts/
+│   ├── build-api-reference.ts         # static API reference from the contract (`npm run docs:api`), loads nothing
 │   ├── build-password-filter.ts       # Bloom filter from pinned list (ADR-0012)
 │   └── offline.ts, offline-preload.ts # development tools run with every outbound connection refused (ADR-0016)
 ├── src/

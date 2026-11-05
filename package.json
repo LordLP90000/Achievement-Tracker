@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "docs:api": "node --import ./scripts/offline-preload.ts node_modules/@redocly/cli/bin/cli.js build-docs openapi/openapi.yaml --disableGoogleFont --output reports/api-reference/redoc.html && node scripts/build-api-reference.ts reports/api-reference/redoc.html reports/api-reference/index.html",
     "lint:openapi": "node --import ./scripts/offline-preload.ts node_modules/@redocly/cli/bin/cli.js lint openapi/openapi.yaml",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
