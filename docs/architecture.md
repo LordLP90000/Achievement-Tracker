@@ -104,7 +104,7 @@ Rules enforced by lint/tests:
   (`env` | `onepassword-connect`), `LOCAL_KEK` (dev/test only), `OP_CONNECT_URL`, `OP_CONNECT_TOKEN`,
   `OP_KEK_VAULT_ID`, `OP_KEK_ITEM_ID`, `BLIND_INDEX_KEY`, `RATE_LIMIT_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`
   (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`; since M5 `WEBAUTHN_RP_ID` and
-  `WEBAUTHN_ORIGINS` (API); since M6 `REPLACED_DATABASE_URL` (`replay-after-restore` only: the database a restore
+  `WEBAUTHN_ORIGINS` (API); since M6 `PREVIOUS_LOCAL_KEK` (development) and `OP_PREVIOUS_KEK_ITEM_ID` (another item in the vault of the current KEK), for `rewrap-data-keys` only, and `REPLACED_DATABASE_URL` (`replay-after-restore` only: the database a restore
   replaced, read only). Secrets are injected as environment
   variables (from 1Password or the host's secret store); only the KEK is fetched from Connect at runtime.
 - The passkey relying party (API, ADR-0019, Q-51): `WEBAUTHN_RP_ID` is a lower-case domain name, not an IP address;
@@ -422,7 +422,9 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
   `questline-worker` session is connected to a database it would read or change, is idempotent, and logs only counts.
   `replay-after-restore` follows every restore: it takes over the tombstones of the database the restore replaced
   (`REPLACED_DATABASE_URL`, the migrator's role, read-only transactions) with their dates and deletes every account they name, 100 per
-  transaction, with the hard delete's cascade. The restore runbook: `docs/runbooks/restore.md`.
+  transaction, with the hard delete's cascade. The restore runbook: `docs/runbooks/restore.md`. `rewrap-data-keys`
+  re-wraps every data key under the current KEK after a rotation: the previous KEK is another 1Password item, and the
+  AEAD decides which KEK opens a key, never its label.
 - Health: `/health/live` (process up), `/health/ready` (DB reachable, KEK loaded at startup and wrap/unwrap
   self-test passed).
 - Observability without personal data: request metrics (count, duration, status by route), job metrics, error

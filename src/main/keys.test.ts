@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { KekSourceError } from '../platform/crypto/kek-source.ts';
-import { CONNECT_TIMEOUT_MS, kekSourceFor } from './keys.ts';
+import { CONNECT_TIMEOUT_MS, kekSourceFor, rotationKeks } from './keys.ts';
 
 describe('kekSourceFor (ADR-0013)', () => {
   it('uses the local key for KEK_SOURCE=env', async () => {
@@ -25,5 +25,25 @@ describe('kekSourceFor (ADR-0013)', () => {
 
     await expect(source()).rejects.toEqual(new KekSourceError('connect_unreachable'));
     expect(CONNECT_TIMEOUT_MS).toBe(5000);
+  });
+});
+
+describe('rotationKeks (ADR-0020)', () => {
+  it('loads the current KEK and the previous one from their sources', async () => {
+    const [current, previous] = [randomBytes(32), randomBytes(32)];
+    const expected = [Buffer.from(current), Buffer.from(previous)];
+
+    const keks = await rotationKeks({
+      current: { kind: 'env', localKek: current },
+      previous: { kind: 'env', localKek: previous },
+    });
+
+    expect([Buffer.from(keks.current.key), ...keks.previous.map((kek) => Buffer.from(kek.key))]).toEqual(expected);
+  });
+
+  it('has no previous KEK when none is configured', async () => {
+    expect(
+      (await rotationKeks({ current: { kind: 'env', localKek: randomBytes(32) }, previous: undefined })).previous,
+    ).toEqual([]);
   });
 });

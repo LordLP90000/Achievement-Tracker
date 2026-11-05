@@ -6,7 +6,8 @@ import { MAINTENANCE_COMMANDS, maintenanceCommandOf } from './maintenance.ts';
 describe('maintenanceCommandOf', () => {
   it('names the command to run', () => {
     expect(maintenanceCommandOf(['replay-after-restore'])).toBe('replay-after-restore');
-    expect(MAINTENANCE_COMMANDS).toEqual(['replay-after-restore']);
+    expect(maintenanceCommandOf(['rewrap-data-keys'])).toBe('rewrap-data-keys');
+    expect(MAINTENANCE_COMMANDS).toEqual(['replay-after-restore', 'rewrap-data-keys']);
   });
 
   it.each([[[]], [['drop-database']], [['Replay-After-Restore']], [['replay-after-restore', '--force']]])(
@@ -15,7 +16,7 @@ describe('maintenanceCommandOf', () => {
       const run = () => maintenanceCommandOf(args);
 
       expect(run).toThrow(ConfigError);
-      expect(run).toThrow('command: must be exactly one of replay-after-restore');
+      expect(run).toThrow('command: must be exactly one of replay-after-restore, rewrap-data-keys');
     },
   );
 });

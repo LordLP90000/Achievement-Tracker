@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, type Env } from './config.ts';
-import { loadApiKeys, loadWorkerKeys } from './keys.ts';
+import { loadApiKeys, loadRotationKeys, loadWorkerKeys } from './keys.ts';
 
 const key = (bytes = 32) => randomBytes(bytes).toString('base64');
 const VAULT = 'a1b2c3d4e5f6g7h8i9j0k1l2m3';
@@ -149,5 +149,78 @@ describe('loadWorkerKeys', () => {
     expect(issuesOf(() => loadWorkerKeys({ KEK_SOURCE: 'env', LOCAL_KEK: localKek }, 'production'))).toEqual([
       'KEK_SOURCE: env is not allowed in production; use onepassword-connect (R-ENC-05)',
     ]);
+  });
+});
+
+describe('loadRotationKeys (ADR-0020) [R-ENC-05, E-11]', () => {
+  const PREVIOUS_ITEM = 'p0q9r8s7t6u5v4w3x2y1z0a9b8';
+
+  it('reads the current KEK as the processes do, and the previous local KEK in development', () => {
+    const previous = key();
+
+    expect(loadRotationKeys({ ...devEnv, PREVIOUS_LOCAL_KEK: previous }, 'development')).toEqual({
+      current: { kind: 'env', localKek: Buffer.from(localKek, 'base64') },
+      previous: { kind: 'env', localKek: Buffer.from(previous, 'base64') },
+    });
+  });
+
+  it('reads the previous KEK as another item of the same vault on the same Connect server', () => {
+    expect(loadRotationKeys({ ...connectEnv, OP_PREVIOUS_KEK_ITEM_ID: PREVIOUS_ITEM }, 'production').previous).toEqual({
+      kind: 'onepassword-connect',
+      url: new URL('https://op-connect.internal:8443'),
+      token: 'synthetic-connect-token',
+      vaultId: VAULT,
+      itemId: PREVIOUS_ITEM,
+    });
+  });
+
+  it('runs without a previous KEK: every data key must then open with the current one', () => {
+    expect(loadRotationKeys(devEnv, 'development').previous).toBeUndefined();
+    expect(loadRotationKeys(connectEnv, 'production').previous).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'a previous local KEK of the wrong size',
+      { ...devEnv, PREVIOUS_LOCAL_KEK: key(16) },
+      'development',
+      ['PREVIOUS_LOCAL_KEK: must be exactly 32 random bytes in base64'],
+    ],
+    [
+      'the current local KEK again',
+      { ...devEnv, PREVIOUS_LOCAL_KEK: localKek },
+      'development',
+      ['PREVIOUS_LOCAL_KEK: must differ from LOCAL_KEK'],
+    ],
+    [
+      'a previous item that is no 1Password ID',
+      { ...connectEnv, OP_PREVIOUS_KEK_ITEM_ID: 'not-an-id' },
+      'production',
+      ['OP_PREVIOUS_KEK_ITEM_ID: must be a 1Password ID (26 lower-case letters or digits)'],
+    ],
+    [
+      'the current item again: a rotation creates a new item',
+      { ...connectEnv, OP_PREVIOUS_KEK_ITEM_ID: ITEM },
+      'production',
+      ['OP_PREVIOUS_KEK_ITEM_ID: must differ from OP_KEK_ITEM_ID: a rotation creates a new item'],
+    ],
+    [
+      'a previous item with a local KEK',
+      { ...devEnv, OP_PREVIOUS_KEK_ITEM_ID: PREVIOUS_ITEM },
+      'development',
+      ['OP_PREVIOUS_KEK_ITEM_ID: only with KEK_SOURCE=onepassword-connect'],
+    ],
+    [
+      'a previous local KEK with the Connect server',
+      { ...connectEnv, PREVIOUS_LOCAL_KEK: key() },
+      'production',
+      ['PREVIOUS_LOCAL_KEK: only with KEK_SOURCE=env'],
+    ],
+    ['no current KEK', { PREVIOUS_LOCAL_KEK: key() }, 'development', ['KEK_SOURCE: is required']],
+  ] as const)('refuses %s, naming the variable but not its value', (_name, env, appEnv, expected) => {
+    const issues = issuesOf(() => loadRotationKeys(env, appEnv));
+
+    expect(issues).toEqual(expected);
+    expect(issues.join(' ')).not.toContain(localKek);
   });
 });

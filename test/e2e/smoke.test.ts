@@ -152,6 +152,12 @@ describe('container smoke test', () => {
   };
   const loginStatus = async ({ email, password }: SignedUp) =>
     (await api('/v1/auth/login', { body: { email, password, client: 'ios' } })).status;
+  /** A maintenance command's summary line: counts only. */
+  const summaryOf = ({ stdout }: { stdout: string }, message: string) =>
+    JSON.parse(stdout.split('\n').find((line) => line.includes(`"msg":"${message}"`)) ?? '{}') as Record<
+      string,
+      unknown
+    >;
 
   beforeAll(async () => {
     env['API_PORT'] = String(await freePort());
@@ -341,12 +347,7 @@ describe('container smoke test', () => {
     const deleted = await signedUp('deleted');
     const maintenance = (...options: string[]) =>
       compose('run', '--rm', '--no-deps', '-T', ...options, 'migrate', 'dist/maintenance.js', 'replay-after-restore');
-    /** The command's summary line: counts only. */
-    const summary = ({ stdout }: { stdout: string }) =>
-      JSON.parse(stdout.split('\n').find((line) => line.includes('"msg":"replayed after restore"')) ?? '{}') as Record<
-        string,
-        unknown
-      >;
+    const summary = (output: { stdout: string }) => summaryOf(output, 'replayed after restore');
     const tombstone = () =>
       sql(`select to_char(deleted_at, 'YYYY-MM-DD HH24:MI:SS.US') from deleted_user_tombstones
            where user_id = '${deleted.id}'`);
@@ -409,6 +410,39 @@ describe('container smoke test', () => {
       for (const value of [...Object.values(secrets), kept.id, deleted.id, deleted.email]) {
         expect(output.stdout + output.stderr).not.toContain(value);
       }
+    }
+  }, 240_000);
+
+  it('rehearses a KEK rotation: every data key re-wrapped under a new KEK, the API and the worker restarted with it [E-11, ADR-0020]', async () => {
+    const account = await signedUp('rotating');
+    const [previous, next] = [env['LOCAL_KEK'] ?? '', key()];
+    const rotate = () =>
+      compose(
+        ...['run', '--rm', '--no-deps', '-T', '-e', 'KEK_SOURCE=env', '-e', `LOCAL_KEK=${next}`],
+        ...['-e', `PREVIOUS_LOCAL_KEK=${previous}`, 'migrate', 'dist/maintenance.js', 'rewrap-data-keys'],
+      );
+
+    await compose('stop', 'api', 'worker');
+    const rotated = await rotate();
+    const again = await rotate();
+    // From now on the API and the worker start with the new KEK; Compose recreates them for the changed setting.
+    env['LOCAL_KEK'] = next;
+    await compose('up', '--detach', '--wait', '--no-deps', 'api', 'worker');
+    const login = await api('/v1/auth/login', {
+      body: { email: account.email, password: account.password, client: 'ios' },
+    });
+    const { access_token: token } = (await login.json()) as { access_token: string };
+    const me = await api('/v1/me', { token });
+
+    expect(summaryOf(rotated, 'data keys re-wrapped')).toMatchObject({ current: 0, unknown: 0 });
+    expect(summaryOf(rotated, 'data keys re-wrapped')['rewrapped']).toBeGreaterThan(0);
+    expect(summaryOf(again, 'data keys re-wrapped')).toMatchObject({ rewrapped: 0, unknown: 0 });
+    // The address is stored encrypted with the account's data key, which only the new KEK opens now.
+    expect([login.status, me.status]).toEqual([200, 200]);
+    expect(((await me.json()) as { email: string }).email).toBe(account.email);
+    const logs = await compose('logs', '--no-color');
+    for (const output of [rotated, again, logs]) {
+      for (const value of [previous, next]) expect(output.stdout + output.stderr).not.toContain(value);
     }
   }, 240_000);
 

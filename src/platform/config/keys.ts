@@ -99,6 +99,51 @@ function parseKey(env: Env, name: string, issues: string[], others: readonly Buf
   return key;
 }
 
+/** The KEKs a rotation needs (ADR-0020): the current one, as the processes load it, and the previous one if any. */
+export interface RotationKeys {
+  readonly current: KekSourceConfig;
+  readonly previous: KekSourceConfig | undefined;
+}
+
+function parsePreviousKek(env: Env, current: KekSourceConfig, issues: string[]): KekSourceConfig | undefined {
+  const local = value(env, 'PREVIOUS_LOCAL_KEK');
+  const item = value(env, 'OP_PREVIOUS_KEK_ITEM_ID');
+  if (current.kind === 'env') {
+    if (item !== undefined) issues.push('OP_PREVIOUS_KEK_ITEM_ID: only with KEK_SOURCE=onepassword-connect');
+    if (local === undefined) return undefined;
+    const previousKek = decodeKeyMaterial(local, 32, 32);
+    if (previousKek === undefined) {
+      issues.push('PREVIOUS_LOCAL_KEK: must be exactly 32 random bytes in base64');
+      return undefined;
+    }
+    if (previousKek.equals(current.localKek)) {
+      issues.push('PREVIOUS_LOCAL_KEK: must differ from LOCAL_KEK');
+      return undefined;
+    }
+    return { kind: 'env', localKek: previousKek };
+  }
+  if (local !== undefined) issues.push('PREVIOUS_LOCAL_KEK: only with KEK_SOURCE=env');
+  if (item === undefined) return undefined;
+  if (!ONEPASSWORD_ID.test(item)) {
+    issues.push('OP_PREVIOUS_KEK_ITEM_ID: must be a 1Password ID (26 lower-case letters or digits)');
+    return undefined;
+  }
+  if (item === current.itemId) {
+    issues.push('OP_PREVIOUS_KEK_ITEM_ID: must differ from OP_KEK_ITEM_ID: a rotation creates a new item');
+    return undefined;
+  }
+  return { ...current, itemId: item };
+}
+
+/** `rewrap-data-keys`: the previous KEK is a second local key, or another item in the vault of the current one. */
+export function loadRotationKeys(env: Env, appEnv: AppEnv): RotationKeys {
+  const issues: string[] = [];
+  const current = parseKek(env, appEnv, issues);
+  const previous = current === undefined ? undefined : parsePreviousKek(env, current, issues);
+  if (issues.length > 0 || current === undefined) throw new ConfigError(issues);
+  return Object.freeze({ current, previous });
+}
+
 export function loadWorkerKeys(env: Env, appEnv: AppEnv): WorkerKeys {
   const issues: string[] = [];
   const kek = parseKek(env, appEnv, issues);
