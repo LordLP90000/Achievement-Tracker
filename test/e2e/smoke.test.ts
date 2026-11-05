@@ -341,6 +341,12 @@ describe('container smoke test', () => {
     const deleted = await signedUp('deleted');
     const maintenance = (...options: string[]) =>
       compose('run', '--rm', '--no-deps', '-T', ...options, 'migrate', 'dist/maintenance.js', 'replay-after-restore');
+    /** The command's summary line: counts only. */
+    const summary = ({ stdout }: { stdout: string }) =>
+      JSON.parse(stdout.split('\n').find((line) => line.includes('"msg":"replayed after restore"')) ?? '{}') as Record<
+        string,
+        unknown
+      >;
     const tombstone = () =>
       sql(`select to_char(deleted_at, 'YYYY-MM-DD HH24:MI:SS.US') from deleted_user_tombstones
            where user_id = '${deleted.id}'`);
@@ -352,6 +358,12 @@ describe('container smoke test', () => {
     // After it, the account is deleted for good: its request moved 30 days back, and the worker, restarted, runs
     // the hourly hard delete at once.
     const deletion = await api('/v1/me', { token: deleted.accessToken, method: 'DELETE' });
+    // And the other account changes its password, which the restore would undo (Q-57).
+    const newPassword = acceptedPassword();
+    const passwordChange = await api('/v1/me/password', {
+      token: kept.accessToken,
+      body: { current_password: kept.password, new_password: newPassword },
+    });
     await sql(`update users set deactivated_at = deactivated_at - interval '30 days' where id = '${deleted.id}'`);
     await sql("delete from job_runs where job_name = 'purge_deleted_accounts'");
     await compose('restart', 'worker');
@@ -376,12 +388,19 @@ describe('container smoke test', () => {
     expect([deletion.status, deletedAt === '']).toEqual([202, false]);
     // The backup still holds the account the restore brings back, and the replay deletes it again.
     expect(restoredAccounts).toBe('2');
-    expect(replayed.stdout).toContain('"imported":1,"deleted":1,"msg":"replayed after restore"');
-    expect(again.stdout).toContain('"imported":0,"deleted":0,"msg":"replayed after restore"');
+    expect(passwordChange.status).toBe(204);
+    expect(summary(replayed)).toMatchObject({ imported: 1, deleted: 1, passwords: 1, addressConflicts: 0 });
+    expect(summary(replayed)['sessions']).toBeGreaterThan(0);
+    expect(summary(again)).toMatchObject({ imported: 0, deleted: 0, passwords: 0, sessions: 0 });
     expect(await sql(`select count(*) from users where id = '${deleted.id}'`)).toBe('0');
     // Its tombstone kept its date, so it still expires 35 days after the deletion.
     expect(await tombstone()).toBe(deletedAt);
-    expect([await loginStatus(kept), await loginStatus(deleted)]).toEqual([200, 401]);
+    // The password changed after the backup works and the restored one does not; the deleted account is gone.
+    expect([
+      await loginStatus({ ...kept, password: newPassword }),
+      await loginStatus(kept),
+      await loginStatus(deleted),
+    ]).toEqual([200, 401, 401]);
     // As locked down as before the restore: no access to the database for PUBLIC.
     expect(await sqlIn('postgres', "select datacl::text from pg_database where datname = 'questline'")).not.toMatch(
       /[{,]=/,

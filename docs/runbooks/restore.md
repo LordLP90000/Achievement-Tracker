@@ -42,23 +42,34 @@ The commands are those of the local stack, as rehearsed (`docker compose -f dock
    every role can connect to the restored database (PUBLIC's default `CONNECT`).
 5. **Migrations**: `compose run --rm --no-deps migrate`. This is needed when the backup predates a migration of the
    running image; otherwise it does nothing.
-6. **Replay the tombstones** (ADR-0020), with the migrator's role and the replaced database read only, through the
-   worker's role:
+6. **Replay what happened since the restore point** (ADR-0020, Q-13, Q-57), with the migrator's role and the
+   replaced database read only, through the worker's role:
    `compose run --rm --no-deps -T -e REPLACED_DATABASE_URL=postgres://questline_worker:<password>@db:5432/questline_replaced migrate dist/maintenance.js replay-after-restore`.
-   - Expected: exit code 0 and one log line `replayed after restore` with `imported` (tombstones taken over, each with
-     its date) and `deleted` (accounts deleted again, with everything they owned). Run it a second time: `imported`
-     and `deleted` are 0.
+   In this order it:
+   - takes over the replaced database's tombstones with their dates and deletes every account they name;
+   - for every account both databases hold, takes over its deletion state (requests with their dates, and
+     reactivations), a newer password, an address verified since, and a changed address. Accounts that swapped
+     addresses are included. An unverified account the replaced database purged is deleted when another account
+     took its address;
+   - deletes every session with its tokens: every user signs in again.
+   - Expected: exit code 0 and one log line `replayed after restore` with counts only: `imported`, `deleted`,
+     `deletionStates`, `passwords`, `verifications`, `addresses`, `addressConflicts`, `unverifiedDeleted`,
+     `sessions`. Run it a second time: every count is 0.
+   - Exit code 1 with `MaintenanceIncompleteError: address_conflicts`: some addresses stayed as restored. Each is held
+     by a verified account the replaced database lacks without a tombstone, or by an account whose own move was held
+     back. Everything else was replayed. Compare `users.email_blind_index` in both databases for those accounts,
+     decide with the PM which account keeps each address, set it by hand, and run the command again.
    - Exit code 1 with `MaintenanceRefusedError: processes_connected`: an API or a worker is still connected to one
      of the two databases. Stop it (step 1) and run again.
    - In production the password comes from the secret store as an environment variable, never on a command line.
    - The replaced database cannot be read at all: run it without the variable. Then it replays only the restored
-     database's own tombstones, which is enough only for a restore to the latest point.
+     database's own tombstones and deletes every session, which is enough only for a restore to the latest point.
 7. **Keys rotated since the backup**: run the key-rotation runbook's commands (`rewrap-data-keys`,
    `reindex-email-blind-index`, ADR-0020, M6, to come) before the API starts.
 8. **Start the worker and the API**: `compose up --detach --wait --no-deps api worker`. Check `/health/ready`, the
    worker's `worker ready` line, and a sign-in with a test account.
-9. **Changes lost after the restore point** (§6): until the re-apply of Q-57 is built, list in the incident record what the
-   period contained, as far as the replaced database shows it.
+9. **Changes lost after the restore point** (§6): until the rest of Q-57 is built (the sign-in methods and the
+   consents), list in the incident record what the period changed there, as far as the replaced database shows it.
 10. **The replaced database** is a copy of personal data: keep it only as long as the investigation needs it, and at
     most 30 days, like a backup (data inventory C14). Then drop it.
 11. **Record the restore** in the incident record: the restore point, the replay's counts, the duration.
@@ -67,7 +78,7 @@ The commands are those of the local stack, as rehearsed (`docker compose -f dock
 
 | Date | Where | Result |
 |------|-------|--------|
-| 2026-11-05 | Local Compose stack, automated in the e2e suite (every CI run) | Two accounts signed up, a dump taken, then one account hard-deleted by the worker's job, its deletion request moved 30 days back. After the restore the account was back; the replay deleted it again (`imported` 1, `deleted` 1; a second run 0 and 0). Its tombstone kept its date. The other account signed in; the deleted one got 401. PUBLIC had no access to the restored database after the bootstrap. The command refused while the API ran. No password, address or account ID appeared in any output. The whole drill, its two sign-ups included, took about 22 s on a database with a handful of accounts |
+| 2026-11-05 | Local Compose stack, automated in the e2e suite (every CI run) | Two accounts signed up, a dump taken, then one account hard-deleted by the worker's job, its deletion request moved 30 days back, and the other account's password changed. After the restore the deleted account was back and the old password worked; the replay deleted the account again and took over the new password, and deleted every session (`imported` 1, `deleted` 1, `passwords` 1; a second run all 0). Its tombstone kept its date. The other account signed in with its new password only; the deleted one got 401. PUBLIC had no access to the restored database after the bootstrap. The command refused while the API ran. No password, address or account ID appeared in any output. The whole drill, its two sign-ups included, took about 22 s on a database with a handful of accounts |
 | – | Staging | Waits for the hosting option (O-01) |
 
 ## 5. Timing
@@ -76,10 +87,10 @@ A real restore takes as long as the host's restore of a database of that size, p
 100 accounts per transaction with everything they own, as the hourly hard delete does: it is bounded by the
 accounts deleted since the restore point, not by the database's size. The staging drill measures both (O-01).
 
-## 6. What a restore to an earlier point does not recover (decided: Q-57, being built)
+## 6. What a restore to an earlier point loses, and what the replay takes over (Q-57)
 
-The replay restores completed deletions only. Everything else that happened between the restore point and the
-incident is lost, including changes users made for their privacy or security:
+Without the replay, everything that happened between the restore point and the incident is lost, including changes
+users made for their privacy or security:
 
 - **Deletion requests**: the accounts are active again, and their hard delete after 30 days never comes.
 - **Consent withdrawals**: the goal content that was deleted is back (R-PRIV-04).
@@ -89,5 +100,7 @@ incident is lost, including changes users made for their privacy or security:
 - **New accounts, goals, check-ins and audit events** are gone. The owners are not told.
 
 The PM decided (Q-57) that the replay re-applies all of these but the new data, and revokes every session (ADR-0020,
-amendment). Until that is built in M6, choose the latest possible restore point, and record what the period
-contained (step 9).
+amendment). Built so far: completed deletions, deletion requests and reactivations, passwords, address changes and
+verifications, and every session revoked. Still to come in M6: the sign-in methods (passkeys, TOTP, recovery codes)
+and the consents (a withdrawal deletes the goal content again). New data stays lost: choose the latest possible
+restore point, and record what the period contained (step 9).

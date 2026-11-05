@@ -538,10 +538,14 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   both databases, it takes over what the replaced database holds wherever the two differ:
   - `deactivated_at`: deletion requests with their dates, and reactivations.
   - `password_hash` and `password_changed_at`, when the replaced database's change is newer.
+  - `email_verified_at`, for an address verified after the restore point (built 2026-11-05): left unverified, the
+    account would be deleted by the purge of unverified accounts after its 7 days.
   - The address (`email_enc`, `email_blind_index`, `email_verified_at`), in two passes: a temporary blind index first,
     so addresses that moved between accounts do not clash. A clash with an account the replaced database no longer
-    holds deletes that account if it is unverified, as its purge did; any other clash stops the command for a
-    decision by hand.
+    holds deletes that account if it is unverified, as its purge did; any other clash holds the move back, and so
+    does a clash with an account whose own move was held back. Held-back accounts stay as restored; the command
+    finishes everything else and exits 1 (`MaintenanceIncompleteError`, `address_conflicts`) for a decision by
+    hand. It never deletes an account the replaced database holds.
   - The passkeys, TOTP secret and recovery codes, replaced row for row. The rows keep their IDs, so the data key and
     the associated data still fit.
   - The consents. When the replaced database holds a withdrawal the restored one lacks, the goal content is deleted

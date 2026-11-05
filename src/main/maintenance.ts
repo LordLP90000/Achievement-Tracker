@@ -1,9 +1,10 @@
 import type { Logger } from 'pino';
-import { replayTombstones } from '../modules/privacy/tombstone-replay.ts';
+import { replayAfterRestore } from '../modules/privacy/restore-replay.ts';
 import { ConfigError, type MaintenanceConfig } from '../platform/config/config.ts';
 import { createDatabaseClient } from '../platform/db/client.ts';
 import { createDatabase } from '../platform/db/database.ts';
 import { connectedApplications } from '../platform/db/sessions.ts';
+import { systemClock, type Clock } from '../platform/time/clock.ts';
 
 /** The one-off maintenance commands (ADR-0020): `node dist/maintenance.js <command>`, with the migrator's role. */
 export const MAINTENANCE_COMMANDS = ['replay-after-restore'] as const;
@@ -21,6 +22,16 @@ export class MaintenanceRefusedError extends Error {
 
   constructor() {
     super('stop the API and the worker before running a maintenance command');
+  }
+}
+
+/** Some addresses could not be taken over: an operator decides which account keeps each (restore runbook). */
+export class MaintenanceIncompleteError extends Error {
+  override readonly name = 'MaintenanceIncompleteError';
+  readonly code = 'address_conflicts';
+
+  constructor() {
+    super('some addresses were left as restored: decide by hand which account keeps each');
   }
 }
 
@@ -42,6 +53,7 @@ export async function runMaintenance(
   command: MaintenanceCommand,
   config: MaintenanceConfig,
   logger: Logger,
+  clock: Clock = systemClock,
 ): Promise<void> {
   const open = (url: string) =>
     createDatabaseClient({
@@ -65,8 +77,9 @@ export async function runMaintenance(
       logger.error({ command, connected }, 'maintenance refused');
       throw new MaintenanceRefusedError();
     }
-    const result = await replayTombstones(restored, replaced);
+    const result = await replayAfterRestore(restored, replaced, { now: clock.now() });
     logger.info({ command, ...result }, 'replayed after restore');
+    if (result.addressConflicts > 0) throw new MaintenanceIncompleteError();
   } finally {
     await Promise.all([target.close(), source?.close()]);
   }
