@@ -165,6 +165,34 @@ describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {
     expect(left.map((row) => row.user_id)).toEqual([enabled]);
   });
 
+  it('lets the migrator reach every account’s rows in the tables its maintenance commands change, and no others [ADR-0020]', async () => {
+    const userId = randomUUID();
+    await migrator.sql`
+      insert into users (id, email_enc, email_blind_index, password_hash, timezone, locale, age_confirmed,
+                         privacy_policy_version, password_changed_at, created_at, updated_at)
+      values (${userId}, ${Buffer.from([0])}, ${randomBytes(32)}, 'x', 'Europe/Zurich', 'de-CH', true, '1', now(), now(),
+              now())`;
+    await withUserContext(app, userId, async (tx) => {
+      await tx`insert into user_keys (user_id, wrapped_dek, kek_id, kek_version, created_at)
+               values (${userId}, ${randomBytes(73)}, 'local', 1, now())`;
+      await tx`insert into consents (id, user_id, type, version, granted_at)
+               values (${randomUUID()}, ${userId}, 'goal_content', '2026-10-01', now())`;
+      await tx`insert into audit_events (id, user_id, event_type, outcome, created_at)
+               values (${randomUUID()}, ${userId}, 'login_succeeded', 'success', now())`;
+    });
+    const seen = async (table: string) =>
+      (
+        await migrator.sql<{ count: number }[]>`
+          select count(*)::int as count from ${migrator.sql(table)} where user_id = ${userId}`
+      )[0]?.count;
+
+    expect({
+      user_keys: await seen('user_keys'),
+      consents: await seen('consents'),
+      audit_events: await seen('audit_events'),
+    }).toEqual({ user_keys: 1, consents: 1, audit_events: 0 });
+  });
+
   it('grants each role exactly the documented privileges on every table (least privilege)', async () => {
     const rows = await migrator.sql<{ table: string; role: string; privilege: string }[]>`
       select c.relname as table, r.role, p.privilege

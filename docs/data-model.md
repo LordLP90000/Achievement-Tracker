@@ -499,8 +499,14 @@ CREATE POLICY sessions_worker ON sessions TO questline_worker USING (true) WITH 
 
 **Least-privilege grants (M2).** Tested exactly by `test/security/db-roles.test.ts`: a new table fails until its
 row is added here and in the test. Cascading deletes need no grant (they run as the table owner). The maintenance
-commands of ADR-0020 run with `questline_migrator`, the owner: `replay-tombstones` (M6) inserts tombstones and
-deletes the accounts they name — neither table has row-level security, and the cascade runs as the owner.
+commands of ADR-0020 run with `questline_migrator`, the owner, while the API and the worker are stopped. Forced
+row-level security applies to the owner as well, so migration 0010 (M6, Q-56, Q-57) gives it a permissive policy
+(`<table>_maintenance`, every row) on exactly the tables whose rows a command changes for every account:
+`user_keys` (the KEK re-wrap), and `sessions`, `consents`, `passkeys`, `totp_secrets`, `recovery_codes`,
+`achievements`, `xp_events` and `idempotency_keys` (the replay after a restore; the other goal-content tables follow
+`achievements` by cascade, which bypasses row-level security). As the owner it could lift row-level security anyway, so
+these policies cross no boundary; they keep its access explicit (`test/security/rls-coverage.test.ts`,
+`db-roles.test.ts`). It still sees no audit events or queued emails.
 
 | Table | `questline_app` (API) | `questline_worker` | Row-level security |
 |-------|----------------------|--------------------|--------------------|

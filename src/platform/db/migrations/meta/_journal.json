@@ -71,6 +71,13 @@
       "when": 1793810226316,
       "tag": "0009_sign_in_methods",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793890414755,
+      "tag": "0010_maintenance_policies",
+      "breakpoints": true
     }
   ]
 }

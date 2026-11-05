@@ -21,6 +21,22 @@ const RLS_TABLES = [
   'xp_events',
 ];
 
+/**
+ * Tables whose rows the maintenance commands change for every account, run as the migrator, which owns every table
+ * (ADR-0020, Q-57): forced row-level security applies to it too, so each needs a policy for it.
+ */
+const MAINTENANCE_TABLES = [
+  'achievements',
+  'consents',
+  'idempotency_keys',
+  'passkeys',
+  'recovery_codes',
+  'sessions',
+  'totp_secrets',
+  'user_keys',
+  'xp_events',
+];
+
 /** Tables without row-level security, each with the reason documented in docs/data-model.md §3. */
 const RLS_EXEMPT: Readonly<Record<string, string>> = {
   users: 'looked up by email blind index before the user is known; narrow repository API',
@@ -125,6 +141,32 @@ describe('row-level security coverage', () => {
 
   it('has no policy for PUBLIC, which would apply to every role', () => {
     expect(policies.filter((policy) => policy.roles.includes('public')).map((policy) => policy.name)).toEqual([]);
+  });
+
+  it('gives the migrator a policy for every row only on the tables its maintenance commands change [ADR-0020]', () => {
+    const migratorPolicies = policies.filter((policy) => policy.roles.includes('questline_migrator'));
+
+    expect(
+      migratorPolicies.map(({ table, name, roles, permissive, command, using, check }) => ({
+        table,
+        name,
+        roles,
+        permissive,
+        command,
+        using,
+        check,
+      })),
+    ).toEqual(
+      MAINTENANCE_TABLES.map((table) => ({
+        table,
+        name: `${table}_maintenance`,
+        roles: ['questline_migrator'],
+        permissive: 'PERMISSIVE',
+        command: 'ALL',
+        using: 'true',
+        check: 'true',
+      })),
+    );
   });
 
   it('grants the worker cross-user policies only on protected tables', () => {
