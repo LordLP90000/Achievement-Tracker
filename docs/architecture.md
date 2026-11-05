@@ -422,7 +422,7 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
   `questline-worker` session is connected to a database it would read or change, is idempotent, and logs only counts.
   `replay-after-restore` follows every restore: it takes over the tombstones of the database the restore replaced
   (`REPLACED_DATABASE_URL`, the migrator's role, read-only transactions) with their dates and deletes every account they name, 100 per
-  transaction, with the hard delete's cascade. The restore runbook: `docs/runbooks/restore.md`. `rewrap-data-keys`
+  transaction, with the hard delete's cascade. The restore runbook: `docs/runbooks/restore.md`; the key-rotation runbook: `docs/runbooks/key-rotation.md`. `rewrap-data-keys`
   re-wraps every data key under the current KEK after a rotation: the previous KEK is another 1Password item, and the
   AEAD decides which KEK opens a key, never its label. `reindex-email-blind-index` indexes every address and every
   pending new address again under a new blind-index key; the API must be stopped, since with the old key it would let

@@ -1,8 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from 'vitest';
 import { MaintenanceIncompleteError, runMaintenance } from '../../src/main/maintenance.ts';
+import { reindexEmailBlindIndexes } from '../../src/modules/accounts/reindex.ts';
 import { replayAfterRestore } from '../../src/modules/privacy/restore-replay.ts';
 import type { MaintenanceConfig } from '../../src/platform/config/config.ts';
+import { createDataKeys } from '../../src/platform/crypto/data-keys.ts';
+import { localKeyWrapper } from '../../src/platform/crypto/key-wrapper.ts';
 import { createDatabaseFromTemplate, databaseUrl, dropDatabase } from '../../src/platform/db/bootstrap.ts';
 import { createDatabaseClient, type DatabaseClient } from '../../src/platform/db/client.ts';
 import { createDatabase } from '../../src/platform/db/database.ts';
@@ -311,6 +314,42 @@ describe('replay after a restore: the changes since the restore point [Q-57, ADR
     expect(addressOf(await accountIn(backup.admin, taking.userId))).toEqual(
       addressOf(await accountIn(ctx.admin, taking.userId)),
     );
+  });
+
+  it('after a blind-index key rotation since the restore point, replays only once the restored database is re-indexed [ADR-0020, RR-3]', async () => {
+    await ctx.admin.sql`delete from users`;
+    const [stale, taking, steady] = [await ctx.account({ verified: false }), await ctx.account(), await ctx.account()];
+    const [reindexedFirst, replayedFirst] = [await takeBackup(), await takeBackup()];
+    await ctx.admin.sql`delete from users where id = ${stale.userId}`;
+    await changeAddress(taking, stale.email);
+    const next = randomBytes(32);
+    const reindex = (url: string, current: Uint8Array, previous: Uint8Array) =>
+      reindexEmailBlindIndexes(createDatabase(client(url)), createDataKeys(localKeyWrapper(ctx.kek)), {
+        current,
+        previous,
+      });
+    await reindex(ctx.database.urls.migrator, next, ctx.blindIndexKey);
+    try {
+      // The runbook's order: the restored database is re-indexed first, so the replay compares like with like.
+      expect(await reindex(reindexedFirst.migratorUrl, next, ctx.blindIndexKey)).toEqual({
+        current: 0,
+        reindexed: 3,
+        unknown: 0,
+      });
+      expect(await replay(reindexedFirst)).toMatchObject({ addresses: 1, addressConflicts: 0, unverifiedDeleted: 1 });
+      expect(await accountIn(reindexedFirst.admin, stale.userId)).toBeUndefined();
+      for (const account of [taking, steady]) {
+        expect(addressOf(await accountIn(reindexedFirst.admin, account.userId))).toEqual(
+          addressOf(await accountIn(ctx.admin, account.userId)),
+        );
+      }
+      // The other way round, every address looks moved, and the replay looks for the purged account's address under
+      // the new key, where nothing holds it yet: that account stays, and its re-index then clashes.
+      expect(await replay(replayedFirst)).toMatchObject({ addresses: 2, unverifiedDeleted: 0 });
+      await expect(reindex(replayedFirst.migratorUrl, next, ctx.blindIndexKey)).rejects.toThrow();
+    } finally {
+      await reindex(ctx.database.urls.migrator, ctx.blindIndexKey, next);
+    }
   });
 
   it('keeps both and fails for a decision by hand when a verified account the replaced database lacks holds a moved address', async () => {

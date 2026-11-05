@@ -18,7 +18,7 @@ besides deletions (§6).
 - [ ] The backup is at most 30 days old. Backups expire after 30 days, tombstones after 35 (Q-13). So the database
       the restore replaces holds a tombstone for every account deleted since any backup that can still be restored.
 - [ ] **Keep the current database, the one the restore replaces.** Never drop or overwrite it before the replay
-      (step 6): it holds the tombstones of every account deleted after the backup. If it is damaged, copy at least
+      (step 7): it holds the tombstones of every account deleted after the backup. If it is damaged, copy at least
       its `deleted_user_tombstones` table first.
 - [ ] The 1Password item of the KEK that wrapped the backup's data keys still exists. After a key rotation, the old
       item is kept until the last backup from before the rotation has expired (ADR-0020).
@@ -42,7 +42,18 @@ The commands are those of the local stack, as rehearsed (`docker compose -f dock
    every role can connect to the restored database (PUBLIC's default `CONNECT`).
 5. **Migrations**: `compose run --rm --no-deps migrate`. This is needed when the backup predates a migration of the
    running image; otherwise it does nothing.
-6. **Replay what happened since the restore point** (ADR-0020, Q-13, Q-57), with the migrator's role on both
+6. **Keys rotated since the backup** (ADR-0020): the restored database holds the data keys and blind indexes of the
+   backup's day. Bring them under the current keys before the replay, in this order, with the commands of the
+   key-rotation runbook (`docs/runbooks/key-rotation.md`):
+   - `rewrap-data-keys`, with the KEK that wrapped the backup's data keys as the previous KEK (its item is named in
+     `user_keys.kek_id`);
+   - then `reindex-email-blind-index`, with the blind-index key of the backup's day as `PREVIOUS_BLIND_INDEX_KEY`.
+     It reads the addresses with the current KEK, so the re-wrap comes first.
+   - Why before the replay: the replay compares addresses by their blind index. Under two keys every address looks
+     moved, and an account holding a moved address under the old key is missed: an unverified account the replaced
+     database purged then stays, and its re-index fails on the clash (`test/integration/restore-replay.test.ts`).
+   - No rotation since the backup: skip this step.
+7. **Replay what happened since the restore point** (ADR-0020, Q-13, Q-57), with the migrator's role on both
    databases. It reads the replaced database only in read-only transactions, which refuse any change, DDL included:
    `compose run --rm --no-deps -T -e REPLACED_DATABASE_URL=postgres://questline_migrator:<password>@db:5432/questline_replaced migrate dist/maintenance.js replay-after-restore`.
    In this order it:
@@ -65,8 +76,6 @@ The commands are those of the local stack, as rehearsed (`docker compose -f dock
    - In production the password comes from the secret store as an environment variable, never on a command line.
    - The replaced database cannot be read at all: run it without the variable. Then it replays only the restored
      database's own tombstones and deletes every session, which is enough only for a restore to the latest point.
-7. **Keys rotated since the backup**: run the key-rotation runbook's commands (`rewrap-data-keys`,
-   `reindex-email-blind-index`, ADR-0020, M6, to come) before the API starts.
 8. **Start the worker and the API**: `compose up --detach --wait --no-deps api worker`. Check `/health/ready`, the
    worker's `worker ready` line, and a sign-in with a test account.
 9. **What is lost for good** (§6): accounts and data created after the restore point. Record in the incident record
@@ -101,6 +110,6 @@ users made for their privacy or security:
 - **New accounts, goals, check-ins and audit events** are gone. The owners are not told.
 
 The PM decided (Q-57) that the replay re-applies all of these but the new data, and revokes every session (ADR-0020,
-amendment), and it does (step 6). It also takes over an address verified since: unverified, the account would be
+amendment), and it does (step 7). It also takes over an address verified since: unverified, the account would be
 purged after its 7 days. New data stays lost: choose the latest possible restore point, and record what the period
 contained (step 9).
