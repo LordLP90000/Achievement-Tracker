@@ -63,6 +63,11 @@ export interface RateLimiterDependencies {
   readonly db: Database;
   readonly clock: Clock;
   readonly rateLimitKey: Uint8Array;
+  /**
+   * Multiplies every bucket and the free failures, never a block (Q-60): `RATE_LIMIT_SCALE`, for the DAST stack
+   * only; the API's configuration refuses it in production.
+   */
+  readonly scale: number;
 }
 
 const toSeconds = (ms: number) => Math.ceil(ms / 1000);
@@ -70,15 +75,20 @@ const toSeconds = (ms: number) => Math.ceil(ms / 1000);
 export function createRateLimiter(deps: RateLimiterDependencies): RateLimiter {
   const keyOf = (scope: string, subject: string, now: Date) =>
     bucketKey(dailyKey(deps.rateLimitKey, now), scope, subject);
+  const scaled = ({ capacity, refillPerSecond }: TokenBucket): TokenBucket => ({
+    capacity: capacity * deps.scale,
+    refillPerSecond: refillPerSecond * deps.scale,
+  });
 
   return {
     async take(limit, subject) {
       const now = deps.clock.now();
-      const bucket = { key: keyOf(limit.scope, subject, now), initial: freshBucket(limit.bucket.capacity, now) };
+      const tokens = scaled(limit.bucket);
+      const bucket = { key: keyOf(limit.scope, subject, now), initial: freshBucket(tokens.capacity, now) };
       return inTransaction(deps.db, async (tx) => {
         let waitMs = 0;
         for (const { state } of await lockBuckets(tx, [bucket])) {
-          const result = takeToken(state, limit.bucket, now);
+          const result = takeToken(state, tokens, now);
           waitMs = result.retryAfterMs;
           await saveBucket(tx, bucket.key, result.state);
         }
@@ -103,7 +113,9 @@ export function createRateLimiter(deps: RateLimiterDependencies): RateLimiter {
           await saveBucket(
             tx,
             bucket.key,
-            succeeded ? afterSuccess(state, now) : afterFailure(state, limit.backoff, now),
+            succeeded
+              ? afterSuccess(state, now)
+              : afterFailure(state, { ...limit.backoff, freeFailures: limit.backoff.freeFailures * deps.scale }, now),
           );
         }
       });

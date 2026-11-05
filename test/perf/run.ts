@@ -1,6 +1,7 @@
 /**
  * Load, limit and DAST runs against the local Compose stack (M6, Q-58): `npm run test:load` runs k6
- * (`test/perf/limits.js`), `npm run test:dast` the ZAP API scan with the OpenAPI contract. Both tools run as
+ * (`test/perf/limits.js`), `npm run test:dast` the ZAP API scan with the OpenAPI contract, signed in, passive and
+ * active (`node test/perf/run.ts zap --passive`: passive only, for a quick check). Both tools run as
  * hardened containers from images pinned by digest, on an internal network they share with the API alone (Q-58,
  * Q-59), and write their reports to `reports/`. The stack starts with fresh throw-away secrets and is removed
  * afterwards, volumes included.
@@ -21,6 +22,7 @@ import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { parse, stringify } from 'yaml';
 import { checkPassword, loadBreachedPasswordFilter } from '../../src/modules/accounts/password-policy.ts';
 
 /** grafana/k6 2.3.0, published 2026-10-24. */
@@ -36,9 +38,12 @@ const PROJECT = 'questline-perf';
 const SCAN_NETWORK = `${PROJECT}-scan`;
 const COMPOSE = ['compose', '-f', 'docker/compose.yml', '-p', PROJECT];
 const LOAD_USERS = 10;
+/** The active scan sends thousands of requests: the DAST stack multiplies its limits (Q-60). */
+const DAST_RATE_LIMIT_SCALE = 1000;
 const MAIL_WAIT_MS = 30_000;
 const DAY_MS = 86_400_000;
 const ZAP_HIGH = '3';
+const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete']);
 
 const run = promisify(execFile);
 const secret = () => randomBytes(24).toString('base64url');
@@ -75,6 +80,13 @@ interface Account {
   readonly token: string;
 }
 
+/** One request as the API logged it: the route pattern, never the URL. */
+interface Answer {
+  readonly method: string;
+  readonly route: string | null;
+  readonly status: number;
+}
+
 class Stack {
   readonly #env: NodeJS.ProcessEnv;
   readonly #api: string;
@@ -87,7 +99,8 @@ class Stack {
     this.#mail = `http://127.0.0.1:${env['MAIL_UI_PORT'] ?? ''}`;
   }
 
-  static async create(): Promise<Stack> {
+  /** `rateLimitScale`: the DAST stack's (Q-60); the load test measures the real limits and leaves it unset. */
+  static async create(rateLimitScale?: number): Promise<Stack> {
     return new Stack({
       ...process.env,
       POSTGRES_ADMIN_PASSWORD: secret(),
@@ -100,6 +113,7 @@ class Stack {
       MAIL_CATCHER_PASSWORD: secret(),
       API_PORT: String(await freePort()),
       MAIL_UI_PORT: String(await freePort()),
+      RATE_LIMIT_SCALE: rateLimitScale === undefined ? '' : String(rateLimitScale),
     });
   }
 
@@ -119,6 +133,17 @@ class Stack {
   async stop(): Promise<void> {
     await this.compose('down', '--volumes', '--remove-orphans');
     await run('docker', ['network', 'rm', '--force', SCAN_NETWORK]);
+  }
+
+  /** The API's answers so far, from its one allowlisted log line per request (Q-28). */
+  async answers(): Promise<Answer[]> {
+    const { stdout } = await this.compose('logs', '--no-color', '--no-log-prefix', 'api');
+    return stdout
+      .split('\n')
+      .filter((line) => line.startsWith('{'))
+      .map((line) => JSON.parse(line) as Partial<Answer> & { msg?: string })
+      .filter((record) => record.msg === 'request completed')
+      .map(({ method = '', route = null, status = 0 }) => ({ method, route, status }));
   }
 
   /** A request from the host; a 429 is waited out as its `Retry-After` says, as a client must. */
@@ -178,6 +203,11 @@ class Stack {
     }
     return { email, token };
   }
+
+  /** Whether the session behind the access token still works. */
+  async signedIn(token: string): Promise<boolean> {
+    return (await this.#call('/me', undefined, token)).status === 200;
+  }
 }
 
 async function loadTest(stack: Stack, data: string, reports: string): Promise<number> {
@@ -205,26 +235,64 @@ interface ZapReport {
   readonly site: { readonly alerts: { readonly name: string; readonly riskcode: string; readonly count: string }[] }[];
 }
 
-async function dast(stack: Stack, data: string, reports: string): Promise<number> {
-  const { token } = await stack.account('dast', true);
-  // The contract names a placeholder server; the scan addresses the stack's API inside the network.
-  const contract = readFileSync('openapi/openapi.yaml', 'utf8').replace(
-    'https://api.example.invalid/v1',
-    'http://api:3000/v1',
+/**
+ * Operations that would end the scan's only session or withdraw the consent the goal routes need, and so leave every
+ * later request answered 401 or 403. The integration and e2e tests cover them; the scan leaves them out.
+ */
+const UNSCANNED = [
+  ['/me', 'delete'],
+  ['/auth/logout', 'post'],
+  ['/auth/logout-all', 'post'],
+  ['/me/consents/{type}', 'delete'],
+] as const;
+
+interface ScannedContract {
+  readonly text: string;
+  /** Its operations that need a session, as the API logs them: `GET /v1/achievements/:achievementId`. */
+  readonly signedIn: readonly string[];
+}
+
+/** The contract as the scan sees it: addressed to the stack's API inside the network, without `UNSCANNED`. */
+function scannedContract(): ScannedContract {
+  const contract = parse(readFileSync('openapi/openapi.yaml', 'utf8')) as {
+    security?: unknown[];
+    paths: Record<string, Record<string, { security?: unknown[] }>>;
+  };
+  for (const [path, method] of UNSCANNED) {
+    if (contract.paths[path]?.[method] === undefined) throw new Error(`the contract has no ${method} ${path} any more`);
+  }
+  const scanned = (path: string, method: string) => !UNSCANNED.some(([p, m]) => p === path && m === method);
+  const paths = Object.fromEntries(
+    Object.entries(contract.paths).map(([path, operations]) => [
+      path,
+      Object.fromEntries(Object.entries(operations).filter(([method]) => scanned(path, method))),
+    ]),
   );
-  writeFileSync(join(data, 'openapi.yaml'), contract);
+  const signedIn = Object.entries(paths).flatMap(([path, operations]) =>
+    Object.entries(operations)
+      .filter(
+        ([method, operation]) => HTTP_METHODS.has(method) && (operation.security ?? contract.security ?? []).length > 0,
+      )
+      .map(([method]) => `${method.toUpperCase()} /v1${path.replaceAll(/\{(\w+)\}/g, ':$1')}`),
+  );
+  return { text: stringify({ ...contract, servers: [{ url: 'http://api:3000/v1' }], paths }), signedIn };
+}
+
+const tally = (values: readonly string[]) =>
+  Object.fromEntries([...new Set(values)].sort().map((value) => [value, values.filter((v) => v === value).length]));
+
+async function dast(stack: Stack, data: string, reports: string, passive: boolean): Promise<number> {
+  const { token } = await stack.account('dast', true);
+  const contract = scannedContract();
+  writeFileSync(join(data, 'openapi.yaml'), contract.text);
   copyFileSync('test/perf/zap-rules.tsv', join(data, 'zap-rules.tsv'));
-  const bearer = [
-    'replacer.full_list(0).description=bearer',
-    'replacer.full_list(0).enabled=true',
-    'replacer.full_list(0).matchtype=REQ_HEADER',
-    'replacer.full_list(0).matchstr=Authorization',
-    'replacer.full_list(0).regex=false',
-    `replacer.full_list(0).replacement=Bearer ${token}`,
-  ].map((setting) => `-config ${setting}`);
-  const code = await tool(['-v', `${data}:/zap/wrk:rw`], ZAP_IMAGE, [
-    ...['zap-api-scan.py', '-t', '/zap/wrk/openapi.yaml', '-f', 'openapi', '-S', '-I'],
-    ...['-c', 'zap-rules.tsv', '-r', 'zap.html', '-J', 'zap.json', '-z', bearer.join(' ')],
+  const before = (await stack.answers()).length;
+  // The packaged scans add this header to every request; the scan reaches only the API. A file keeps the token off
+  // the command line.
+  writeFileSync(join(data, 'zap.env'), `ZAP_AUTH_HEADER_VALUE=Bearer ${token}\n`);
+  const code = await tool(['--env-file', join(data, 'zap.env'), '-v', `${data}:/zap/wrk:rw`], ZAP_IMAGE, [
+    ...['zap-api-scan.py', '-t', '/zap/wrk/openapi.yaml', '-f', 'openapi', '-I', ...(passive ? ['-S'] : [])],
+    ...['-c', 'zap-rules.tsv', '-r', 'zap.html', '-J', 'zap.json'],
   ]);
   mkdirSync(join(reports, 'zap'), { recursive: true });
   for (const file of ['zap.html', 'zap.json']) copyFileSync(join(data, file), join(reports, 'zap', file));
@@ -233,19 +301,35 @@ async function dast(stack: Stack, data: string, reports: string): Promise<number
   for (const alert of alerts) process.stdout.write(`ZAP risk ${alert.riskcode}: ${alert.name} (${alert.count})\n`);
   const high = alerts.filter((alert) => alert.riskcode === ZAP_HIGH).length;
   process.stdout.write(`ZAP: ${String(alerts.length)} alert types, ${String(high)} high\n`);
-  return code === 0 && high === 0 ? 0 : 1;
+  // Whatever the scan sent, the API must never answer with a server error.
+  const answers = (await stack.answers()).slice(before);
+  const serverErrors = answers.filter((answer) => answer.status >= 500).length;
+  process.stdout.write(
+    `API answers to the scan, by status: ${JSON.stringify(tally(answers.map((a) => String(a.status))))}\n`,
+  );
+  // The operations that need a session were scanned signed in only if they answered other than 401 to the scan.
+  const reached = new Set(answers.filter((a) => a.status !== 401).map((a) => `${a.method} ${a.route ?? ''}`));
+  const missed = contract.signedIn.filter((operation) => !reached.has(operation));
+  process.stdout.write(
+    `Signed-in operations answered other than 401: ${String(contract.signedIn.length - missed.length)} of ${String(contract.signedIn.length)}${missed.length > 0 ? `; not: ${missed.join(', ')}` : ''}\n`,
+  );
+  const signedIn = await stack.signedIn(token);
+  process.stdout.write(`The scan's session ${signedIn ? 'survived the scan' : 'ended during the scan'}\n`);
+  return code === 0 && high === 0 && serverErrors === 0 && missed.length === 0 && signedIn ? 0 : 1;
 }
 
 async function main(mode: string | undefined): Promise<number> {
-  if (mode !== 'k6' && mode !== 'zap') throw new Error('usage: node test/perf/run.ts k6|zap');
+  if (mode !== 'k6' && mode !== 'zap') throw new Error('usage: node test/perf/run.ts k6 | zap [--passive]');
   const data = mkdtempSync(join(tmpdir(), 'questline-perf-'));
   // The tools run as their own users (ZAP 1000, k6 12345): on Linux they must be able to enter and write it.
   chmodSync(data, 0o777);
   const reports = resolve('reports');
-  const stack = await Stack.create();
+  const stack = await Stack.create(mode === 'zap' ? DAST_RATE_LIMIT_SCALE : undefined);
   try {
     await stack.start();
-    return await (mode === 'k6' ? loadTest(stack, data, reports) : dast(stack, data, reports));
+    return await (mode === 'k6'
+      ? loadTest(stack, data, reports)
+      : dast(stack, data, reports, process.argv.includes('--passive')));
   } finally {
     await stack.stop();
     rmSync(data, { recursive: true, force: true });

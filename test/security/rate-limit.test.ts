@@ -240,3 +240,35 @@ describe('rate limits [R-AUTH-08, ADR-0009, S-01, D-04, D-05, I-19, A-31]', () =
     for (const secret of ['203.0.', '2001:db8', '@example.test']) expect(logs.text).not.toContain(secret);
   });
 });
+
+describe('rate limits scaled for the DAST stack (RATE_LIMIT_SCALE, development and test only) [Q-60]', () => {
+  let scaled: AccountsApp;
+
+  beforeAll(async () => {
+    scaled = await startAccountsApp({ rateLimits: 'enforced', rateLimitScale: 2 });
+  });
+
+  afterAll(async () => {
+    await scaled.close();
+  });
+
+  it('multiplies every bucket and the free wrong passwords by the scale, but not the block', async () => {
+    const account = await scaled.account();
+    const verify = () => scaled.post('/v1/auth/verify-email', { token: unknownToken() }, {}, '198.51.100.7');
+    const wrong = () =>
+      scaled.post(
+        '/v1/auth/login',
+        { email: account.email, password: 'not the password', client: 'ios' },
+        {},
+        '198.51.100.8',
+      );
+    const verifications: number[] = [];
+    for (let attempt = 0; attempt < 41; attempt += 1) verifications.push((await verify()).statusCode);
+    const logins = [];
+    for (let attempt = 0; attempt < 12; attempt += 1) logins.push(await wrong());
+
+    expect(verifications).toEqual([...Array<number>(40).fill(401), 429]);
+    expect(logins.map((login) => login.statusCode)).toEqual([...Array<number>(11).fill(401), 429]);
+    expect(logins[11]?.headers['retry-after']).toBe('60');
+  });
+});

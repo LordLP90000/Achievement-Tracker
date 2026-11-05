@@ -41,6 +41,7 @@ describe('entrypoints against a real database', () => {
       http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
       databaseUrl: database.urls.app,
       webauthn: WEBAUTHN,
+      rateLimitScale: 1,
     };
     const logs = new LogCapture();
     const api = await startApi(config, await keys(), loggerFor(logs));
@@ -62,6 +63,7 @@ describe('entrypoints against a real database', () => {
       http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
       databaseUrl: database.urls.app,
       webauthn: WEBAUTHN,
+      rateLimitScale: 1,
     };
     const logs = new LogCapture();
     const api = await startApi(config, await keys(), loggerFor(logs));
@@ -74,6 +76,24 @@ describe('entrypoints against a real database', () => {
     expect(logs.text).not.toMatch(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
   });
 
+  it('warns at start when the rate limits are scaled for the DAST stack, and only then [Q-60]', async () => {
+    const config: ApiConfig = {
+      appEnv: 'test',
+      logLevel: 'info',
+      http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
+      databaseUrl: database.urls.app,
+      webauthn: WEBAUTHN,
+      rateLimitScale: 1000,
+    };
+    const [scaled, plain] = [new LogCapture(), new LogCapture()];
+    await (await startApi(config, await keys(), loggerFor(scaled))).stop();
+    await (await startApi({ ...config, rateLimitScale: 1 }, await keys(), loggerFor(plain))).stop();
+
+    const warnings = (logs: LogCapture) =>
+      logs.records().filter((record) => record['msg'] === 'rate limits scaled: development and test only (Q-60)');
+    expect(warnings(scaled)).toMatchObject([{ level: 'warn', rateLimitScale: 1000 }]);
+    expect(warnings(plain)).toEqual([]);
+  });
   it('fails to start when the port is taken and leaves no open database pool behind', async () => {
     const config: ApiConfig = {
       appEnv: 'test',
@@ -81,6 +101,7 @@ describe('entrypoints against a real database', () => {
       http: { host: '127.0.0.1', port: 0, trustProxyHops: 0 },
       databaseUrl: database.urls.app,
       webauthn: WEBAUTHN,
+      rateLimitScale: 1,
     };
     const first = await startApi(config, await keys(), loggerFor(new LogCapture()));
     const takenPort = Number(new URL(first.url).port);

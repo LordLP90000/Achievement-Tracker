@@ -19,6 +19,8 @@ export interface ApiConfig {
   readonly http: HttpConfig;
   readonly databaseUrl: string;
   readonly webauthn: WebAuthnConfig;
+  /** `RATE_LIMIT_SCALE` (Q-60): multiplies the rate limits for the DAST stack; 1 unless set, never in production. */
+  readonly rateLimitScale: number;
 }
 
 /** The passkey relying party (ADR-0019, Q-51): its ID and the origins its ceremonies may come from. */
@@ -92,6 +94,7 @@ export class ConfigError extends Error {
 const URL_RULE = 'must be a postgres:// or postgresql:// URL';
 const PORT_RULE = 'must be an integer between 1 and 65535';
 const HOPS_RULE = 'must be an integer between 0 and 10';
+const SCALE_RULE = 'must be an integer between 1 and 1000';
 const PLACEHOLDER_FRAGMENTS = ['change', 'example', 'placeholder', 'password', 'secret'];
 const MIN_PRODUCTION_PASSWORD_LENGTH = 16;
 
@@ -126,6 +129,15 @@ const trustProxyHopsSchema = z.preprocess(
     .int({ error: HOPS_RULE })
     .min(0, { error: HOPS_RULE })
     .max(10, { error: HOPS_RULE })
+    .optional(),
+);
+const rateLimitScaleSchema = z.preprocess(
+  blankToUndefined,
+  z.coerce
+    .number({ error: SCALE_RULE })
+    .int({ error: SCALE_RULE })
+    .min(1, { error: SCALE_RULE })
+    .max(1000, { error: SCALE_RULE })
     .optional(),
 );
 const databaseUrlSchema = z.preprocess(
@@ -292,6 +304,7 @@ export function loadApiConfig(env: Env): ApiConfig {
       DATABASE_URL_APP: databaseUrlSchema,
       WEBAUTHN_RP_ID: z.preprocess(blankToUndefined, z.string().regex(DOMAIN_NAME, { error: RP_ID_RULE }).optional()),
       WEBAUTHN_ORIGINS: z.preprocess(blankToUndefined, z.string().optional()),
+      RATE_LIMIT_SCALE: rateLimitScaleSchema,
     },
     env,
   );
@@ -304,6 +317,7 @@ export function loadApiConfig(env: Env): ApiConfig {
           ...logLevelIssues(parsed.LOG_LEVEL),
           ...(parsed.TRUST_PROXY_HOPS === undefined ? ['TRUST_PROXY_HOPS: is required in production'] : []),
           ...productionDatabaseIssues('DATABASE_URL_APP', parsed.DATABASE_URL_APP),
+          ...(parsed.RATE_LIMIT_SCALE === undefined ? [] : ['RATE_LIMIT_SCALE: only in development and test']),
         ]
       : []),
     ...webauthn.issues,
@@ -315,6 +329,7 @@ export function loadApiConfig(env: Env): ApiConfig {
     http: Object.freeze({ host: parsed.HOST, port: parsed.PORT, trustProxyHops: parsed.TRUST_PROXY_HOPS ?? 0 }),
     databaseUrl: parsed.DATABASE_URL_APP,
     webauthn: webauthn.config,
+    rateLimitScale: parsed.RATE_LIMIT_SCALE ?? 1,
   });
 }
 

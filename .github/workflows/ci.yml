@@ -223,7 +223,7 @@ jobs:
     # pinned in test/perf/run.ts; they run hardened on an internal network shared with the API alone (Q-59).
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -238,7 +238,7 @@ jobs:
         run: npm ci --no-audit
       - name: Load and limit test (k6; A-31, D-01)
         run: npm run -s test:load
-      - name: DAST (ZAP API scan with the contract; fails on a high alert)
+      - name: DAST (ZAP API scan, passive and active, signed in; fails on a high alert, a 5xx or an unreached operation)
         if: ${{ !cancelled() }}
         run: npm run -s test:dast
       - name: Upload the reports

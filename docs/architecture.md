@@ -104,8 +104,10 @@ Rules enforced by lint/tests:
   (`env` | `onepassword-connect`), `LOCAL_KEK` (dev/test only), `OP_CONNECT_URL`, `OP_CONNECT_TOKEN`,
   `OP_KEK_VAULT_ID`, `OP_KEK_ITEM_ID`, `BLIND_INDEX_KEY`, `RATE_LIMIT_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`
   (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`; since M5 `WEBAUTHN_RP_ID` and
-  `WEBAUTHN_ORIGINS` (API); since M6 `PREVIOUS_LOCAL_KEK` (development) and `OP_PREVIOUS_KEK_ITEM_ID` (another item in the vault of the current KEK), for `rewrap-data-keys` only, `PREVIOUS_BLIND_INDEX_KEY` for `reindex-email-blind-index` only, and `REPLACED_DATABASE_URL` (`replay-after-restore` only: the database a restore
-  replaced, read only). Secrets are injected as environment
+  `WEBAUTHN_ORIGINS` (API); since M6 `PREVIOUS_LOCAL_KEK` (development) and `OP_PREVIOUS_KEK_ITEM_ID` (another item in the vault of the current KEK), for `rewrap-data-keys` only, `PREVIOUS_BLIND_INDEX_KEY` for `reindex-email-blind-index` only, `REPLACED_DATABASE_URL` (`replay-after-restore` only: the database a restore
+  replaced, read only), and `RATE_LIMIT_SCALE` (API, development and test only, refused in production: an integer from 1 to
+  1000 that multiplies every rate-limit bucket and the free wrong passwords, never a block; the DAST stack sets 1000 so
+  that the active ZAP scan is not answered with 429, Q-60). Secrets are injected as environment
   variables (from 1Password or the host's secret store); only the KEK is fetched from Connect at runtime.
 - The passkey relying party (API, ADR-0019, Q-51): `WEBAUTHN_RP_ID` is a lower-case domain name, not an IP address;
   `WEBAUTHN_ORIGINS` lists, comma-separated, at most 10 origins: `https://` the RP ID or one of its subdomains,

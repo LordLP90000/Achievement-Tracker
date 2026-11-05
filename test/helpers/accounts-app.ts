@@ -93,6 +93,8 @@ export interface AccountsAppOptions {
   readonly hashing?: { readonly maxConcurrent: number; readonly maxQueued: number };
   /** Real PostgreSQL rate limits (R-AUTH-08); other suites send many requests from one address and opt out. */
   readonly rateLimits?: 'enforced';
+  /** With enforced limits: multiplies them, as `RATE_LIMIT_SCALE` does for the DAST stack (Q-60). */
+  readonly rateLimitScale?: number;
 }
 
 export const TEST_PASSWORD = 'purple elephants dance quietly';
@@ -160,7 +162,10 @@ export async function startAccountsApp(options: AccountsAppOptions = {}): Promis
         passwords: createPasswordsService({ ...shared, breachedPasswords }),
         profiles: createProfileService(shared),
         quests: createQuestsService(shared),
-        rateLimiter: options.rateLimits === 'enforced' ? createRateLimiter({ ...shared, rateLimitKey }) : ALLOW_ALL,
+        rateLimiter:
+          options.rateLimits === 'enforced'
+            ? createRateLimiter({ ...shared, rateLimitKey, scale: options.rateLimitScale ?? 1 })
+            : ALLOW_ALL,
         sessions,
         stats: createStatsService(shared),
         totp: createTotpService(shared),

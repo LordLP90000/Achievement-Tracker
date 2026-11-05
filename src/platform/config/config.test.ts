@@ -42,6 +42,7 @@ describe('loadApiConfig', () => {
       http: { host: '127.0.0.1', port: 3000, trustProxyHops: 0 },
       databaseUrl: devUrl,
       webauthn: { rpId: 'questline.test', rpName: 'Questline', origins: ['https://questline.test'] },
+      rateLimitScale: 1,
     });
   });
 
@@ -57,6 +58,13 @@ describe('loadApiConfig', () => {
 
     expect(config.logLevel).toBe('warn');
     expect(config.http).toEqual({ host: '0.0.0.0', port: 8080, trustProxyHops: 2 });
+  });
+
+  it('multiplies the rate limits by RATE_LIMIT_SCALE for the DAST stack, outside production [Q-60]', () => {
+    const scaled = (value: string) =>
+      loadApiConfig({ APP_ENV: 'test', DATABASE_URL_APP: devUrl, RATE_LIMIT_SCALE: value }).rateLimitScale;
+
+    expect([scaled('1000'), scaled('1'), scaled('')]).toEqual([1000, 1, 1]);
   });
 
   it('treats empty variables as unset', () => {
@@ -192,6 +200,10 @@ describe('loadApiConfig', () => {
     ['PORT', 'http', 'PORT: must be an integer between 1 and 65535'],
     ['TRUST_PROXY_HOPS', '-1', 'TRUST_PROXY_HOPS: must be an integer between 0 and 10'],
     ['TRUST_PROXY_HOPS', '11', 'TRUST_PROXY_HOPS: must be an integer between 0 and 10'],
+    ['RATE_LIMIT_SCALE', '0', 'RATE_LIMIT_SCALE: must be an integer between 1 and 1000'],
+    ['RATE_LIMIT_SCALE', '1001', 'RATE_LIMIT_SCALE: must be an integer between 1 and 1000'],
+    ['RATE_LIMIT_SCALE', '2.5', 'RATE_LIMIT_SCALE: must be an integer between 1 and 1000'],
+    ['RATE_LIMIT_SCALE', 'many', 'RATE_LIMIT_SCALE: must be an integer between 1 and 1000'],
     ['DATABASE_URL_APP', 'mysql://u:p@h/db', 'DATABASE_URL_APP: must be a postgres:// or postgresql:// URL'],
     ['DATABASE_URL_APP', 'not a url', 'DATABASE_URL_APP: must be a postgres:// or postgresql:// URL'],
   ])('rejects an invalid %s', (name, value, expectedIssue) => {
@@ -220,6 +232,12 @@ describe('loadApiConfig', () => {
       const error = configErrorOf(() => loadApiConfig({ ...productionApiEnv, LOG_LEVEL: level }));
 
       expect(error.issues).toEqual(['LOG_LEVEL: debug and trace are not allowed in production']);
+    });
+
+    it('refuses RATE_LIMIT_SCALE, whatever its value: the limits are never relaxed in production [Q-60]', () => {
+      const error = configErrorOf(() => loadApiConfig({ ...productionApiEnv, RATE_LIMIT_SCALE: '1' }));
+
+      expect(error.issues).toEqual(['RATE_LIMIT_SCALE: only in development and test']);
     });
 
     it('requires TRUST_PROXY_HOPS to be set explicitly', () => {

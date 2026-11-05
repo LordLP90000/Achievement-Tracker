@@ -48,6 +48,9 @@ export const PASSWORD_HASHING = Object.freeze({ maxConcurrent: 2, maxQueued: 32 
 
 /** Starts the API with the `questline_app` database role; readiness follows the database. */
 export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: Logger): Promise<RunningApi> {
+  if (config.rateLimitScale !== 1) {
+    logger.warn({ rateLimitScale: config.rateLimitScale }, 'rate limits scaled: development and test only (Q-60)');
+  }
   const hasher = await createArgon2idHasher(PASSWORD_HASHING);
   const breachedPasswords = loadBreachedPasswordFilter();
   const database = createDatabaseClient({ url: config.databaseUrl, applicationName: 'questline-api' });
@@ -68,7 +71,7 @@ export async function startApi(config: ApiConfig, keys: ApiKeyMaterial, logger: 
     quests: createQuestsService(shared),
     checkIns: createCheckInsService(shared),
     gambles: createGamblesService(shared),
-    rateLimiter: createRateLimiter({ ...shared, rateLimitKey: keys.rateLimitKey }),
+    rateLimiter: createRateLimiter({ ...shared, rateLimitKey: keys.rateLimitKey, scale: config.rateLimitScale }),
     sessions: createSessionsService({ ...shared, webauthn: config.webauthn }),
     stats: createStatsService(shared),
     exports: createExportService(shared),
