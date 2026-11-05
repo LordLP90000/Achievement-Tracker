@@ -15,8 +15,8 @@ amended on 2026-10-22).
 | M3 Core domain | domain engine (+ Stryker), achievements/quests/check-ins, field encryption, idempotency, concurrency, stats, ownership tests for every endpoint | 13–17 (+1 for Q-30/Q-31, 2026-10-29) | none: O-05 (Q-32), O-06 (Q-31) and O-07 (Q-30) were decided at the M2 review on 2026-10-29; A-26…A-28 accepted (Q-04/05/08/12/16/17/18/24 are decided) |
 | M4 Privacy rights | export, deletion + crypto-shredding + tombstones, consent withdrawal effects, retention jobs, data-inventory guard test; first the M3 review follow-ups (Q-44, Q-45) | 6.5–9.5 (5–7 + 1.5–2.5 for Q-44/Q-45, 2026-11-02) + 1 after its review (Q-47/Q-48) | – (Q-10/11/13 are decided) |
 | M5 Auth hardening | passkeys (WebAuthn), optional TOTP 2FA, recovery codes, step-up | 7–10 | approved on 2026-11-04: the WebAuthn library (Q-50); the RP ID as a production setting until the domain exists (Q-51, Q-19) |
-| M6 Hardening & handover | DAST (ZAP) + load/limits (k6) on staging, deployment config for the chosen provider, runbooks (ops, key rotation, restore drill, breach), API docs, DP-expert review package (`client-security.md` moved to M4, Q-45) | 5.5–8.5 | started on 2026-11-05 with the PM's "go" before these, with the work that needs none of them; still needed for staging and its scans: O-01 hosting named (accounts/credentials for staging), O-02, O-03, the domain (Q-19) and a budget; for the review package: O-04 consent and policy texts |
-| **Total** | | **54–76** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log; +1 on 2026-10-29 for Q-30/Q-31; +1–2 on 2026-11-02 for Q-44/Q-45; +1 at the M4 review for Q-47/Q-48) | |
+| M6 Hardening & handover | DAST (ZAP) + load/limits (k6) on staging, deployment config for the chosen provider, runbooks (ops, key rotation, restore drill, breach), API docs, DP-expert review package (`client-security.md` moved to M4, Q-45) | 5.5–8.5 (+1.5 for Q-57, 2026-11-05) | started on 2026-11-05 with the PM's "go" before these, with the work that needs none of them; still needed for staging and its scans: O-01 hosting named (accounts/credentials for staging), O-02, O-03, the domain (Q-19) and a budget; for the review package: O-04 consent and policy texts |
+| **Total** | | **55.5–77.5** (was 44–62 before the PM's decisions of 2026-10-22, see §Change log; +1 on 2026-10-29 for Q-30/Q-31; +1–2 on 2026-11-02 for Q-44/Q-45; +1 at the M4 review for Q-47/Q-48; +1.5 in M6 for Q-57) | |
 
 ## Change log 2026-10-22 — impact of the PM's decisions (Q-01…Q-24)
 
@@ -52,6 +52,12 @@ Risk buffer: +15 % recommended for unknowns in external interfaces (1Password Co
 | Q-47 no work taken away while a gamble is pending | `409 gamble-pending` for quest changes that lower what the achievement's open required quests ask for; additive contract text | M4 +0.5 d (before M5) |
 | Q-48 a password reset reactivates an account pending deletion | forgot-password and reset for accounts pending deletion, the worker sends their reset links, the deletion notice's copy; additive contract text | M4 +0.5 d (before M5) |
 | Q-49 dependency exceptions extended to 2027-01-31 | `osv-scanner.toml`; re-checked at every milestone | – |
+
+## Change log 2026-11-05 — M6 (Q-57)
+
+| Decision | Impact | Effort delta |
+|----------|--------|--------------|
+| Q-57 changes since the restore point re-applied after a restore (O-13) | the maintenance command `replay-after-restore` takes over deletion states, passwords, addresses, sign-in methods and consents from the replaced database and revokes every session; migration 0010 (the migrator's policies) | M6 +1.5 d |
 
 ## M1 — Walking skeleton (4–6 days)
 

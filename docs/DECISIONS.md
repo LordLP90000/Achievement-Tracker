@@ -533,3 +533,23 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   `test/integration/key-rotation.test.ts` (named in ADR-0006 and ADR-0013 since M0),
   `src/platform/crypto/key-wrapper.test.ts`, `test/security/db-roles.test.ts`, `test/security/rls-coverage.test.ts`;
   the drills on the local Compose stack, recorded in the runbooks.
+- **Amendment (2026-11-05, Q-57):** a restore to an earlier point loses more than deletions (O-13). So the command
+  becomes `replay-after-restore` and its source `REPLACED_DATABASE_URL`. After the tombstones, for every account in
+  both databases, it takes over what the replaced database holds wherever the two differ:
+  - `deactivated_at`: deletion requests with their dates, and reactivations.
+  - `password_hash` and `password_changed_at`, when the replaced database's change is newer.
+  - The address (`email_enc`, `email_blind_index`, `email_verified_at`), in two passes: a temporary blind index first,
+    so addresses that moved between accounts do not clash. A clash with an account the replaced database no longer
+    holds deletes that account if it is unverified, as its purge did; any other clash stops the command for a
+    decision by hand.
+  - The passkeys, TOTP secret and recovery codes, replaced row for row. The rows keep their IDs, so the data key and
+    the associated data still fit.
+  - The consents. When the replaced database holds a withdrawal the restored one lacks, the goal content is deleted
+    first, as a withdrawal does.
+
+  An account row it changes gets a version above both databases', so no ETag a client kept from either matches.
+  Then it deletes every session with its tokens: every user signs in again. It works in batches of 100 accounts per
+  transaction, is idempotent and logs counts per kind. Migration 0010 gives the migrator permissive policies on the
+  tables with forced RLS that it touches: `user_keys`, `sessions`, `consents`, `passkeys`, `totp_secrets`,
+  `recovery_codes`, `achievements`, `xp_events` and `idempotency_keys`. The other goal-content tables follow by
+  cascade.

@@ -2,8 +2,8 @@
 
 Status: M6, 2026-11-05. Rehearsed on the local Compose stack and automated: the e2e suite runs this drill on every
 CI run (`test/e2e/smoke.test.ts`, "rehearses a restore"). The staging rehearsal waits for the hosting option (O-01).
-Controls: Q-13, ADR-0006, ADR-0020; threats I-18 and RR-4; DPIA R-8. Open: what a restore loses besides deletions
-(§6, O-13).
+Controls: Q-13, ADR-0006, ADR-0020; threats I-18 and RR-4; DPIA R-8. Being built: re-applying what a restore loses
+besides deletions (§6, Q-57).
 
 ## 1. When
 
@@ -57,7 +57,7 @@ The commands are those of the local stack, as rehearsed (`docker compose -f dock
    `reindex-email-blind-index`, ADR-0020, M6, to come) before the API starts.
 8. **Start the worker and the API**: `compose up --detach --wait --no-deps api worker`. Check `/health/ready`, the
    worker's `worker ready` line, and a sign-in with a test account.
-9. **Changes lost after the restore point** (§6): until O-13 is decided, list in the incident record what the
+9. **Changes lost after the restore point** (§6): until the re-apply of Q-57 is built, list in the incident record what the
    period contained, as far as the replaced database shows it.
 10. **The replaced database** is a copy of personal data: keep it only as long as the investigation needs it, and at
     most 30 days, like a backup (data inventory C14). Then drop it.
@@ -76,7 +76,7 @@ A real restore takes as long as the host's restore of a database of that size, p
 100 accounts per transaction with everything they own, as the hourly hard delete does: it is bounded by the
 accounts deleted since the restore point, not by the database's size. The staging drill measures both (O-01).
 
-## 6. What a restore to an earlier point does not recover (open: O-13)
+## 6. What a restore to an earlier point does not recover (decided: Q-57, being built)
 
 The replay restores completed deletions only. Everything else that happened between the restore point and the
 incident is lost, including changes users made for their privacy or security:
@@ -88,5 +88,6 @@ incident is lost, including changes users made for their privacy or security:
 - **Email changes**: the old address is back.
 - **New accounts, goals, check-ins and audit events** are gone. The owners are not told.
 
-Until the PM decides O-13 (`docs/requirements.md` §7), choose the latest possible restore point, and record what the
-period contained (step 9).
+The PM decided (Q-57) that the replay re-applies all of these but the new data, and revokes every session (ADR-0020,
+amendment). Until that is built in M6, choose the latest possible restore point, and record what the period
+contained (step 9).
