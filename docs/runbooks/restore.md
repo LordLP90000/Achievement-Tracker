@@ -11,7 +11,7 @@ besides deletions (§6).
   mistake) and cannot be repaired in place. Everything after the restore point is lost (§6). So choose the latest
   point before the incident: point-in-time recovery where the host offers it (H-2).
 - Losing or corrupting personal data is a personal data breach (availability, integrity): start the
-  breach-notification runbook (M6, to come) at the same time.
+  breach-notification runbook (`docs/runbooks/breach.md`) at the same time.
 
 ## 2. Before you start
 

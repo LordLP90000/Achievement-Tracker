@@ -104,7 +104,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | 3 | Consent text and version scheme (`YYYY-MM-DD`) and privacy policy text | PM / legal |
 | 4 | Encrypt `target_date` (R-5) — decided by the PM: yes (Q-24) | done |
 | 5 | Controller identity and contact for the privacy policy | PM |
-| 6 | Breach-notification runbook (FADP Art. 24: notify FDPIC "as soon as possible"; GDPR Art. 33: 72 h) | lead engineer, M6 |
+| 6 | Breach-notification runbook (FADP Art. 24: notify FDPIC "as soon as possible"; GDPR Art. 33: 72 h): written in M6, `docs/runbooks/breach.md`; its legal statements and the question of an EU representative (GDPR Art. 27) for the DP expert, and how to inform many users at once for the PM | lead engineer → DP expert, PM |
 | 7 | Recovering an account deleted by someone who knew the password: decided by the PM on 2026-11-02 — a password reset within the 30 days reactivates it (Q-48, O-12) | done |
 | 8 | Privacy policy: describe passkeys, TOTP and recovery codes, and that losing the authenticator with no code left locks the account (R-17, Q-52) | PM / legal |
 

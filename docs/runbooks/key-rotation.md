@@ -9,7 +9,7 @@ ADR-0020, Q-56; threats E-11, I-09, RR-3; R-ENC-01, R-ENC-02, R-ENC-05.
 
 - **A key may be exposed**: rotate it at once. Whoever holds the KEK and a copy of the database reads every
   account's data; whoever holds the blind-index key and a copy of the database can test guessed addresses (RR-3).
-  A possible exposure is a security incident: start the breach-notification runbook (M6, to come) at the same time.
+  A possible exposure is a security incident: start the breach-notification runbook (`docs/runbooks/breach.md`) at the same time.
 - **Someone with access leaves**: an operator who could read the KEK vault or the secret store.
 - **Planned rotations**: no schedule is set yet. A question for the PM in the M6 review.
 
@@ -44,7 +44,7 @@ ADR-0020, Q-56; threats E-11, I-09, RR-3; R-ENC-01, R-ENC-02, R-ENC-05.
    - Exit code 1 with `MaintenanceIncompleteError: unknown_data_keys`: some data keys open with neither KEK. They were
      left as they are; everything else was re-wrapped. Their `user_keys.kek_id` names the item that wrapped them: run
      the command again with that item as the previous KEK. If no item opens them, those accounts' data is lost: a
-     breach of availability (breach runbook).
+     breach of availability (`docs/runbooks/breach.md`).
    - Exit code 1 with `MaintenanceRefusedError: processes_connected`: an API or a worker is still connected. Stop it
      (step 3) and run again.
    - Any other failure: run it again. It works in batches of 1 000 keys, is idempotent and resumes where it stopped.
