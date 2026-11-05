@@ -9,7 +9,7 @@ open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.
 refined and A-29…A-33 accepted; decisions Q-30…Q-32 (§6.3) close O-05, O-06 and O-07; A-34 and A-35 proposed.
 Later on 2026-10-29: Q-33…Q-38 on habit periods, undo, habit edits and locked habits (§6.4); A-36…A-38 proposed.
 2026-11-02 (M4): Q-46 refines A-22 (§6.6); open items O-11 and O-12 for the M4 review. 2026-11-02 (M4 review): Q-47…Q-49
-(§6.7) close O-11 and O-12. 2026-11-04 (start of M5): Q-50…Q-52 (§6.8). 2026-11-05 (M6): Q-54 (§6.9).
+(§6.7) close O-11 and O-12. 2026-11-04 (start of M5): Q-50…Q-52 (§6.8). 2026-11-05 (M6): Q-54 and Q-55 (§6.9).
 
 ## 1. Product summary
 
@@ -351,6 +351,7 @@ domain (Q-19) and a staging budget stay open (§7).
 | ID | Decision |
 |----|----------|
 | Q-54 | **A Trivy exception for CVE-2026-76844 in `zlib1g`, until 2026-11-30:** a heap overflow in zlib's gzip-file API (`gz_write`), found by CI in the distroless runtime image (Debian 13) on 2026-11-05 (runs #125–#128). Debian 13 has no fix yet (fixed only in unstable). Unreachable here: no process of the image loads the system zlib — Node uses its bundled zlib and maps no `libz.so`, also with the app's native add-on loaded. Accepted in `.trivyignore.yaml`, scoped to the package, with the reason; when Debian ships the fix, the distroless image that has it is adopted (7-day rule) and the exception removed; after 2026-11-30 the finding fails CI again. Not chosen: CI red until Debian's fix (meanwhile no e2e smoke test or SBOM in CI); removing zlib from the runtime image by hand (the image's libcrypto links it). |
+| Q-55 | **The languages stay English, German, French and Italian** (the PM asked whether the app was meant to be in Spanish too, which no document had recorded): accounts choose among `de-CH`, `fr-CH`, `it-CH`, `en`, `de`, `fr` and `it`, and the eight emails exist in those four languages (A-33). Not chosen: Spanish (`es`) now, as an additive contract change with the eight emails in Spanish; Spanish before launch. |
 
 ## 7. Open items (non-blocking)
 
