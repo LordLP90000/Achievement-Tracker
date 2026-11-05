@@ -453,7 +453,7 @@ and a `password_reset` the owner asked for (A-22, Q-46, Q-48): the API queues no
 | Column | Type | Notes |
 |--------|------|-------|
 | `user_id` | uuid PK | random UUID of the deleted account, nothing else |
-| `deleted_at` | timestamptz NOT NULL | retained 35 days, replayed after a restore (`replay-tombstones`, ADR-0020) with the date kept |
+| `deleted_at` | timestamptz NOT NULL | retained 35 days, replayed after a restore (`replay-after-restore`, ADR-0020) with the date kept |
 
 #### `job_runs` (operational, no personal data)
 

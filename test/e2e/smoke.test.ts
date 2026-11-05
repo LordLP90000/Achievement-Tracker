@@ -340,7 +340,7 @@ describe('container smoke test', () => {
     const kept = await signedUp('kept');
     const deleted = await signedUp('deleted');
     const maintenance = (...options: string[]) =>
-      compose('run', '--rm', '--no-deps', '-T', ...options, 'migrate', 'dist/maintenance.js', 'replay-tombstones');
+      compose('run', '--rm', '--no-deps', '-T', ...options, 'migrate', 'dist/maintenance.js', 'replay-after-restore');
     const tombstone = () =>
       sql(`select to_char(deleted_at, 'YYYY-MM-DD HH24:MI:SS.US') from deleted_user_tombstones
            where user_id = '${deleted.id}'`);
@@ -365,7 +365,7 @@ describe('container smoke test', () => {
     await sqlIn('postgres', 'alter database questline_restored rename to questline');
     const bootstrapped = await compose('run', '--rm', '--no-deps', '-T', 'db-init');
     const restoredAccounts = await sql(`select count(*) from users where id in ('${kept.id}', '${deleted.id}')`);
-    const source = `TOMBSTONE_SOURCE_DATABASE_URL=postgres://questline_worker:${secrets.DB_PASSWORD_WORKER}@db:5432/questline_replaced`;
+    const source = `REPLACED_DATABASE_URL=postgres://questline_worker:${secrets.DB_PASSWORD_WORKER}@db:5432/questline_replaced`;
     const replayed = await maintenance('-e', source);
     const again = await maintenance('-e', source);
     await compose('up', '--detach', '--wait', '--no-deps', 'api', 'worker');
@@ -376,8 +376,8 @@ describe('container smoke test', () => {
     expect([deletion.status, deletedAt === '']).toEqual([202, false]);
     // The backup still holds the account the restore brings back, and the replay deletes it again.
     expect(restoredAccounts).toBe('2');
-    expect(replayed.stdout).toContain('"imported":1,"deleted":1,"msg":"tombstones replayed"');
-    expect(again.stdout).toContain('"imported":0,"deleted":0,"msg":"tombstones replayed"');
+    expect(replayed.stdout).toContain('"imported":1,"deleted":1,"msg":"replayed after restore"');
+    expect(again.stdout).toContain('"imported":0,"deleted":0,"msg":"replayed after restore"');
     expect(await sql(`select count(*) from users where id = '${deleted.id}'`)).toBe('0');
     // Its tombstone kept its date, so it still expires 35 days after the deletion.
     expect(await tombstone()).toBe(deletedAt);

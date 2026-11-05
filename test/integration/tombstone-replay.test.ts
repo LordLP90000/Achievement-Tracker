@@ -195,12 +195,12 @@ describe('tombstone replay after a restore [Q-13, I-18, RR-4]', () => {
     expect(await tombstonesIn(beforeAdmin)).toEqual([{ userId: user.userId, deletedAt: DELETED_AT }]);
   });
 
-  describe('as the maintenance command replay-tombstones [ADR-0020]', () => {
+  describe('as the maintenance command replay-after-restore [ADR-0020]', () => {
     const config = (): MaintenanceConfig => ({
       appEnv: 'test',
       logLevel: 'info',
       databaseUrl: ctx.database.urls.migrator,
-      tombstoneSourceUrl: before.urls.worker,
+      replacedDatabaseUrl: before.urls.worker,
     });
     const loggerFor = (logs: LogCapture) =>
       createLogger({ service: 'questline-maintenance', level: 'info' }, logs.stream);
@@ -210,9 +210,9 @@ describe('tombstone replay after a restore [Q-13, I-18, RR-4]', () => {
       await bury(beforeAdmin, user.userId);
       const logs = new LogCapture();
 
-      await runMaintenance('replay-tombstones', config(), loggerFor(logs));
+      await runMaintenance('replay-after-restore', config(), loggerFor(logs));
 
-      expect(logs.records().find((record) => record['msg'] === 'tombstones replayed')).toMatchObject({
+      expect(logs.records().find((record) => record['msg'] === 'replayed after restore')).toMatchObject({
         imported: 1,
         deleted: 1,
       });
@@ -227,8 +227,8 @@ describe('tombstone replay after a restore [Q-13, I-18, RR-4]', () => {
       await elsewhere.sql`select 1`;
 
       await runMaintenance(
-        'replay-tombstones',
-        { ...config(), tombstoneSourceUrl: undefined },
+        'replay-after-restore',
+        { ...config(), replacedDatabaseUrl: undefined },
         loggerFor(new LogCapture()),
       );
 
@@ -248,7 +248,7 @@ describe('tombstone replay after a restore [Q-13, I-18, RR-4]', () => {
         await running.sql`select 1`;
         const logs = new LogCapture();
 
-        await expect(runMaintenance('replay-tombstones', config(), loggerFor(logs))).rejects.toBeInstanceOf(
+        await expect(runMaintenance('replay-after-restore', config(), loggerFor(logs))).rejects.toBeInstanceOf(
           MaintenanceRefusedError,
         );
 

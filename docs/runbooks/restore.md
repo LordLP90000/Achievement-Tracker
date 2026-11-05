@@ -44,8 +44,8 @@ The commands are those of the local stack, as rehearsed (`docker compose -f dock
    running image; otherwise it does nothing.
 6. **Replay the tombstones** (ADR-0020), with the migrator's role and the replaced database read only, through the
    worker's role:
-   `compose run --rm --no-deps -T -e TOMBSTONE_SOURCE_DATABASE_URL=postgres://questline_worker:<password>@db:5432/questline_replaced migrate dist/maintenance.js replay-tombstones`.
-   - Expected: exit code 0 and one log line `tombstones replayed` with `imported` (tombstones taken over, each with
+   `compose run --rm --no-deps -T -e REPLACED_DATABASE_URL=postgres://questline_worker:<password>@db:5432/questline_replaced migrate dist/maintenance.js replay-after-restore`.
+   - Expected: exit code 0 and one log line `replayed after restore` with `imported` (tombstones taken over, each with
      its date) and `deleted` (accounts deleted again, with everything they owned). Run it a second time: `imported`
      and `deleted` are 0.
    - Exit code 1 with `MaintenanceRefusedError: processes_connected`: an API or a worker is still connected to one

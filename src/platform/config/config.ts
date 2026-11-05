@@ -66,8 +66,8 @@ export type MigrateConfig = ProcessConfig;
 
 /** The one-off maintenance commands (ADR-0020), with the migrator's role. */
 export interface MaintenanceConfig extends ProcessConfig {
-  /** The database a restore replaced, read only for its tombstones by `replay-tombstones` (Q-13). */
-  readonly tombstoneSourceUrl: string | undefined;
+  /** The database a restore replaced, read only by `replay-after-restore` (Q-13, Q-57). */
+  readonly replacedDatabaseUrl: string | undefined;
 }
 
 export interface BootstrapConfig {
@@ -427,8 +427,8 @@ export function loadMigrateConfig(env: Env): MigrateConfig {
 }
 
 /**
- * The maintenance commands run with the migrator's role; `replay-tombstones` may also read the database a restore
- * replaced (`TOMBSTONE_SOURCE_DATABASE_URL`), which production holds to the same rules as every other connection.
+ * The maintenance commands run with the migrator's role; `replay-after-restore` also reads the database a restore
+ * replaced (`REPLACED_DATABASE_URL`), which production holds to the same rules as every other connection.
  */
 export function loadMaintenanceConfig(env: Env): MaintenanceConfig {
   const parsed = parseEnv(
@@ -436,23 +436,23 @@ export function loadMaintenanceConfig(env: Env): MaintenanceConfig {
       APP_ENV: appEnvSchema,
       LOG_LEVEL: logLevelSchema,
       DATABASE_URL_MIGRATOR: databaseUrlSchema,
-      TOMBSTONE_SOURCE_DATABASE_URL: optionalDatabaseUrlSchema,
+      REPLACED_DATABASE_URL: optionalDatabaseUrlSchema,
     },
     env,
   );
-  const source = parsed.TOMBSTONE_SOURCE_DATABASE_URL;
+  const source = parsed.REPLACED_DATABASE_URL;
   if (parsed.APP_ENV === 'production') {
     assertNoIssues([
       ...logLevelIssues(parsed.LOG_LEVEL),
       ...productionDatabaseIssues('DATABASE_URL_MIGRATOR', parsed.DATABASE_URL_MIGRATOR),
-      ...(source === undefined ? [] : productionDatabaseIssues('TOMBSTONE_SOURCE_DATABASE_URL', source)),
+      ...(source === undefined ? [] : productionDatabaseIssues('REPLACED_DATABASE_URL', source)),
     ]);
   }
   return Object.freeze({
     appEnv: parsed.APP_ENV,
     logLevel: parsed.LOG_LEVEL,
     databaseUrl: parsed.DATABASE_URL_MIGRATOR,
-    tombstoneSourceUrl: source,
+    replacedDatabaseUrl: source,
   });
 }
 

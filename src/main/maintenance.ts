@@ -6,7 +6,7 @@ import { createDatabase } from '../platform/db/database.ts';
 import { connectedApplications } from '../platform/db/sessions.ts';
 
 /** The one-off maintenance commands (ADR-0020): `node dist/maintenance.js <command>`, with the migrator's role. */
-export const MAINTENANCE_COMMANDS = ['replay-tombstones'] as const;
+export const MAINTENANCE_COMMANDS = ['replay-after-restore'] as const;
 export type MaintenanceCommand = (typeof MAINTENANCE_COMMANDS)[number];
 
 /** The processes that must be stopped first: they read and write the rows a command changes. */
@@ -51,7 +51,7 @@ export async function runMaintenance(
       statementTimeoutMs: STATEMENT_TIMEOUT_MS,
     });
   const target = open(config.databaseUrl);
-  const source = config.tombstoneSourceUrl === undefined ? undefined : open(config.tombstoneSourceUrl);
+  const source = config.replacedDatabaseUrl === undefined ? undefined : open(config.replacedDatabaseUrl);
   try {
     const restored = createDatabase(target);
     const replaced = source === undefined ? undefined : createDatabase(source);
@@ -66,7 +66,7 @@ export async function runMaintenance(
       throw new MaintenanceRefusedError();
     }
     const result = await replayTombstones(restored, replaced);
-    logger.info({ command, ...result }, 'tombstones replayed');
+    logger.info({ command, ...result }, 'replayed after restore');
   } finally {
     await Promise.all([target.close(), source?.close()]);
   }

@@ -490,12 +490,12 @@ describe('loadMaintenanceConfig', () => {
       appEnv: 'development',
       logLevel: 'info',
       databaseUrl: devUrl,
-      tombstoneSourceUrl: undefined,
+      replacedDatabaseUrl: undefined,
     });
     const base = { APP_ENV: 'development', DATABASE_URL_MIGRATOR: devUrl };
-    expect(loadMaintenanceConfig({ ...base, TOMBSTONE_SOURCE_DATABASE_URL: '' }).tombstoneSourceUrl).toBeUndefined();
+    expect(loadMaintenanceConfig({ ...base, REPLACED_DATABASE_URL: '' }).replacedDatabaseUrl).toBeUndefined();
     expect(
-      loadMaintenanceConfig({ ...base, TOMBSTONE_SOURCE_DATABASE_URL: `${devUrl}_before_restore` }).tombstoneSourceUrl,
+      loadMaintenanceConfig({ ...base, REPLACED_DATABASE_URL: `${devUrl}_before_restore` }).replacedDatabaseUrl,
     ).toBe(`${devUrl}_before_restore`);
   });
 
@@ -503,11 +503,11 @@ describe('loadMaintenanceConfig', () => {
     const env = {
       APP_ENV: 'test',
       DATABASE_URL_MIGRATOR: devUrl,
-      TOMBSTONE_SOURCE_DATABASE_URL: 'https://db.internal',
+      REPLACED_DATABASE_URL: 'https://db.internal',
     };
 
     expect(configErrorOf(() => loadMaintenanceConfig(env)).issues).toEqual([
-      'TOMBSTONE_SOURCE_DATABASE_URL: must be a postgres:// or postgresql:// URL',
+      'REPLACED_DATABASE_URL: must be a postgres:// or postgresql:// URL',
     ]);
   });
 
@@ -516,14 +516,14 @@ describe('loadMaintenanceConfig', () => {
       APP_ENV: 'production',
       LOG_LEVEL: 'debug',
       DATABASE_URL_MIGRATOR: `postgres://questline_migrator:${STRONG_PASSWORD}@db.internal/questline`,
-      TOMBSTONE_SOURCE_DATABASE_URL: 'postgres://questline_worker:Short1Password@db-before.internal/questline',
+      REPLACED_DATABASE_URL: 'postgres://questline_worker:Short1Password@db-before.internal/questline',
     };
 
     expect(configErrorOf(() => loadMaintenanceConfig(env)).issues).toEqual([
       'LOG_LEVEL: debug and trace are not allowed in production',
       'DATABASE_URL_MIGRATOR: must use sslmode=verify-full in production',
-      'TOMBSTONE_SOURCE_DATABASE_URL: must use sslmode=verify-full in production',
-      'TOMBSTONE_SOURCE_DATABASE_URL: password is missing or too weak for production',
+      'REPLACED_DATABASE_URL: must use sslmode=verify-full in production',
+      'REPLACED_DATABASE_URL: password is missing or too weak for production',
     ]);
   });
 
@@ -531,14 +531,14 @@ describe('loadMaintenanceConfig', () => {
     const config = loadMaintenanceConfig({
       APP_ENV: 'production',
       DATABASE_URL_MIGRATOR: prodUrl('questline_migrator'),
-      TOMBSTONE_SOURCE_DATABASE_URL: prodUrl('questline_worker'),
+      REPLACED_DATABASE_URL: prodUrl('questline_worker'),
     });
 
     expect(config).toEqual({
       appEnv: 'production',
       logLevel: 'info',
       databaseUrl: prodUrl('questline_migrator'),
-      tombstoneSourceUrl: prodUrl('questline_worker'),
+      replacedDatabaseUrl: prodUrl('questline_worker'),
     });
   });
 });
