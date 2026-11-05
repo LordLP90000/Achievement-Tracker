@@ -29,6 +29,7 @@ for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for archi
 | [docs/runbooks/restore.md](docs/runbooks/restore.md) | Restore runbook: the database from a backup, with tombstone replay (M6) |
 | [docs/runbooks/key-rotation.md](docs/runbooks/key-rotation.md) | Key-rotation runbook: the KEK, the blind-index key and the rate-limit key (M6) |
 | [docs/runbooks/breach.md](docs/runbooks/breach.md) | Breach-notification runbook: FDPIC and EU authorities, the people concerned (M6) |
+| [docs/runbooks/operations.md](docs/runbooks/operations.md) | Operations runbook: processes, releases, what to watch, background work, routine (M6) |
 | [docs/hosting-options.md](docs/hosting-options.md) | Hosting / KMS / email options in Switzerland and the EU |
 | [docs/plan.md](docs/plan.md) | Milestone plan and effort estimates |
 

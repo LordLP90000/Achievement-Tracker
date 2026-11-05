@@ -409,7 +409,7 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
 `@commitlint/*`, `lefthook`, and `smtp-server` 3.21.1 as the local SMTP stand-in, with `punycode.js` and
 `ipv6-normalize`, confirmed in M2) is a dev dependency and never ships in the container.
 
-## 8. Deployment & operations view (details in M6 runbook)
+## 8. Deployment & operations view (details: `docs/runbooks/operations.md`)
 
 - One immutable image per commit, signed digest pinned in deployment config; API and worker are the same image.
 - Containers run as non-root with a read-only root filesystem and `tmpfs` for `/tmp`; no secrets baked in;
