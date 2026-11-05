@@ -26,6 +26,7 @@ for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for archi
 | [docs/privacy/processors.md](docs/privacy/processors.md) | External processors (each requires PM approval) |
 | [docs/test-strategy.md](docs/test-strategy.md) | Test layers, determinism rules, coverage & mutation targets, CI gates |
 | [docs/client-security.md](docs/client-security.md) | Security guidance for the mobile app (OWASP MASVS-aligned) |
+| [docs/runbooks/restore.md](docs/runbooks/restore.md) | Restore runbook: the database from a backup, with tombstone replay (M6) |
 | [docs/hosting-options.md](docs/hosting-options.md) | Hosting / KMS / email options in Switzerland and the EU |
 | [docs/plan.md](docs/plan.md) | Milestone plan and effort estimates |
 

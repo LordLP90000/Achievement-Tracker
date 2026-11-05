@@ -82,8 +82,9 @@ describe('container smoke test', () => {
   const inApi = (...command: string[]) => compose('exec', '-T', 'api', ...command);
   // The distroless runtime contains no shell or coreutils; Node.js is the only executable.
   const inApiNode = (script: string) => inApi('/nodejs/bin/node', '-e', script);
-  const sql = async (query: string) =>
-    (await compose('exec', '-T', 'db', 'psql', '-U', 'postgres', '-d', 'questline', '-tAc', query)).stdout.trim();
+  const sqlIn = async (database: string, query: string) =>
+    (await compose('exec', '-T', 'db', 'psql', '-U', 'postgres', '-d', database, '-tAc', query)).stdout.trim();
+  const sql = (query: string) => sqlIn('questline', query);
 
   interface Request {
     readonly token?: string;
@@ -119,6 +120,38 @@ describe('container smoke test', () => {
   };
   const mailText = async (mail: Mail | undefined) =>
     ((await (await fetch(`${mailUrl}/api/v1/message/${mail?.ID ?? 'none'}`)).json()) as { Text: string }).Text;
+  const waitFor = async (probe: () => Promise<string>, done: (value: string) => boolean) => {
+    let value = await probe();
+    for (let attempt = 0; attempt < 60 && !done(value); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      value = await probe();
+    }
+    return value;
+  };
+
+  interface SignedUp {
+    readonly email: string;
+    readonly password: string;
+    readonly accessToken: string;
+    readonly id: string;
+  }
+  /** A new account, verified through the emailed link and signed in. */
+  const signedUp = async (label: string): Promise<SignedUp> => {
+    const email = `${label}-${randomBytes(6).toString('hex')}@example.test`;
+    const password = acceptedPassword();
+    await api('/v1/auth/register', {
+      body: { email, password, privacy_policy_version: '2026-10-01', age_confirmed: true },
+    });
+    const [verification] = await mailsTo(email, 1);
+    const token = /#token=([\w-]+)/.exec(await mailText(verification))?.[1] ?? 'missing';
+    await api('/v1/auth/verify-email', { body: { token } });
+    const login = await api('/v1/auth/login', { body: { email, password, client: 'ios' } });
+    const { access_token: accessToken } = (await login.json()) as { access_token: string };
+    const { id } = (await (await api('/v1/me', { token: accessToken })).json()) as { id: string };
+    return { email, password, accessToken, id };
+  };
+  const loginStatus = async ({ email, password }: SignedUp) =>
+    (await api('/v1/auth/login', { body: { email, password, client: 'ios' } })).status;
 
   beforeAll(async () => {
     env['API_PORT'] = String(await freePort());
@@ -302,6 +335,63 @@ describe('container smoke test', () => {
     const logs = await compose('logs', '--no-color');
     for (const value of [email, password, token]) expect(logs.stdout + logs.stderr).not.toContain(value);
   });
+
+  it('rehearses a restore: a backup, an account deleted for good after it, the restore and the tombstone replay — that account is gone again, the rest kept [Q-13, I-18, RR-4, ADR-0020]', async () => {
+    const kept = await signedUp('kept');
+    const deleted = await signedUp('deleted');
+    const maintenance = (...options: string[]) =>
+      compose('run', '--rm', '--no-deps', '-T', ...options, 'migrate', 'dist/maintenance.js', 'replay-tombstones');
+    const tombstone = () =>
+      sql(`select to_char(deleted_at, 'YYYY-MM-DD HH24:MI:SS.US') from deleted_user_tombstones
+           where user_id = '${deleted.id}'`);
+
+    // The image's maintenance entrypoint refuses while the API and the worker are connected (ADR-0020).
+    const refused = (await maintenance().catch((error: unknown) => error)) as { code?: number; stderr?: string };
+    // The backup: a dump of the whole database.
+    await compose('exec', '-T', 'db', 'pg_dump', '-U', 'postgres', '-d', 'questline', '-Fc', '-f', '/tmp/q.dump');
+    // After it, the account is deleted for good: its request moved 30 days back, and the worker, restarted, runs
+    // the hourly hard delete at once.
+    const deletion = await api('/v1/me', { token: deleted.accessToken, method: 'DELETE' });
+    await sql(`update users set deactivated_at = deactivated_at - interval '30 days' where id = '${deleted.id}'`);
+    await sql("delete from job_runs where job_name = 'purge_deleted_accounts'");
+    await compose('restart', 'worker');
+    const deletedAt = await waitFor(tombstone, (value) => value !== '');
+    // The restore (docs/runbooks/restore.md): the API and the worker stopped, the dump restored into a new database
+    // that takes the old one's name, the bootstrap run again for the database's access rights, then the replay.
+    await compose('stop', 'api', 'worker');
+    await sqlIn('postgres', 'create database questline_restored owner questline_migrator');
+    await compose('exec', '-T', 'db', 'pg_restore', '-U', 'postgres', '-d', 'questline_restored', '-e', '/tmp/q.dump');
+    await sqlIn('postgres', 'alter database questline rename to questline_replaced');
+    await sqlIn('postgres', 'alter database questline_restored rename to questline');
+    const bootstrapped = await compose('run', '--rm', '--no-deps', '-T', 'db-init');
+    const restoredAccounts = await sql(`select count(*) from users where id in ('${kept.id}', '${deleted.id}')`);
+    const source = `TOMBSTONE_SOURCE_DATABASE_URL=postgres://questline_worker:${secrets.DB_PASSWORD_WORKER}@db:5432/questline_replaced`;
+    const replayed = await maintenance('-e', source);
+    const again = await maintenance('-e', source);
+    await compose('up', '--detach', '--wait', '--no-deps', 'api', 'worker');
+
+    expect(refused.code).toBe(1);
+    // Compose reports the run container on stderr as well.
+    expect(refused.stderr).toContain('Startup failed (MaintenanceRefusedError: processes_connected).');
+    expect([deletion.status, deletedAt === '']).toEqual([202, false]);
+    // The backup still holds the account the restore brings back, and the replay deletes it again.
+    expect(restoredAccounts).toBe('2');
+    expect(replayed.stdout).toContain('"imported":1,"deleted":1,"msg":"tombstones replayed"');
+    expect(again.stdout).toContain('"imported":0,"deleted":0,"msg":"tombstones replayed"');
+    expect(await sql(`select count(*) from users where id = '${deleted.id}'`)).toBe('0');
+    // Its tombstone kept its date, so it still expires 35 days after the deletion.
+    expect(await tombstone()).toBe(deletedAt);
+    expect([await loginStatus(kept), await loginStatus(deleted)]).toEqual([200, 401]);
+    // As locked down as before the restore: no access to the database for PUBLIC.
+    expect(await sqlIn('postgres', "select datacl::text from pg_database where datname = 'questline'")).not.toMatch(
+      /[{,]=/,
+    );
+    for (const output of [replayed, again, bootstrapped]) {
+      for (const value of [...Object.values(secrets), kept.id, deleted.id, deleted.email]) {
+        expect(output.stdout + output.stderr).not.toContain(value);
+      }
+    }
+  }, 240_000);
 
   it('never writes a password to any container log', async () => {
     const { stdout, stderr } = await compose('logs', '--no-color');

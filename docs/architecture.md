@@ -422,7 +422,7 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
   `questline-worker` session is connected to a database it would read or change, is idempotent, and logs only counts.
   `replay-tombstones` follows every restore: it takes over the tombstones of the database the restore replaced
   (`TOMBSTONE_SOURCE_DATABASE_URL`, read only) with their dates and deletes every account they name, 100 per
-  transaction, with the hard delete's cascade.
+  transaction, with the hard delete's cascade. The restore runbook: `docs/runbooks/restore.md`.
 - Health: `/health/live` (process up), `/health/ready` (DB reachable, KEK loaded at startup and wrap/unwrap
   self-test passed).
 - Observability without personal data: request metrics (count, duration, status by route), job metrics, error

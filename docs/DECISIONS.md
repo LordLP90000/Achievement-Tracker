@@ -529,7 +529,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   command: a new key only resets the buckets, which live 24 hours. A restore to an earlier point also loses what
   happened after it besides completed deletions — deletion requests, consent withdrawals, revoked sessions: put to
   the PM with the restore drill.
-- **Tests:** `test/integration/tombstone-replay.test.ts`, `test/integration/restore-drill.test.ts`,
+- **Tests:** `test/integration/tombstone-replay.test.ts`, `test/e2e/smoke.test.ts` (the restore drill),
   `test/integration/key-rotation.test.ts` (named in ADR-0006 and ADR-0013 since M0),
   `src/platform/crypto/key-wrapper.test.ts`, `test/security/db-roles.test.ts`, `test/security/rls-coverage.test.ts`;
   the drills on the local Compose stack, recorded in the runbooks.
