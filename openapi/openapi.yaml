@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Questline API
-  version: 0.4.7
+  version: 0.4.8
   summary: Backend API for the Questline mobile achievement-tracking app.
   description: |
     **M0 draft v2 (2026-10-22) — contract written before implementation**, updated for the PM decisions
@@ -57,6 +57,9 @@ info:
     TOTP is off.
     0.4.7 (2026-11-04): `Account` shows `two_factor_enabled` and `recovery_codes_left`, `Session` its `auth_method`
     (`AuthMethod`, also the export's; ADR-0019, Q-52).
+    0.4.8 (2026-11-05): the export's audit events list every type the API records: the eight of the sign-in methods,
+    which the API has sent since M5 without the contract listing them, and `incident_notified` for the incident
+    notice (Q-61, Q-64).
 
     Conventions
     - All endpoints except health and the public auth endpoints require `Authorization: Bearer <access token>`.
@@ -2920,7 +2923,7 @@ components:
         id: { $ref: '#/components/schemas/Uuid' }
         event_type:
           type: string
-          enum: [login_succeeded, login_failed, logout, session_revoked, refresh_reuse_detected, password_changed, password_reset_requested, password_reset_completed, email_change_requested, email_changed, email_verified, consent_granted, consent_withdrawn, export_requested, account_deleted, account_reactivated, reauth_succeeded, reauth_failed, rate_limited]
+          enum: [login_succeeded, login_failed, logout, session_revoked, refresh_reuse_detected, password_changed, password_reset_requested, password_reset_completed, email_change_requested, email_changed, email_verified, consent_granted, consent_withdrawn, export_requested, account_deleted, account_reactivated, reauth_succeeded, reauth_failed, rate_limited, passkey_added, passkey_removed, passkey_clone_suspected, totp_enabled, totp_disabled, recovery_codes_generated, recovery_code_used, second_factor_failed, incident_notified]
         session_id:
           oneOf:
             - $ref: '#/components/schemas/Uuid'

@@ -296,6 +296,27 @@ describe('export completeness against the data inventory [R-PRIV-05, R-PRIV-08, 
     }
   });
 
+  it('exports an audit event of every type the database admits, each within the contract [R-PRIV-05]', async () => {
+    const other = await goalUser(ctx);
+    const [constraint] = await ctx.admin.sql<{ definition: string }[]>`
+      select pg_get_constraintdef(oid) as definition from pg_constraint where conname = 'audit_events_event_type_check'`;
+    const types = [...(constraint?.definition ?? '').matchAll(/'([a-z_]+)'::text/g)].map(([, type]) => type ?? '');
+    const earlier = new Date(ctx.clock.now().getTime() - 60_000);
+    for (const type of types) {
+      await ctx.admin.sql`
+        insert into audit_events (id, user_id, event_type, outcome, created_at)
+        values (${randomUUID()}, ${other.userId}, ${type}, 'success', ${earlier})`;
+    }
+
+    // contractInject fails the request when the response leaves the contract, e.g. with an unlisted event type.
+    const exported = await call('GET', '/v1/me/export', other.token);
+
+    expect(types.length).toBeGreaterThan(20);
+    expect(exported.statusCode).toBe(200);
+    const listed = new Set(exported.json<{ audit_events: Row[] }>().audit_events.map((event) => event['event_type']));
+    expect(types.filter((type) => !listed.has(type))).toEqual([]);
+  });
+
   it('shows the account as of now: a gamble whose target date passed is exported as lost [A-21]', async () => {
     const other = await goalUser(ctx);
     const token = other.token;

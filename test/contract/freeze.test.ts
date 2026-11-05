@@ -14,11 +14,12 @@ type Tree = Record<string, unknown>;
  * approved change (0.3.3: Q-47, 0.3.4: Q-48, 0.4.0: M5's operations, outside the freeze until implemented, 0.4.1:
  * the export's sign-in methods and Q-53, 0.4.2: the TOTP operations, 0.4.3: the login's second step, 0.4.4: passkey
  * management, 0.4.5: the passkey sign-in, implemented, 0.4.6: the step-up with a code or a passkey, 0.4.7: the sign-in
- * methods on the account and its sessions), once the contract passed this check against the snapshot before it — so
+ * methods on the account and its sessions, 0.4.8: every audit event type in the export, Q-64), once the contract passed
+ * this check against the snapshot before it — so
  * that what a change added is frozen as well.
  */
 const FROZEN = parse(readFileSync(new URL('../../openapi/frozen/openapi.yaml', import.meta.url), 'utf8')) as Tree;
-const FROZEN_VERSION = '0.4.7';
+const FROZEN_VERSION = '0.4.8';
 
 /**
  * Operations not frozen yet: M5's (0.4.0, ADR-0019), each until it is implemented — the rule of M4: implemented

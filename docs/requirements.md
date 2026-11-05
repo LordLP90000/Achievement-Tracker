@@ -9,7 +9,7 @@ open item O-06 added. 2026-10-23: decisions Q-25…Q-28 from the M1 review (§6.
 refined and A-29…A-33 accepted; decisions Q-30…Q-32 (§6.3) close O-05, O-06 and O-07; A-34 and A-35 proposed.
 Later on 2026-10-29: Q-33…Q-38 on habit periods, undo, habit edits and locked habits (§6.4); A-36…A-38 proposed.
 2026-11-02 (M4): Q-46 refines A-22 (§6.6); open items O-11 and O-12 for the M4 review. 2026-11-02 (M4 review): Q-47…Q-49
-(§6.7) close O-11 and O-12. 2026-11-04 (start of M5): Q-50…Q-52 (§6.8). 2026-11-05 (M6): Q-54…Q-63 (§6.9), closing O-13.
+(§6.7) close O-11 and O-12. 2026-11-04 (start of M5): Q-50…Q-52 (§6.8). 2026-11-05 (M6): Q-54…Q-64 (§6.9), closing O-13.
 
 ## 1. Product summary
 
@@ -360,6 +360,7 @@ domain (Q-19) and a staging budget stay open (§7).
 | Q-61 | **An incident notice to every account, by a maintenance command (2026-11-05, evening):** after a breach that must be told to the people concerned (FADP Art. 24 para. 4, GDPR Art. 34), the operator writes the notice for the incident in de, fr, it and en, and a maintenance command queues one email per account through the outbox, in the account's language; it logs counts only. Built in M6, before any incident (about half a day). Not chosen: a public announcement only; deciding later. |
 | Q-62 | **Engineering drafts the privacy policy and the consent text (O-04), in English first:** from the data inventory, the DPIA and the processors list, marked as drafts for the PM and the data-protection expert; the controller's name, address and contact person stay placeholders for the PM. The de, fr and it versions follow once the English draft is approved. Not chosen: only the consent text; the PM or a lawyer providing both. |
 | Q-63 | **Planned key rotations:** the KEK, with its Connect token, every year and on any suspicion of exposure; the blind-index key and the rate-limit key only on suspicion of exposure (a scheduled blind-index rotation would cost a long maintenance window and protects little unless the old key leaked). Not chosen: every key yearly; no schedule at all. |
+| Q-64 | **Contract 0.4.8: the export lists every audit event type (2026-11-05):** since M5 the export has returned the audit events of the sign-in methods (`passkey_added`, `passkey_removed`, `passkey_clone_suspected`, `totp_enabled`, `totp_disabled`, `recovery_codes_generated`, `recovery_code_used`, `second_factor_failed`), which the frozen contract's `event_type` enum did not list — found while adding `incident_notified` (Q-61). The enum gains those eight and `incident_notified`; additive, the API unchanged. A test now exports one event of every type the database admits through the contract validator. Not chosen: leaving the eight out of the export (it must be complete, R-PRIV-05); holding the contract until the M6 review. |
 
 ## 7. Open items (non-blocking)
 
