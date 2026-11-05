@@ -15,4 +15,7 @@ commit-msg:
 pre-push:
   commands:
     fast-gates:
+      # The Redocly CLI's update notice, a plain-HTTP version check against the npm registry, stays off as in CI.
+      env:
+        REDOCLY_SUPPRESS_UPDATE_NOTICE: 'true'
       run: npm run -s check

@@ -333,7 +333,8 @@ the archive has no limit (Q-40).
 ├── docs/                              # see README documentation map
 ├── openapi/openapi.yaml               # contract (source of truth)
 ├── scripts/
-│   └── build-password-filter.ts       # Bloom filter from pinned list (ADR-0012)
+│   ├── build-password-filter.ts       # Bloom filter from pinned list (ADR-0012)
+│   └── offline.ts, offline-preload.ts # development tools run with every outbound connection refused (ADR-0016)
 ├── src/
 │   ├── app.ts                         # buildApp(deps): Fastify instance with all plugins and modules
 │   ├── server.ts                      # API entrypoint
@@ -367,10 +368,10 @@ the archive has no limit (Q-40).
 │   ├── integration/                   # API + real PostgreSQL
 │   ├── contract/                      # OpenAPI conformance & spec coverage
 │   ├── security/                      # authz/BOLA, auth flows, abuse cases, RLS, headers, log leakage
-│   ├── supply-chain/                  # dependency allowlist, exact versions, no payment SDK
+│   ├── supply-chain/                  # dependency allowlist, exact versions, no payment SDK, offline tools
 │   └── e2e/                           # few smoke flows against the built container
 ├── .semgrep/                          # custom Semgrep rules + annotated rule tests
-├── .gitleaksignore · .semgrepignore · .nvmrc · .npmrc · lefthook.yml · commitlint.config.js · osv-scanner.toml
+├── .gitleaksignore · .semgrepignore · .nvmrc · .npmrc · lefthook.yml · commitlint.config.js · osv-scanner.toml · redocly.yaml
 ├── .dependency-cruiser.mjs · eslint.config.js · stryker.config.mjs · vitest.config.ts · vitest.unit.config.ts
 ├── drizzle.config.ts · tsconfig.json · package.json · package-lock.json
 ```

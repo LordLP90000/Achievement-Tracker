@@ -1,0 +1,6 @@
+# Redocly CLI: `npm run lint:openapi` (pre-push gate, CI) and `npm run docs:api` (the API reference).
+# The recommended rules must stay listed: a configuration that names no rules makes the lint check nothing.
+# Telemetry off: the CLI would otherwise report every command to Redocly (test/supply-chain/tooling-offline.test.ts).
+extends:
+  - recommended
+telemetry: off

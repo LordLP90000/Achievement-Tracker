@@ -14,7 +14,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint:openapi": "redocly lint openapi/openapi.yaml",
+    "lint:openapi": "node --import ./scripts/offline-preload.ts node_modules/@redocly/cli/bin/cli.js lint openapi/openapi.yaml",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:coverage": "vitest run --coverage",

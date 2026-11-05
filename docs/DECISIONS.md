@@ -360,12 +360,18 @@ Format: Context → Decision → Consequences → Tests that enforce it.
     finding fingerprints), `// nosemgrep: <rule> -- <reason>` on the line. Every exception is listed in the next
     milestone report.
   - CI runs every gate on each push and nightly (fresh vulnerability data); each push gets its own run.
+  - **Development tools stay offline (2026-11-05, M6):** the Redocly CLI reported every command to Redocly
+    (`otel.cloud.redocly.com`) from the pre-push gate and CI. `redocly.yaml` turns its telemetry off (keeping the
+    recommended rules, without which the lint would check nothing), and every npm script runs it under
+    `scripts/offline-preload.ts`, which refuses and reports any outbound connection. Its update notice, a plain-HTTP
+    version check against the npm registry, is off in CI and in the pre-push hook.
 - **Consequences:** A fix published less than 7 days ago needs an explicit, reported `min-release-age-exclude`
   entry. A dependency that needs an install script (none so far; `sodium-native` is expected to load its bundled
   prebuilt binaries at runtime — verified when it is added in M2) needs explicit approval. CI can turn red without
   a code change (new advisory) — it is then fixed first.
-- **Tests:** `test/supply-chain/dependency-allowlist.test.ts`; CI jobs `static`, `osv-scanner`, `gitleaks`,
-  `semgrep` (with `semgrep --test` rule tests), `image` (Trivy, SBOM).
+- **Tests:** `test/supply-chain/dependency-allowlist.test.ts`, `test/supply-chain/tooling-offline.test.ts`,
+  `test/scripts/offline.test.ts`; CI jobs `static`, `osv-scanner`, `gitleaks`, `semgrep` (with `semgrep --test`
+  rule tests), `image` (Trivy, SBOM).
 
 ## ADR-0017 · Runtime image: distroless Node.js 26 on Debian 13
 
