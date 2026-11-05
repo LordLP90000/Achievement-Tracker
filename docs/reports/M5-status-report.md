@@ -253,3 +253,22 @@ dependency, image, external service, processor or cost.
 - **Node 26.13.0 LTS is done**, in its own commit at 22:39. `.nvmrc` and both images now pin Node 26.13.0, each
   image by its digest and adopted only once 7 days old. The full suite, e2e (13/13) and Trivy (0 HIGH or CRITICAL,
   unfixed included) are green on the new image. Nothing is left open from M4.
+
+## Addendum 2026-11-05 — review with the PM
+
+- **"Go" for M6** on 2026-11-05, with no decisions on the open items. The hosting option (O-01), the SMTP relay
+  (O-02), the 1Password Connect details (O-03), the domain (Q-19), a staging budget and the consent and policy texts
+  (O-04) stay open (`docs/requirements.md` §7).
+- **M6 starts with the work that needs none of them**: the API reference; the tombstone replay and the restore
+  drill on the local stack; the KEK re-wrap and the blind-index re-index with their runbook; the operations and
+  breach-notification runbooks; k6 and ZAP rehearsed against the local stack, once you approve their images; the
+  review package, without the policy draft.
+- **Blocked until you decide**:
+  - the staging deployment and its IaC: O-01 and a budget; the IaC tool is new and needs your approval
+  - the real SMTP relay and Connect server: O-02, O-03
+  - the TLS check of the domain (I-08) and the association files the apps need for passkeys: Q-19
+  - ZAP, k6, the restore drill and the KEK rotation drill against staging
+  - the policy draft in the review package: O-04
+- CI stayed green: push runs #122–#124 and the nightly run of 2026-11-04 (#106).
+
+**Status**: M5 is **DONE** (closed with the PM's "go" for M6 on 2026-11-05).
