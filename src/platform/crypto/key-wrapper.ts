@@ -20,7 +20,7 @@ export interface KeyWrapper {
   unwrap(wrapped: WrappedKey, userId: string): SecureBuffer;
 }
 
-/** The data key was wrapped by a KEK this process does not hold (rotation needs the re-wrap job). */
+/** The data key was wrapped by another KEK item than the one this process holds (rotation: `rewrap-data-keys`). */
 export class UnknownKekError extends Error {
   override readonly name = 'UnknownKekError';
 
@@ -43,7 +43,8 @@ export function localKeyWrapper(kek: Kek): KeyWrapper {
       return { blob: seal(kek.key, dataKey, keyWrapAssociatedData(userId)), kekId: kek.id, kekVersion: kek.version };
     },
     unwrap(wrapped, userId) {
-      if (wrapped.kekId !== kek.id || wrapped.kekVersion !== kek.version) throw new UnknownKekError();
+      // Only the item decides: its version rises with every edit of the item and is kept for information (Q-56).
+      if (wrapped.kekId !== kek.id) throw new UnknownKekError();
       if (wrapped.blob.length !== WRAPPED_BYTES) throw new DecryptionError();
       const dataKey = sodium.sodium_malloc(DATA_KEY_BYTES);
       open(kek.key, wrapped.blob, keyWrapAssociatedData(userId), dataKey);

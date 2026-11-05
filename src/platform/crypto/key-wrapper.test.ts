@@ -47,17 +47,25 @@ describe('localKeyWrapper (ADR-0006, ADR-0013) [R-ENC-01]', () => {
     expect(() => replaced.unwrap(wrapped, userId)).toThrow(DecryptionError);
   });
 
-  it.each([
-    { kekId: 'onepassword:other', kekVersion: 1 },
-    { kekId: 'local', kekVersion: 2 },
-  ])('refuses a data key wrapped by another KEK or version %j before trying to decrypt', async (origin) => {
+  it('refuses a data key wrapped by another KEK item before trying to decrypt', async () => {
     const wrapper = localKeyWrapper(await newKek());
     const userId = randomUUID();
-    const wrapped = { ...wrapper.wrap(generateDataKey(), userId), ...origin };
+    const wrapped = { ...wrapper.wrap(generateDataKey(), userId), kekId: 'onepassword:other' };
 
     expect(() => wrapper.unwrap(wrapped, userId)).toThrow(UnknownKekError);
     expect(new UnknownKekError().name).toBe('UnknownKekError');
     expect(new UnknownKekError().message).toBe('data key was wrapped by an unknown KEK');
+  });
+
+  it('opens a data key after its KEK item got a new version: an edit of the item changes nothing (ADR-0020, Q-56)', async () => {
+    const kek = await newKek();
+    const userId = randomUUID();
+    const dek = generateDataKey();
+    const wrapped = localKeyWrapper(kek).wrap(dek, userId);
+    const edited = localKeyWrapper({ ...kek, version: kek.version + 1 });
+
+    expect(Buffer.from(edited.unwrap(wrapped, userId))).toEqual(Buffer.from(dek));
+    expect(edited.wrap(dek, userId)).toMatchObject({ kekId: 'local', kekVersion: 2 });
   });
 
   it('treats a damaged wrapped key of any length as a decryption failure', async () => {

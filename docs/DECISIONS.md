@@ -278,7 +278,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   timeout, unreachable, malformed items and keys → startup failure; no token or key in any error),
   `key-wrapper.test.ts`, `integration/key-rotation.test.ts`.
 - **Rotation (2026-11-05):** a new version of the KEK item cannot be re-wrapped from, because the Connect server
-  returns only an item's current version; ADR-0020 (proposed) rotates with a new item and checks only `kek_id` when
+  returns only an item's current version; ADR-0020 (accepted, Q-56) rotates with a new item and checks only `kek_id` when
   unwrapping.
 
 ## ADR-0014 · Email delivery via generic SMTP (`nodemailer`)
@@ -486,7 +486,7 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0020 · Maintenance commands: tombstone replay after a restore, KEK re-wrap, blind-index re-index (M6)
 
-- **Status:** proposed (2026-11-05, M6 kickoff)
+- **Status:** accepted (2026-11-05: the PM approved it as proposed, Q-56; proposed at the M6 kickoff the same day)
 - **Context:** M6 owes three operations that rewrite rows of every account at once: replaying tombstones after a
   restore (Q-13, ADR-0006; threats I-18, RR-4), re-wrapping every data key under a new KEK (ADR-0013, E-11) and
   re-indexing every address under a new blind-index key (RR-3). Neither running process can do them: the API's role
