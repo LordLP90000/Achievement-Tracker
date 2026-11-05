@@ -11,7 +11,8 @@ ADR-0020, Q-56; threats E-11, I-09, RR-3; R-ENC-01, R-ENC-02, R-ENC-05.
   account's data; whoever holds the blind-index key and a copy of the database can test guessed addresses (RR-3).
   A possible exposure is a security incident: start the breach-notification runbook (`docs/runbooks/breach.md`) at the same time.
 - **Someone with access leaves**: an operator who could read the KEK vault or the secret store.
-- **Planned rotations**: no schedule is set yet. A question for the PM in the M6 review.
+- **Planned rotations** (Q-63): the KEK, with a new Connect token, every year; the blind-index key and the rate-limit
+  key only on suspicion of exposure. Every key also on any suspicion of exposure.
 
 ## 2. Before you start
 

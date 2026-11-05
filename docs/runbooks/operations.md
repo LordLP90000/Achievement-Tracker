@@ -93,6 +93,7 @@ select template, last_error_code, count(*) from email_outbox where dead_at is no
 |------|------|
 | Daily | The nightly CI run: fresh vulnerability databases (Trivy, osv-scanner) and the load and DAST job `perf` (`npm run test:load`, `npm run test:dast`); a red run is fixed or put to the PM the same day |
 | Weekly | The job and outbox queries (§4); dependency and image updates under the 7-day rule (ADR-0016) |
+| Yearly | The KEK rotation with a new Connect token (Q-63, key-rotation runbook §3) |
 | On their dates | Expiring exceptions: `.trivyignore.yaml` (Q-54 until 2026-11-30) and `osv-scanner.toml`; deleting an old KEK item or blind-index key 30 days after a rotation (key-rotation runbook); re-pinning the ZAP image (Q-59) |
 | Monthly, once staging exists | A restore drill on staging (restore runbook; the e2e suite rehearses it on every push already) |
 

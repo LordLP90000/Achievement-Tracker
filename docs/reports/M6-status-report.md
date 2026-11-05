@@ -90,10 +90,8 @@ Unchanged since M5, and still blocking the rest of M6:
 
 New, from the runbooks, for the M6 review:
 
-- **A schedule for planned key rotations**: none is set. The key-rotation runbook covers rotations after a suspected
-  exposure, or when someone with access leaves.
-- **How to inform many users at once after a breach**: the worker sends transactional emails only. Options: a
-  maintenance command for one message to many users, or a public announcement only.
+- **A schedule for planned key rotations**: decided on 2026-11-05 (Q-63): the KEK and its Connect token yearly.
+- **How to inform many users at once after a breach**: decided on 2026-11-05 (Q-61): a maintenance command.
 - **A tabletop exercise of the breach runbook** with you.
 
 ## Scope or plan changes
