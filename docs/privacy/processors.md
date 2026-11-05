@@ -21,7 +21,8 @@ decisions above; it remains in `docs/hosting-options.md` for reference if the ow
 ## Development tools that are not processors
 
 The mail catcher of the local Compose stack (Mailpit, ADR-0018) runs on the developer's machine, receives only
-synthetic test emails (R-SUP-05) and sends nothing anywhere; it is not a processor.
+synthetic test emails (R-SUP-05) and sends nothing anywhere; it is not a processor. Nor are k6 and ZAP (Q-58, Q-59): they
+run against the local stack, with throw-away accounts and secrets, on a network with no route out.
 
 ## Explicitly not used
 

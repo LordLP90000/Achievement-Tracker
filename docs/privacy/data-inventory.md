@@ -1,6 +1,6 @@
 # Data inventory
 
-Status: M0 draft v2 (2026-10-22, PM decisions applied). Legal frameworks: Swiss FADP (nDSG/revFADP, in force 2023-09-01) and GDPR.
+Status: M0 draft v2 (2026-10-22, PM decisions applied); reviewed in M6 (2026-11-05): no new personal data. Legal frameworks: Swiss FADP (nDSG/revFADP, in force 2023-09-01) and GDPR.
 Controller: Questline (PM to confirm legal entity and address for the privacy policy). This document has a
 machine-readable twin, `data-inventory.yaml`, which the **data-inventory guard test** (R-PRIV-08) reads: the test
 introspects `information_schema` and fails if any table or column holding user data is missing from the YAML or
