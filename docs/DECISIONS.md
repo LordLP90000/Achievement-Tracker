@@ -357,8 +357,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   - CI jobs install from the registry without the Actions dependency cache: `npm ci` takes seconds and checks every
     package against the lockfile, while a stalled cache restore cost 10 minutes per job on 2026-10-23.
   - Exceptions only in reviewed files, with reason: `osv-scanner.toml` (with expiry), `.gitleaksignore` (exact
-    finding fingerprints), `// nosemgrep: <rule> -- <reason>` on the line. Every exception is listed in the next
-    milestone report.
+    finding fingerprints), `// nosemgrep: <rule> -- <reason>` on the line, and since 2026-11-05 (Q-54)
+    `.trivyignore.yaml` (one vulnerability in named packages, with the PM's decision and an expiry). Every exception
+    is listed in the next milestone report.
   - CI runs every gate on each push and nightly (fresh vulnerability data); each push gets its own run.
   - **Development tools stay offline (2026-11-05, M6):** the Redocly CLI reported every command to Redocly
     (`otel.cloud.redocly.com`) from the pre-push gate and CI. `redocly.yaml` turns its telemetry off (keeping the
@@ -370,8 +371,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   prebuilt binaries at runtime — verified when it is added in M2) needs explicit approval. CI can turn red without
   a code change (new advisory) — it is then fixed first.
 - **Tests:** `test/supply-chain/dependency-allowlist.test.ts`, `test/supply-chain/tooling-offline.test.ts`,
-  `test/scripts/offline.test.ts`; CI jobs `static`, `osv-scanner`, `gitleaks`, `semgrep` (with `semgrep --test`
-  rule tests), `image` (Trivy, SBOM).
+  `test/supply-chain/scanner-exceptions.test.ts`, `test/scripts/offline.test.ts`; CI jobs `static`, `osv-scanner`,
+  `gitleaks`, `semgrep` (with `semgrep --test` rule tests), `image` (Trivy, SBOM).
 
 ## ADR-0017 · Runtime image: distroless Node.js 26 on Debian 13
 

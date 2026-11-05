@@ -153,7 +153,7 @@ one automated test, deterministic tests only.
 | SAST | 0 findings (Semgrep `p/typescript`, `p/nodejs`, `p/owasp-top-ten`, custom rules) | CI |
 | Dependencies | 0 high/critical | `osv-scanner` (lockfile) |
 | Secrets | 0 | gitleaks (CI + pre-commit via lefthook) |
-| Container | 0 high/critical | Trivy image scan |
+| Container | 0 high/critical | Trivy image scan (accepted findings only with the PM's decision, scoped to a package and with expiry in `.trivyignore.yaml`) |
 | SBOM | generated and attached to the build | `@cyclonedx/cyclonedx-npm` |
 | Commits | Conventional Commits | commitlint |
 
@@ -171,8 +171,8 @@ push to master · pull_request · nightly 03:17 UTC — seven parallel jobs, all
  │             and the custom rules
  ├─ osv        lockfile scan (accepted advisories only with reason and expiry in osv-scanner.toml)
  ├─ gitleaks   full history (reviewed synthetic test values pinned by fingerprint in .gitleaksignore)
- └─ image      build → Trivy (HIGH/CRITICAL incl. unfixed, secrets) → CycloneDX SBOMs for npm and the image
-               (artifact, 90 days) → e2e smoke against the Compose stack
+ └─ image      build → Trivy (HIGH/CRITICAL incl. unfixed, secrets; exceptions in .trivyignore.yaml) → CycloneDX
+               SBOMs for npm and the image (artifact, 90 days) → e2e smoke against the Compose stack
 nightly, from M2: timing-uniformity check; dependency refresh report (planned)
 M6: ZAP API scan + k6 against staging
 ```

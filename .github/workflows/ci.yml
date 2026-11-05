@@ -192,11 +192,13 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/scan"
           docker save questline-api:local -o "$RUNNER_TEMP/scan/image.tar"
-      - name: Trivy (HIGH/CRITICAL vulnerabilities incl. unfixed, secrets)
+      - name: Trivy (HIGH/CRITICAL vulnerabilities incl. unfixed, secrets; approved exceptions until their expiry)
         run: >-
-          docker run --rm -v "$RUNNER_TEMP/scan:/work" -e TRIVY_CACHE_DIR=/work/cache "$TRIVY_IMAGE"
+          docker run --rm -v "$RUNNER_TEMP/scan:/work" -v "$PWD/.trivyignore.yaml:/config/.trivyignore.yaml:ro"
+          -e TRIVY_CACHE_DIR=/work/cache "$TRIVY_IMAGE"
           image --input /work/image.tar --scanners vuln,secret --severity HIGH,CRITICAL
-          --exit-code 1 --no-progress --db-repository ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2
+          --ignorefile /config/.trivyignore.yaml --exit-code 1 --no-progress
+          --db-repository ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2
       - name: SBOMs (CycloneDX) for the production dependencies and the whole image
         run: |
           mkdir -p sbom

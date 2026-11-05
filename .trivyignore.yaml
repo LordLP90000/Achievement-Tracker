@@ -1,0 +1,14 @@
+# Trivy exceptions for the container image (CI job `image`, R-SUP-02, ADR-0016). Each one needs the PM's approval, a
+# single vulnerability in named packages, the reason and an expiry: after `expired_at` Trivy counts the finding again.
+# Listed in the milestone report (test/supply-chain/scanner-exceptions.test.ts).
+vulnerabilities:
+  - id: CVE-2026-76844
+    purls:
+      - pkg:deb/debian/zlib1g
+    statement: >-
+      Accepted by the PM's decision Q-54 (2026-11-05). zlib 1.2.11 to 1.3.2 overflows a heap buffer in its gzip-file
+      API (gz_write) after a failed write(); Debian 13 has no fix yet (fixed only in unstable on 2026-11-05).
+      Unreachable here: no process of the image loads the system zlib, since Node uses its bundled zlib and maps no
+      libz.so, also with the app's native add-on loaded (checked on 2026-11-05). When Debian ships the fix, adopt the
+      distroless image that has it (7-day rule) and remove this entry.
+    expired_at: 2026-11-30
