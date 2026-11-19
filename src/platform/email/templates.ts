@@ -1,17 +1,24 @@
 import { ONE_TIME_TOKEN_LIFETIME_MS } from '../crypto/tokens.ts';
 import type { Locale } from '../i18n/locales.ts';
+import type { NoticeText } from './incident-notice.ts';
 import type { EmailTemplate } from './outbox-repository.ts';
 
 /**
  * Email copy (A-19, S-11): fixed plain text in the user's language. Nothing a user typed and no goal content is ever
  * put into an email; the only variable part is the single-use link, built from the configured base URL. Notices carry
- * no link at all. Swiss locales use their language's text; German is written in Swiss orthography (no ß), which is
- * also correct elsewhere. The copy is to be reviewed by native speakers before launch (O-08).
+ * no link at all. The incident notice is the one exception: its subject and body are an operator's (Q-61, ADR-0021),
+ * framed by the fixed greeting, a fixed warning against phishing and the signature. Swiss locales use their
+ * language's text; German is written in Swiss orthography (no ß), which is also correct elsewhere. The copy is to be
+ * reviewed by native speakers before launch (O-08).
  */
 
 export const LINK_TEMPLATES = ['verify_email', 'password_reset', 'email_change_verify'] as const;
 export type LinkTemplate = (typeof LINK_TEMPLATES)[number];
-export type NoticeTemplate = Exclude<EmailTemplate, LinkTemplate>;
+/** The notice an operator writes for an incident (Q-61, ADR-0021). */
+export const INCIDENT_TEMPLATE = 'incident_notice';
+export type IncidentTemplate = typeof INCIDENT_TEMPLATE;
+/** The notices with fixed text. */
+export type NoticeTemplate = Exclude<EmailTemplate, LinkTemplate | IncidentTemplate>;
 export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
   'registration_notice',
   'password_changed_notice',
@@ -21,7 +28,9 @@ export const NOTICE_TEMPLATES: readonly NoticeTemplate[] = [
 ];
 
 export type EmailContent =
-  { readonly template: LinkTemplate; readonly link: string } | { readonly template: NoticeTemplate };
+  | { readonly template: LinkTemplate; readonly link: string }
+  | { readonly template: NoticeTemplate }
+  | ({ readonly template: IncidentTemplate } & NoticeText);
 
 export interface RenderedEmail {
   readonly subject: string;
@@ -49,9 +58,11 @@ export function linkFor(baseUrl: string, template: LinkTemplate, token: string):
   return `${base}/${LINK_PATHS[template]}#token=${token}`;
 }
 
-type Language = 'en' | 'de' | 'fr' | 'it';
+/** The languages of the emails; every locale is written in one of them. */
+export const EMAIL_LANGUAGES = ['de', 'fr', 'it', 'en'] as const;
+export type EmailLanguage = (typeof EMAIL_LANGUAGES)[number];
 
-const LANGUAGES: Readonly<Record<Locale, Language>> = {
+const LANGUAGES: Readonly<Record<Locale, EmailLanguage>> = {
   'de-CH': 'de',
   'fr-CH': 'fr',
   'it-CH': 'it',
@@ -75,6 +86,8 @@ interface NoticeCopy {
 
 interface LanguageCopy {
   readonly greeting: string;
+  /** Closes every incident notice: its body is an operator's, so this part is fixed. */
+  readonly incidentWarning: string;
   readonly links: Readonly<Record<LinkTemplate, LinkCopy>>;
   readonly notices: Readonly<Record<NoticeTemplate, NoticeCopy>>;
 }
@@ -83,9 +96,12 @@ const SIGNATURE = 'Questline';
 const NBSP = '\u00a0';
 
 /** `{minutes}` is the link lifetime, `{days}` the deletion grace period. */
-const COPY: Readonly<Record<Language, LanguageCopy>> = {
+const COPY: Readonly<Record<EmailLanguage, LanguageCopy>> = {
   en: {
     greeting: 'Hello,',
+    incidentWarning:
+      'Questline never asks for your password, a code or a recovery code by email. If in doubt, open the ' +
+      'Questline app yourself instead of following a link.',
     links: {
       verify_email: {
         subject: 'Confirm your email address',
@@ -155,6 +171,9 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
   },
   de: {
     greeting: 'Guten Tag',
+    incidentWarning:
+      'Questline fragt Sie nie per E-Mail nach Ihrem Passwort, einem Code oder einem Wiederherstellungscode. ' +
+      'Öffnen Sie im Zweifel selbst die Questline-App, statt einem Link zu folgen.',
     links: {
       verify_email: {
         subject: 'Bestätigen Sie Ihre E-Mail-Adresse',
@@ -230,6 +249,9 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
   },
   fr: {
     greeting: 'Bonjour,',
+    incidentWarning:
+      'Questline ne vous demande jamais votre mot de passe, un code ou un code de récupération par e-mail. En ' +
+      "cas de doute, ouvrez vous-même l'application Questline au lieu de suivre un lien.",
     links: {
       verify_email: {
         subject: 'Confirmez votre adresse e-mail',
@@ -304,6 +326,9 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
   },
   it: {
     greeting: 'Buongiorno,',
+    incidentWarning:
+      'Questline non Le chiede mai la password, un codice o un codice di recupero per e-mail. In caso di dubbio, ' +
+      "apra direttamente l'app Questline invece di seguire un link.",
     links: {
       verify_email: {
         subject: 'Confermi il Suo indirizzo e-mail',
@@ -375,16 +400,25 @@ const COPY: Readonly<Record<Language, LanguageCopy>> = {
   },
 };
 
+/** The language an email to an account with this locale is written in. */
+export function languageOf(locale: Locale): EmailLanguage {
+  return LANGUAGES[locale];
+}
+
 const fill = (text: string): string =>
   text
     .replaceAll('{minutes}', String(ONE_TIME_TOKEN_LIFETIME_MS / 60_000))
     .replaceAll('{days}', String(DELETION_GRACE_DAYS));
 
 export function renderEmail(content: EmailContent, locale: Locale): RenderedEmail {
-  const language = COPY[LANGUAGES[locale]];
+  const language = COPY[languageOf(locale)];
   let subject: string;
   let paragraphs: readonly string[];
-  if ('link' in content) {
+  if (content.template === INCIDENT_TEMPLATE) {
+    // The operator's text as it is: no placeholder in it is filled.
+    subject = content.subject;
+    paragraphs = [content.body, language.incidentWarning];
+  } else if ('link' in content) {
     const copy = language.links[content.template];
     subject = copy.subject;
     paragraphs = [fill(copy.before), content.link, copy.after];

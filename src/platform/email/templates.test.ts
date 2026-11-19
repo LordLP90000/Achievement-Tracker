@@ -5,6 +5,7 @@ import { LOCALES, type Locale } from '../i18n/locales.ts';
 import type { EmailTemplate } from './outbox-repository.ts';
 import {
   DELETION_GRACE_DAYS,
+  INCIDENT_TEMPLATE,
   isLinkTemplate,
   linkFor,
   LINK_TEMPLATES,
@@ -22,15 +23,20 @@ const TEMPLATES: readonly EmailTemplate[] = [
   'email_change_notice',
   'account_deleted_notice',
   'sign_in_methods_changed_notice',
+  'incident_notice',
 ];
+/** An operator's notice about an incident (Q-61): the one text an operator writes. */
+const NOTICE = { subject: 'A security incident at Questline', body: 'What happened.\n\nWhat we did about it.' };
 const LINK = 'https://app.questline.test/verify-email#token=ql_vt_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
-const content = (template: EmailTemplate): EmailContent =>
-  isLinkTemplate(template) ? { template, link: LINK } : { template };
+const content = (template: EmailTemplate): EmailContent => {
+  if (template === INCIDENT_TEMPLATE) return { template, ...NOTICE };
+  return isLinkTemplate(template) ? { template, link: LINK } : { template };
+};
 const URL_LIKE = /\bhttps?:\/\/|\bwww\.|[a-z\d-]+\.(?:ch|com|test|app)\b/i;
 
 describe('email templates [A-19, S-11]', () => {
-  it('splits every template into exactly one of: carries a single-use link, or is a notice', () => {
-    expect([...LINK_TEMPLATES, ...NOTICE_TEMPLATES].sort()).toEqual([...TEMPLATES].sort());
+  it('splits every template into exactly one of: carries a single-use link, is a fixed notice, or the incident notice', () => {
+    expect([...LINK_TEMPLATES, ...NOTICE_TEMPLATES, INCIDENT_TEMPLATE].sort()).toEqual([...TEMPLATES].sort());
     expect(LINK_TEMPLATES).toEqual(['verify_email', 'password_reset', 'email_change_verify']);
   });
 
@@ -66,6 +72,30 @@ describe('email templates [A-19, S-11]', () => {
         expect(subject + text).not.toContain('@');
       }
     }
+  });
+
+  it.each([
+    ['en', 'Hello,', 'Questline never asks for your password'],
+    ['de-CH', 'Guten Tag', 'Questline fragt Sie nie per E-Mail nach Ihrem Passwort'],
+    ['fr', 'Bonjour,', 'Questline ne vous demande jamais votre mot de passe'],
+    ['it-CH', 'Buongiorno,', 'Questline non Le chiede mai la password'],
+  ] as const)(
+    'puts the operator’s notice between the greeting and a fixed warning against phishing, in %s [Q-61, S-20]',
+    (locale, greeting, warning) => {
+      const { subject, text } = renderEmail({ template: INCIDENT_TEMPLATE, ...NOTICE }, locale);
+      const paragraphs = text.split('\n\n');
+
+      expect(subject).toBe(NOTICE.subject);
+      expect(paragraphs.slice(0, 3)).toEqual([greeting, 'What happened.', 'What we did about it.']);
+      expect(paragraphs.at(-2)).toContain(warning);
+      expect(paragraphs.at(-1)).toBe('Questline\n');
+    },
+  );
+
+  it('takes the operator’s text as it is: no placeholder in it is ever filled', () => {
+    const { text } = renderEmail({ template: INCIDENT_TEMPLATE, subject: 'Notice', body: 'Within {days} days.' }, 'en');
+
+    expect(text).toContain('Within {days} days.');
   });
 
   it('states the link lifetime the API enforces (R-AUTH-03) and the deletion grace period', () => {

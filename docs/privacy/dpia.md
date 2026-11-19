@@ -1,6 +1,6 @@
 # Data Protection Impact Assessment (DPIA) — draft
 
-Status: **draft v0.6** (2026-11-05, M6: key rotation, restores that re-apply what users changed since the restore point (Q-57), the breach-notification runbook, the load test and the signed-in DAST scan — R-1, R-3 and R-8, open item 6; v0.5 on 2026-11-04, M5: passkeys and optional TOTP with recovery codes, ADR-0019 — necessity, rights,
+Status: **draft v0.6** (2026-11-05, M6: key rotation, restores that re-apply what users changed since the restore point (Q-57), the breach-notification runbook, the load test and the signed-in DAST scan — R-1, R-3 and R-8, open item 6, whose question to the PM the incident notice answered on 2026-11-19, Q-61 and ADR-0021; v0.5 on 2026-11-04, M5: passkeys and optional TOTP with recovery codes, ADR-0019 — necessity, rights,
 R-1, R-2 and the new R-17 on being locked out, open item 8; v0.4 on 2026-11-02, M4: the data-subject rights built and tested — export, deletion with the 30-day
 window, hard delete with crypto-shredding and tombstone, no email to accounts pending deletion as decided with Q-46;
 R-6, R-14 and R-16 updated, open item 7 added and closed by the PM's decision Q-48 at the M4 review; v0.3 on 2026-10-29: the PM's product review of R-15 recorded, Q-32; v0.2 in M0, 2026-10-22, with the PM decisions applied), maintained every milestone; to be reviewed by a data-protection expert
@@ -104,7 +104,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | 3 | Consent text and version scheme (`YYYY-MM-DD`) and privacy policy text | PM / legal |
 | 4 | Encrypt `target_date` (R-5) — decided by the PM: yes (Q-24) | done |
 | 5 | Controller identity and contact for the privacy policy | PM |
-| 6 | Breach-notification runbook (FADP Art. 24: notify FDPIC "as soon as possible"; GDPR Art. 33: 72 h): written in M6, `docs/runbooks/breach.md`; its legal statements and the question of an EU representative (GDPR Art. 27) for the DP expert, and how to inform many users at once for the PM | lead engineer → DP expert, PM |
+| 6 | Breach-notification runbook (FADP Art. 24: notify FDPIC "as soon as possible"; GDPR Art. 33: 72 h): written in M6, `docs/runbooks/breach.md`; its legal statements and the question of an EU representative (GDPR Art. 27) for the DP expert. How to inform many users at once: decided by the PM (Q-61) and built on 2026-11-19 — the incident notice, one email per account in its language (ADR-0021, breach runbook §7) | lead engineer → DP expert |
 | 7 | Recovering an account deleted by someone who knew the password: decided by the PM on 2026-11-02 — a password reset within the 30 days reactivates it (Q-48, O-12) | done |
 | 8 | Privacy policy: describe passkeys, TOTP and recovery codes, and that losing the authenticator with no code left locks the account (R-17, Q-52) | PM / legal |
 

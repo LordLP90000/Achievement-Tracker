@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createServer, type AddressInfo } from 'node:net';
+import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { xpAboveLevel } from '../../src/domain/xp.ts';
@@ -17,6 +19,8 @@ const zurichDate = (instant: Date) => new Intl.DateTimeFormat('en-CA', { timeZon
 /** The worker polls the outbox every 5 s (`OUTBOX_POLL_MS`). */
 const MAIL_WAIT_MS = 30_000;
 const DAY_MS = 86_400_000;
+/** The notice of the incident-notice drill (ADR-0021), mounted read-only into the maintenance job. */
+const NOTICE_FILE = resolve('test/e2e/fixtures/incident-notice.json');
 
 /** Plaintext SMTP to the mail catcher from inside the network: a plaintext server would answer within 2 s. */
 const PLAINTEXT_SMTP_PROBE = [
@@ -120,6 +124,8 @@ describe('container smoke test', () => {
   };
   const mailText = async (mail: Mail | undefined) =>
     ((await (await fetch(`${mailUrl}/api/v1/message/${mail?.ID ?? 'none'}`)).json()) as { Text: string }).Text;
+  const mailContent = async (mail: Mail) =>
+    (await (await fetch(`${mailUrl}/api/v1/message/${mail.ID}`)).json()) as { Subject: string; Text: string };
   const waitFor = async (probe: () => Promise<string>, done: (value: string) => boolean) => {
     let value = await probe();
     for (let attempt = 0; attempt < 60 && !done(value); attempt += 1) {
@@ -480,6 +486,65 @@ describe('container smoke test', () => {
     expect([registeredAgain.status, await accounts()]).toEqual([202, before]);
     for (const output of [reindexed, again]) {
       for (const value of [previous, next, account.email]) expect(output.stdout + output.stderr).not.toContain(value);
+    }
+  }, 240_000);
+
+  it('rehearses an incident notice: previewed, then queued for every account in its language while the service runs, never twice, nothing of it logged [Q-61, S-20, R-LOG-02, ADR-0021]', async () => {
+    const french = await signedUp('notice-fr');
+    const english = await signedUp('notice-en');
+    await sql(`update users set locale = 'fr-CH' where id = '${french.id}'`);
+    await sql(`update users set locale = 'en' where id = '${english.id}'`);
+    const { incident, notices } = JSON.parse(readFileSync(NOTICE_FILE, 'utf8')) as {
+      incident: string;
+      notices: Readonly<Record<'de' | 'fr' | 'it' | 'en', { subject: string; body: string }>>;
+    };
+    const file = ['-v', `${NOTICE_FILE}:/incident/notice.json:ro`, '-e', 'INCIDENT_NOTICE_FILE=/incident/notice.json'];
+    const kek = ['-e', 'KEK_SOURCE=env', '-e', `LOCAL_KEK=${env['LOCAL_KEK'] ?? ''}`];
+    const notice = (command: string, ...options: string[]) =>
+      compose('run', '--rm', '--no-deps', '-T', ...file, ...options, 'migrate', 'dist/maintenance.js', command);
+    const received = async ({ email }: SignedUp, subject: string) => {
+      const mails = await Promise.all((await mailsTo(email, 2)).map(mailContent));
+      return mails.find((mail) => mail.Subject === subject)?.Text.replaceAll('\r\n', '\n') ?? '';
+    };
+    const accounts = Number(await sql('select count(*) from users'));
+
+    // It only adds rows, so unlike the other maintenance commands it runs while the API and the worker run.
+    const previewed = await notice('preview-incident-notice');
+    const sent = await notice('send-incident-notice', ...kek);
+    const again = await notice('send-incident-notice', ...kek);
+    const inFrench = await received(french, notices.fr.subject);
+    const inEnglish = await received(english, notices.en.subject);
+
+    const preview = summaryOf(previewed, 'incident notice previewed');
+    expect(preview).toMatchObject({ incident, alreadyNotified: 0 });
+    expect(Object.values(preview['recipients'] as Record<string, number>).reduce((sum, n) => sum + n, 0)).toBe(
+      accounts,
+    );
+    expect(summaryOf(sent, 'incident notice queued')).toMatchObject({
+      incident,
+      queued: accounts,
+      alreadyNotified: 0,
+      unreadable: 0,
+    });
+    expect(summaryOf(again, 'incident notice queued')).toMatchObject({
+      queued: 0,
+      alreadyNotified: accounts,
+      unreadable: 0,
+    });
+    // The operator's text between the fixed greeting and the fixed warning against phishing (S-20).
+    expect(inFrench).toContain(`Bonjour,\n\n${notices.fr.body}\n\nQuestline ne vous demande jamais votre mot de passe`);
+    expect(inEnglish).toContain(`Hello,\n\n${notices.en.body}\n\nQuestline never asks for your password`);
+    const logs = await compose('logs', '--no-color');
+    for (const output of [previewed, sent, again, logs]) {
+      for (const text of Object.values(notices)) {
+        expect(output.stdout + output.stderr).not.toContain(text.subject);
+        expect(output.stdout + output.stderr).not.toContain(text.body.split('\n')[0]);
+      }
+    }
+    for (const output of [previewed, sent, again]) {
+      for (const value of [french.email, english.email, french.id, english.id]) {
+        expect(output.stdout + output.stderr).not.toContain(value);
+      }
     }
   }, 240_000);
 

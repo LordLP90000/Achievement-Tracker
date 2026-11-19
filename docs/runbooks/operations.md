@@ -15,7 +15,7 @@ One image per commit (`docker/Dockerfile`, distroless, non-root, read-only root 
 | Migration | `dist/migrate.js` | `questline_migrator` | Before every release, as a one-off job |
 | API | `dist/server.js` | `questline_app` | Always; any number of instances |
 | Worker | `dist/worker.js` | `questline_worker` | Always; one is enough, more are safe (jobs take an advisory lock, emails `SKIP LOCKED`) |
-| Maintenance | `dist/maintenance.js <command>` | `questline_migrator` | By hand, with the API and the worker stopped (ADR-0020) |
+| Maintenance | `dist/maintenance.js <command>` | `questline_migrator` | By hand: ADR-0020's commands with the API and the worker stopped; the incident notice while they run (ADR-0021, breach runbook §7) |
 
 Every process validates its configuration at start and refuses to start with a list of the variables at fault,
 never their values; production refuses development settings such as `KEK_SOURCE=env` or `RATE_LIMIT_SCALE`

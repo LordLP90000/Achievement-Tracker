@@ -5,6 +5,7 @@ import type { WrappedKey } from '../crypto/key-wrapper.ts';
 import type { Database, Transaction } from '../db/database.ts';
 import { increment } from '../db/expressions.ts';
 import { emailOutbox, oneTimeTokens, userKeys, users } from '../db/schema/index.ts';
+import type { NoticeText } from './incident-notice.ts';
 
 /**
  * The email outbox (ADR-0009, data-model §3.5): a request only queues an email in its own transaction; the worker
@@ -19,13 +20,16 @@ export type EmailTemplate =
   | 'email_change_verify'
   | 'email_change_notice'
   | 'account_deleted_notice'
-  | 'sign_in_methods_changed_notice';
+  | 'sign_in_methods_changed_notice'
+  | 'incident_notice';
 
 export interface EmailPayload {
   readonly to: string;
   readonly locale: string;
   /** Single-use token for the link in the email, if the template has one. */
   readonly token?: string;
+  /** `incident_notice` only: the operator's text in the account's language (Q-61, ADR-0021). */
+  readonly notice?: NoticeText;
 }
 
 export interface QueuedEmail {

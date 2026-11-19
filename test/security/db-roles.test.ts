@@ -165,8 +165,9 @@ describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {
     expect(left.map((row) => row.user_id)).toEqual([enabled]);
   });
 
-  it('lets the migrator reach every account’s rows in the tables its maintenance commands change, and no others [ADR-0020]', async () => {
+  it('lets the migrator reach every account’s rows in the tables its maintenance commands change, and no others [ADR-0020, ADR-0021]', async () => {
     const userId = randomUUID();
+    const achievementId = randomUUID();
     await migrator.sql`
       insert into users (id, email_enc, email_blind_index, password_hash, timezone, locale, age_confirmed,
                          privacy_policy_version, password_changed_at, created_at, updated_at)
@@ -179,6 +180,12 @@ describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {
                values (${randomUUID()}, ${userId}, 'goal_content', '2026-10-01', now())`;
       await tx`insert into audit_events (id, user_id, event_type, outcome, created_at)
                values (${randomUUID()}, ${userId}, 'login_succeeded', 'success', now())`;
+      await tx`insert into email_outbox (id, user_id, template, payload_enc, next_attempt_at, created_at)
+               values (${randomUUID()}, ${userId}, 'registration_notice', ${randomBytes(64)}, now(), now())`;
+      await tx`insert into achievements (id, user_id, title_enc, status, dek_version, created_at, updated_at)
+               values (${achievementId}, ${userId}, ${randomBytes(48)}, 'active', 1, now(), now())`;
+      await tx`insert into gambles (id, user_id, achievement_id, attempt, stake, status, placed_at)
+               values (${randomUUID()}, ${userId}, ${achievementId}, 1, 10, 'pending', now())`;
     });
     const seen = async (table: string) =>
       (
@@ -190,7 +197,11 @@ describe('database roles [R-ENC-03, T-12, E-05, ADR-0003]', () => {
       user_keys: await seen('user_keys'),
       consents: await seen('consents'),
       audit_events: await seen('audit_events'),
-    }).toEqual({ user_keys: 1, consents: 1, audit_events: 0 });
+      email_outbox: await seen('email_outbox'),
+      achievements: await seen('achievements'),
+      // Gambles follow their achievement by cascade: the migrator has no policy on them.
+      gambles: await seen('gambles'),
+    }).toEqual({ user_keys: 1, consents: 1, audit_events: 1, email_outbox: 1, achievements: 1, gambles: 0 });
   });
 
   it('grants each role exactly the documented privileges on every table (least privilege)', async () => {

@@ -1,9 +1,9 @@
 # Breach-notification runbook: personal data breaches (FADP Art. 24, GDPR Art. 33 and 34)
 
-Status: M6, 2026-11-05. Not rehearsed yet: a tabletop exercise with the PM is proposed for the M6 review (§8). The
-legal statements are for the data-protection expert to confirm (M6 review package); the controller's contact person
-and an EU representative are still open (DPIA open item 5). Controls: DPIA R-1, R-3, R-7, R-8; threats RR-1, RR-3,
-E-11; R-LOG-02.
+Status: M6, 2026-11-05; the incident notice (§7, ADR-0021) since 2026-11-19, rehearsed on every CI run (§8). Not
+rehearsed yet: a tabletop exercise with the PM is proposed for the M6 review (§8). The legal statements are for the
+data-protection expert to confirm (M6 review package); the controller's contact person and an EU representative are
+still open (DPIA open item 5). Controls: DPIA R-1, R-3, R-7, R-8; threats RR-1, RR-3, E-11, S-20; R-LOG-02.
 
 ## 1. What counts
 
@@ -50,7 +50,7 @@ E-11; R-LOG-02.
    the reasoning, also when the result is "no notification".
 4. **Decide with the PM**: notify the authorities? Inform the people concerned?
 5. **Notify the authorities** (§6): the EU authorities within 72 hours of T0.
-6. **Inform the people concerned** (§7) where required.
+6. **Inform the people concerned** (§7: the incident notice) where required.
 7. **Close**: what we learned; the threat model and the DPIA updated. Keep the record for at least two years from the
    notification (DPO Art. 15 para. 4); the GDPR asks for every breach to be documented, notified or not (Art. 33(5)).
 
@@ -98,12 +98,37 @@ raise the severity.
 - **What**, in plain language and in the user's language (`users.locale`: de, fr, it or en): what happened, the likely
   consequences, what we did, what they can do (change the password, review their sessions, turn on two-step sign-in,
   beware of phishing), and the contact person (DPO Art. 15 para. 3).
-- **How**: by email to every address concerned. **Gap**: the worker sends transactional emails only; there is no
-  command to send one message to many users yet. A question for the PM in the M6 review: a maintenance command for
-  such a message, or a public announcement only.
+- **How**: by email to every account, with the incident notice (Q-61, ADR-0021): one email per account in its
+  language, also to accounts that are unverified or pending deletion. It only adds rows, so the API and the worker
+  keep running.
+  1. The incident lead drafts the notice as a JSON file: `incident`, a name for the incident of 3 to 64 lower-case
+     letters, digits and hyphens that holds no personal data (`2026-11-database-copy`), and under `notices` a
+     `subject` (one line, at most 150 characters) and a `body` (plain text, at most 3 000 characters) in each of
+     `de`, `fr`, `it` and `en`; `test/e2e/fixtures/incident-notice.json` shows the shape. Every notice opens with the
+     fixed greeting and closes with a fixed warning — Questline never asks for a password or a code by email; open
+     the app rather than follow a link — so the text needs no link. The PM approves the texts (§2).
+  2. Put the file where the maintenance job can read it, mounted read-only, and set `INCIDENT_NOTICE_FILE` to its
+     path. The commands run like every maintenance command, with the migrator's role (`DATABASE_URL_MIGRATOR`):
+     `node dist/maintenance.js <command>`.
+  3. `preview-incident-notice`: checks the file and logs `incident notice previewed` with the accounts per language
+     (`recipients`) and those already told (`alreadyNotified`); nothing is queued. A faulty file stops it, naming each
+     field at fault but never the text.
+  4. `send-incident-notice`, with the worker's KEK settings as well: logs `incident notice queued` with `queued`,
+     `alreadyNotified` and `unreadable`. The worker sends the notices at its usual pace (`email sent`); watch for
+     `email dead-lettered` (operations runbook §3).
+  5. Stopped or failed: run it again; it skips every account already told about this incident. `unreadable` above 0
+     (exit 1): those accounts' data keys do not open with the KEK, so they got nothing. Find out why (key-rotation
+     runbook) and record it.
+  6. Record the time, the counts and the texts in the incident record. Each account told keeps an
+     `incident_notified` audit event for 90 days.
+
+  On the local stack: `compose run --rm --no-deps -T -v <file>:/incident/notice.json:ro
+  -e INCIDENT_NOTICE_FILE=/incident/notice.json -e KEK_SOURCE=env -e LOCAL_KEK=… migrate dist/maintenance.js
+  send-incident-notice` (`compose` as in the key-rotation runbook §2).
 
 ## 8. Exercise record
 
 | Date | Where | Result |
 |------|-------|--------|
 | – | Tabletop exercise with the PM: a database copy without keys, then the same copy with the KEK | Proposed for the M6 review |
+| 2026-11-19 | Local Compose stack, automated in the e2e suite (every CI run) | The incident notice (§7) with `test/e2e/fixtures/incident-notice.json`, while the API and the worker ran: the preview counted every account by language and none told; the send queued one notice per account, none unreadable, and a second run queued none; an account in French and one in English got their language's text between the fixed greeting and the fixed warning; no text of the notice, address or ID in any output or container log |

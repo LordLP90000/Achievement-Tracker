@@ -392,7 +392,7 @@ Removed on re-lock (R-ACH-05) and on achievement deletion. Index `(user_id)`.
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid NULL → `users` CASCADE | NULL for failed logins against unknown emails |
-| `event_type` | text NOT NULL | `login_succeeded`, `login_failed`, `logout`, `session_revoked`, `refresh_reuse_detected`, `password_changed`, `password_reset_requested`, `password_reset_completed`, `email_change_requested`, `email_changed`, `email_verified`, `consent_granted`, `consent_withdrawn`, `export_requested`, `account_deleted`, `account_reactivated` (§5 step 2, added in M2), `reauth_succeeded`, `reauth_failed`, `rate_limited`; M5 (ADR-0019, migration 0009): `passkey_added`, `passkey_removed`, `passkey_clone_suspected`, `totp_enabled`, `totp_disabled`, `recovery_codes_generated`, `recovery_code_used`, `second_factor_failed` |
+| `event_type` | text NOT NULL | `login_succeeded`, `login_failed`, `logout`, `session_revoked`, `refresh_reuse_detected`, `password_changed`, `password_reset_requested`, `password_reset_completed`, `email_change_requested`, `email_changed`, `email_verified`, `consent_granted`, `consent_withdrawn`, `export_requested`, `account_deleted`, `account_reactivated` (§5 step 2, added in M2), `reauth_succeeded`, `reauth_failed`, `rate_limited`; M5 (ADR-0019, migration 0009): `passkey_added`, `passkey_removed`, `passkey_clone_suspected`, `totp_enabled`, `totp_disabled`, `recovery_codes_generated`, `recovery_code_used`, `second_factor_failed`; M6 (ADR-0021, migration 0011): `incident_notified` (an incident's notice was queued for the account; `metadata.incident` names the incident) |
 | `session_id` | uuid NULL | not a FK (session may be gone) |
 | `ip_prefix` | cidr NULL | truncated: IPv4 /24, IPv6 /48 — `cidr` refuses host bits and a CHECK refuses longer masks, so the database cannot store a full address (M2; was `text`) |
 | `client` | text NULL | `ios` / `android` |
@@ -425,8 +425,8 @@ purge job (worker). No `dek_version`: like `email_outbox.payload_enc`, it lives 
 |--------|------|-------|
 | `id` | uuid PK | |
 | `user_id` | uuid → `users` CASCADE | only registered users are ever emailed |
-| `template` | text NOT NULL | `verify_email`, `registration_notice` (someone tried to register or move an account to this address), `password_reset`, `password_changed_notice`, `email_change_verify` (to the new address), `email_change_notice` (to the old address), `account_deleted_notice`, `sign_in_methods_changed_notice` (M5: a passkey, TOTP or the recovery codes changed, ADR-0019) |
-| `payload_enc` 🔒 | bytea NOT NULL | JSON `{to, locale, token?}` encrypted with the user's DEK (AD record id = `id`); the worker builds links from config (A-19) — never in plaintext |
+| `template` | text NOT NULL | `verify_email`, `registration_notice` (someone tried to register or move an account to this address), `password_reset`, `password_changed_notice`, `email_change_verify` (to the new address), `email_change_notice` (to the old address), `account_deleted_notice`, `sign_in_methods_changed_notice` (M5: a passkey, TOTP or the recovery codes changed, ADR-0019), `incident_notice` (M6: an operator's notice of an incident, queued by a maintenance command, ADR-0021, migration 0011) |
+| `payload_enc` 🔒 | bytea NOT NULL | JSON `{to, locale, token?, notice?}` encrypted with the user's DEK (AD record id = `id`); `notice` is an incident notice's subject and body in the account's language; the worker builds links from config (A-19) — never in plaintext |
 | `attempts` | integer NOT NULL DEFAULT 0 | counted when the worker claims the email, so a crash loop still reaches the limit (8) |
 | `next_attempt_at` | timestamptz NOT NULL | exponential backoff (1, 2, 4 … 64 min); while an email is being sent, the end of the worker's 5-minute lease |
 | `last_error_code` | text NULL | error class only (`smtp_eenvelope_550`, `smtp_etls_500`, `payload_unreadable`), no message text |
@@ -435,8 +435,9 @@ purge job (worker). No `dek_version`: like `email_outbox.payload_enc`, it lives 
 
 Sent rows are deleted immediately; dead letters after 7 days. A link email whose token no longer works (used,
 replaced by a newer one or expired) is deleted unsent (D-05); notices are always sent. An email whose
-`created_at` lies after its account's `deactivated_at` is deleted unsent as well, except `account_deleted_notice`
-and a `password_reset` the owner asked for (A-22, Q-46, Q-48): the API queues nothing else, and the worker makes sure.
+`created_at` lies after its account's `deactivated_at` is deleted unsent as well, except `account_deleted_notice`,
+a `password_reset` the owner asked for (A-22, Q-46, Q-48) and an `incident_notice` (Q-61, ADR-0021): the API queues
+nothing else, and the worker makes sure.
 
 #### `rate_limit_buckets` (UNLOGGED, no user relation)
 
@@ -506,7 +507,8 @@ row-level security applies to the owner as well, so migration 0010 (M6, Q-56, Q-
 `achievements`, `xp_events` and `idempotency_keys` (the replay after a restore; the other goal-content tables follow
 `achievements` by cascade, which bypasses row-level security). As the owner it could lift row-level security anyway, so
 these policies cross no boundary; they keep its access explicit (`test/security/rls-coverage.test.ts`,
-`db-roles.test.ts`). It still sees no audit events or queued emails.
+`db-roles.test.ts`). Migration 0011 (M6, Q-61, ADR-0021) adds `audit_events` and `email_outbox`: the incident notice,
+which runs while the API and the worker run, queues an email and records an audit event for every account.
 
 | Table | `questline_app` (API) | `questline_worker` | Row-level security |
 |-------|----------------------|--------------------|--------------------|

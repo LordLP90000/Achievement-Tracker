@@ -31,7 +31,9 @@ export type AuditEventType =
   | 'second_factor_failed'
   | 'passkey_added'
   | 'passkey_removed'
-  | 'passkey_clone_suspected';
+  | 'passkey_clone_suspected'
+  // The account was sent the notice of an incident (Q-61, ADR-0021); metadata `incident` names it.
+  | 'incident_notified';
 
 export interface AuditEvent {
   /** `null` only for events about unknown accounts; otherwise the transaction's user context must be this user. */

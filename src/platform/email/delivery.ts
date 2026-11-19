@@ -16,14 +16,15 @@ import {
   type TokenReference,
 } from './outbox-repository.ts';
 import { EmailDeliveryError, type EmailMessage, type EmailSender } from './sender.ts';
-import { isLinkTemplate, linkFor, renderEmail, type LinkTemplate } from './templates.ts';
+import { noticeTextIssues, parseNoticeText } from './incident-notice.ts';
+import { INCIDENT_TEMPLATE, isLinkTemplate, linkFor, renderEmail, type LinkTemplate } from './templates.ts';
 
 /**
  * The worker side of the outbox (ADR-0009, ADR-0014, architecture §4.7). Each email is claimed with a lease, composed
  * from its encrypted payload, sent, and then deleted, retried with exponential backoff, or dead-lettered. A link
  * email is sent only while its single-use token still works (D-05): a replaced, used or expired link is dropped.
- * An email queued after its account asked for deletion is withheld, except the deletion notice and a reset link
- * (A-22, Q-46, Q-48).
+ * An email queued after its account asked for deletion is withheld, except the deletion notice, a reset link
+ * (A-22, Q-46, Q-48) and an incident notice, which every account concerned must get (Q-61, ADR-0021).
  * A relay failure pauses all delivery for a while, so a broken relay is not hammered (D-07).
  */
 
@@ -79,6 +80,8 @@ const PAYLOAD = z.object({
   to: z.string().regex(/^[^\s@]+@[^\s@]+$/),
   locale: z.string(),
   token: z.string().optional(),
+  // Checked with the notice rules before use.
+  notice: z.unknown().optional(),
 });
 
 const LINK_TOKENS: Readonly<Record<LinkTemplate, { kind: TokenKind; purpose: TokenReference['purpose'] }>> = {
@@ -106,7 +109,7 @@ interface Delivered {
  * deletion still does — the owner must hear of an address or password change even if the account was deleted right
  * after it.
  */
-const STILL_SENT: ReadonlySet<EmailTemplate> = new Set(['account_deleted_notice', 'password_reset']);
+const STILL_SENT: ReadonlySet<EmailTemplate> = new Set(['account_deleted_notice', 'password_reset', INCIDENT_TEMPLATE]);
 
 const isWithheld = (email: ClaimedEmail): boolean =>
   email.accountDeactivatedAt !== null &&
@@ -142,6 +145,11 @@ export function createOutboxDelivery(
     const { to, token } = parsed.data;
     const locale = isLocale(parsed.data.locale) ? parsed.data.locale : DEFAULT_LOCALE;
     const { template } = email;
+    if (template === INCIDENT_TEMPLATE) {
+      const { notice } = parsed.data;
+      if (noticeTextIssues(notice).length > 0) return { kind: 'invalid', code: 'payload_invalid' };
+      return { kind: 'message', message: { to, ...renderEmail({ template, ...parseNoticeText(notice) }, locale) } };
+    }
     if (!isLinkTemplate(template)) return { kind: 'message', message: { to, ...renderEmail({ template }, locale) } };
     const { kind, purpose } = LINK_TOKENS[template];
     const hash = token === undefined ? undefined : tokenHash(kind, token);

@@ -560,3 +560,54 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   tables with forced RLS that it touches: `user_keys`, `sessions`, `consents`, `passkeys`, `totp_secrets`,
   `recovery_codes`, `achievements`, `xp_events` and `idempotency_keys`. The other goal-content tables follow by
   cascade.
+
+## ADR-0021 · Incident notice: one email to every account, by a maintenance command (M6)
+
+- **Status:** proposed (2026-11-19, for the M6 review; built for the PM's decision Q-61 of 2026-11-05)
+- **Context:** After a breach that must be told to the people concerned (FADP Art. 24 para. 4, GDPR Art. 34), every
+  account may have to hear of it, by email and in its language (breach runbook §7). Nothing could send that: the
+  worker sends transactional emails with fixed text only, and there are no admin endpoints (architecture §9). Q-61:
+  the operator writes the notice for the incident in de, fr, it and en, and a maintenance command queues one email per
+  account through the outbox, logging counts only. An email whose text someone writes is new here (S-11), and a breach
+  is when phishing in Questline's name pays best (S-20).
+- **Decision:**
+  - **Two maintenance commands** of ADR-0020's entrypoint, with the migrator's role: `preview-incident-notice` counts
+    the accounts by the language their notice would be written in, and those already told, and queues nothing;
+    `send-incident-notice` queues the notice for every account — verified or not, and pending deletion too, since each
+    one's data may be concerned.
+  - **The notice file** (`INCIDENT_NOTICE_FILE`, JSON, at most 64 KiB): `incident`, a name of 3 to 64 lower-case
+    letters, digits and hyphens, so it can hold no personal data, and under `notices` a `subject` and a `body` in each
+    of `de`, `fr`, `it` and `en`; nothing else. A subject is one line of at most 150 characters, a body plain text of
+    at most 3 000; neither may hold control characters (bar the body's line breaks) or Unicode's bidirectional
+    controls, which can disguise what a text says. Both are trimmed. A faulty file stops the command, naming every
+    field at fault but never the text, before the KEK is fetched.
+  - **The email** (`incident_notice`): the operator's subject; the body between the fixed greeting and a fixed
+    warning — Questline never asks for a password, a code or a recovery code by email; if in doubt, open the app
+    instead of following a link — and the signature. No placeholder in the operator's text is filled. The language
+    follows `users.locale` as for every email; a locale the app does not offer gets Swiss German, the default. The
+    payload (the address, the locale and the text in that language) is encrypted with the account's data key like
+    every email's. The worker checks the text again before sending and dead-letters a notice that fails
+    (`payload_invalid`), unsent.
+  - **Online**: unlike ADR-0020's commands it changes no existing row; it only adds an email and an audit event per
+    account. So it runs while the API and the worker run, and the worker sends the notices as they are queued, at its
+    usual pace. The worker withholds emails queued after a deletion request (A-22, Q-46), but not this one.
+  - **Once per account and incident**: each account told gets an `incident_notified` audit event, whose
+    `metadata.incident` names the incident, in the same transaction as its email. A run skips the accounts that have
+    one, so a run that stopped simply runs again, and another incident name tells everyone again. It works in batches
+    of 500 accounts per transaction, in ID order; each batch takes an advisory lock on the incident, so overlapping
+    runs take turns and nobody gets the notice twice.
+  - **Unreadable accounts**: an account whose data key the KEK does not open, or that has lost it, is counted and
+    left; the command finishes the rest and exits 1 (`MaintenanceIncompleteError`, `unreadable_accounts`) for a
+    decision by hand.
+  - **Logs**: one line per run, with the incident's name and counts only (R-LOG-02).
+  - Migration 0011 adds `incident_notified` to the audit event types and `incident_notice` to the outbox templates,
+    and gives the migrator permissive policies on `audit_events` and `email_outbox`, like migration 0010.
+- **Consequences:** a notice can reach every account within minutes of the PM's decision, in four languages, without a
+  code change or a release. The text is the operator's, so the breach runbook has the PM approve it before it is
+  sent. The record of who was told lasts as long as the audit events, 90 days (R-PRIV-07): sending the same incident
+  again after that tells everyone again. The account's export lists its `incident_notified` events (contract 0.4.8,
+  Q-64). The migrator now sees audit events and queued emails as well; as the owner it could anyway.
+- **Tests:** `src/platform/email/incident-notice.test.ts` and `src/modules/privacy/incident-notice.test.ts` (the text
+  and the file), `src/platform/email/templates.test.ts` (the frame in each language), `src/main/maintenance.test.ts`,
+  `test/integration/incident-notice.test.ts`, `test/security/db-roles.test.ts`, `test/security/rls-coverage.test.ts`,
+  `test/e2e/smoke.test.ts` (the drill).

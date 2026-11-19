@@ -30,7 +30,7 @@ export const auditEvents = pgTable(
         'email_change_requested', 'email_changed', 'email_verified', 'consent_granted', 'consent_withdrawn',
         'export_requested', 'account_deleted', 'account_reactivated', 'reauth_succeeded', 'reauth_failed',
         'rate_limited', 'passkey_added', 'passkey_removed', 'passkey_clone_suspected', 'totp_enabled', 'totp_disabled',
-        'recovery_codes_generated', 'recovery_code_used', 'second_factor_failed')`,
+        'recovery_codes_generated', 'recovery_code_used', 'second_factor_failed', 'incident_notified')`,
     ),
     // Only truncated networks (IPv4 /24, IPv6 /48), never a full address (data-inventory C8).
     check(
@@ -65,7 +65,8 @@ export const emailOutbox = pgTable(
     check(
       'email_outbox_template_check',
       sql`${table.template} in ('verify_email', 'registration_notice', 'password_reset', 'password_changed_notice',
-        'email_change_verify', 'email_change_notice', 'account_deleted_notice', 'sign_in_methods_changed_notice')`,
+        'email_change_verify', 'email_change_notice', 'account_deleted_notice', 'sign_in_methods_changed_notice',
+        'incident_notice')`,
     ),
     check('email_outbox_attempts_check', sql`${table.attempts} >= 0`),
     // An error class such as `smtp_552`, never message text, which could contain an address.

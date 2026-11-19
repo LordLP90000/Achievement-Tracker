@@ -23,11 +23,14 @@ const RLS_TABLES = [
 
 /**
  * Tables whose rows the maintenance commands change for every account, run as the migrator, which owns every table
- * (ADR-0020, Q-57): forced row-level security applies to it too, so each needs a policy for it.
+ * (ADR-0020, Q-57; ADR-0021, Q-61: the incident notice adds an email and an audit event per account): forced
+ * row-level security applies to it too, so each needs a policy for it.
  */
 const MAINTENANCE_TABLES = [
   'achievements',
+  'audit_events',
   'consents',
+  'email_outbox',
   'idempotency_keys',
   'passkeys',
   'recovery_codes',
@@ -143,7 +146,7 @@ describe('row-level security coverage', () => {
     expect(policies.filter((policy) => policy.roles.includes('public')).map((policy) => policy.name)).toEqual([]);
   });
 
-  it('gives the migrator a policy for every row only on the tables its maintenance commands change [ADR-0020]', () => {
+  it('gives the migrator a policy for every row only on the tables its maintenance commands change [ADR-0020, ADR-0021]', () => {
     const migratorPolicies = policies.filter((policy) => policy.roles.includes('questline_migrator'));
 
     expect(

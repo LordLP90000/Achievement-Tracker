@@ -105,7 +105,8 @@ Rules enforced by lint/tests:
   `OP_KEK_VAULT_ID`, `OP_KEK_ITEM_ID`, `BLIND_INDEX_KEY`, `RATE_LIMIT_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_TLS`
   (`starttls` | `implicit`), `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM`; since M5 `WEBAUTHN_RP_ID` and
   `WEBAUTHN_ORIGINS` (API); since M6 `PREVIOUS_LOCAL_KEK` (development) and `OP_PREVIOUS_KEK_ITEM_ID` (another item in the vault of the current KEK), for `rewrap-data-keys` only, `PREVIOUS_BLIND_INDEX_KEY` for `reindex-email-blind-index` only, `REPLACED_DATABASE_URL` (`replay-after-restore` only: the database a restore
-  replaced, read only), and `RATE_LIMIT_SCALE` (API, development and test only, refused in production: an integer from 1 to
+    replaced, read only), `INCIDENT_NOTICE_FILE` (`preview-incident-notice` and `send-incident-notice` only: the path
+    of the notice, ADR-0021), and `RATE_LIMIT_SCALE` (API, development and test only, refused in production: an integer from 1 to
   1000 that multiplies every rate-limit bucket and the free wrong passwords, never a block; the DAST stack sets 1000 so
   that the active ZAP scan is not answered with 429, Q-60). Secrets are injected as environment
   variables (from 1Password or the host's secret store); only the KEK is fetched from Connect at runtime.
@@ -196,10 +197,11 @@ its response (headers and body, encrypted with the user's data key) in the same 
   round never overlaps the previous one) and claims one due email at a time with `FOR UPDATE SKIP LOCKED`. The claim
   counts the attempt and leases the row for 5 min (`next_attempt_at`), so an email whose worker died is retried when
   the lease ends and a crash loop still reaches the attempt limit. The payload is decrypted with the user's data key
-  and rendered from fixed templates (`platform/email/templates.ts`). A link email is sent only while its token still
+  and rendered from fixed templates (`platform/email/templates.ts`; only an incident notice's subject and body are an
+  operator's, checked again before sending, ADR-0021). A link email is sent only while its token still
   works — a replaced, used or expired link is deleted unsent (D-05) — while security notices are always sent. An
-  email queued after its account asked for deletion is deleted unsent too, except the deletion notice and a reset
-  link the owner asked for, which brings the account back (A-22, Q-46, Q-48);
+  email queued after its account asked for deletion is deleted unsent too, except the deletion notice, a reset
+  link the owner asked for, which brings the account back (A-22, Q-46, Q-48), and an incident notice (Q-61);
   one queued before still goes out, so the owner hears of an address or password change that preceded it. After
   sending, the row is deleted; a failure is retried after 1, 2, 4 … 64 min and dead-lettered after the 8th attempt
   (dead letters keep the encrypted payload for 7 days); a permanent refusal of the recipient or message, or an
@@ -419,16 +421,20 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
   with 30-day expiry, point-in-time recovery if the provider offers it.
 - Migrations run as a separate job before the new API version starts (expand/contract strategy for zero
   downtime).
-- Maintenance commands (ADR-0020) run from the same image as one-off jobs with the migrator's role, while the API and
-  the worker are stopped: `node dist/maintenance.js <command>`. Each refuses while a `questline-api` or
-  `questline-worker` session is connected to a database it would read or change, is idempotent, and logs only counts.
+- Maintenance commands (ADR-0020, ADR-0021) run from the same image as one-off jobs with the migrator's role:
+  `node dist/maintenance.js <command>`. Each is idempotent and logs only counts; those of ADR-0020 run while the API
+  and the worker are stopped, and each refuses while a `questline-api` or `questline-worker` session is connected to a
+  database it would read or change.
   `replay-after-restore` follows every restore: it takes over the tombstones of the database the restore replaced
   (`REPLACED_DATABASE_URL`, the migrator's role, read-only transactions) with their dates and deletes every account they name, 100 per
   transaction, with the hard delete's cascade. The restore runbook: `docs/runbooks/restore.md`; the key-rotation runbook: `docs/runbooks/key-rotation.md`. `rewrap-data-keys`
   re-wraps every data key under the current KEK after a rotation: the previous KEK is another 1Password item, and the
   AEAD decides which KEK opens a key, never its label. `reindex-email-blind-index` indexes every address and every
   pending new address again under a new blind-index key; the API must be stopped, since with the old key it would let
-  a second account register an address that is already taken.
+  a second account register an address that is already taken. `preview-incident-notice` and `send-incident-notice`
+  (ADR-0021, Q-61) only add rows, so they run while the API and the worker run: the second queues an operator's notice
+  of an incident for every account, in its language, and records each in an `incident_notified` audit event, so a
+  second run tells nobody twice. The breach runbook: `docs/runbooks/breach.md` §7.
 - Health: `/health/live` (process up), `/health/ready` (DB reachable, KEK loaded at startup and wrap/unwrap
   self-test passed).
 - Observability without personal data: request metrics (count, duration, status by route), job metrics, error

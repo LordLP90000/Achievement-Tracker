@@ -1,0 +1,21 @@
+{
+  "incident": "e2e-drill",
+  "notices": {
+    "de": {
+      "subject": "Übung: ein Sicherheitsvorfall bei Questline",
+      "body": "Dies ist eine Übung des Ablaufs, mit dem Questline alle Konten über einen Sicherheitsvorfall informiert.\n\nEs ist nichts geschehen."
+    },
+    "fr": {
+      "subject": "Exercice : un incident de sécurité chez Questline",
+      "body": "Ceci est un exercice de la procédure par laquelle Questline informe tous les comptes d'un incident de sécurité.\n\nIl ne s'est rien passé."
+    },
+    "it": {
+      "subject": "Esercitazione: un incidente di sicurezza presso Questline",
+      "body": "Questa è un'esercitazione della procedura con cui Questline informa tutti gli account di un incidente di sicurezza.\n\nNon è successo nulla."
+    },
+    "en": {
+      "subject": "Drill: a security incident at Questline",
+      "body": "This is a drill of the procedure by which Questline tells every account about a security incident.\n\nNothing happened."
+    }
+  }
+}

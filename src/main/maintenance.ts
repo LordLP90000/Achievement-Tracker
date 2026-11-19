@@ -1,6 +1,7 @@
 import type { Logger } from 'pino';
 import { reindexEmailBlindIndexes } from '../modules/accounts/reindex.ts';
 import { rewrapDataKeys, type RewrapKeks } from '../modules/accounts/rewrap.ts';
+import { previewIncidentNotice, sendIncidentNotice, type IncidentNotice } from '../modules/privacy/incident-notice.ts';
 import { replayAfterRestore } from '../modules/privacy/restore-replay.ts';
 import { ConfigError, type MaintenanceConfig } from '../platform/config/config.ts';
 import { createDataKeys } from '../platform/crypto/data-keys.ts';
@@ -11,9 +12,29 @@ import { createDatabase, type Database } from '../platform/db/database.ts';
 import { connectedApplications } from '../platform/db/sessions.ts';
 import { systemClock, type Clock } from '../platform/time/clock.ts';
 
-/** The one-off maintenance commands (ADR-0020): `node dist/maintenance.js <command>`, with the migrator's role. */
-export const MAINTENANCE_COMMANDS = ['replay-after-restore', 'rewrap-data-keys', 'reindex-email-blind-index'] as const;
+/**
+ * The one-off maintenance commands (ADR-0020, ADR-0021): `node dist/maintenance.js <command>`, with the migrator's
+ * role.
+ */
+export const MAINTENANCE_COMMANDS = [
+  'replay-after-restore',
+  'rewrap-data-keys',
+  'reindex-email-blind-index',
+  'preview-incident-notice',
+  'send-incident-notice',
+] as const;
 export type MaintenanceCommand = (typeof MAINTENANCE_COMMANDS)[number];
+
+/**
+ * The commands that rewrite rows of every account (ADR-0020) and so run only while the API and the worker are stopped.
+ * The incident notice only adds rows (an email and an audit event per account) and runs while the service runs
+ * (ADR-0021): the worker sends the notices as they are queued.
+ */
+const OFFLINE: ReadonlySet<MaintenanceCommand> = new Set([
+  'replay-after-restore',
+  'rewrap-data-keys',
+  'reindex-email-blind-index',
+]);
 
 /** The processes that must be stopped first: they read and write the rows a command changes. */
 const RUNNING_PROCESSES = ['questline-api', 'questline-worker'];
@@ -37,6 +58,8 @@ const INCOMPLETE = {
   unknown_data_keys: 'some data keys open with no given KEK: they were left as they are',
   /** `reindex-email-blind-index`: under neither key, or unreadable with the KEK (key-rotation runbook). */
   unknown_blind_indexes: 'some blind indexes are under neither key or unreadable: they were left as they are',
+  /** `send-incident-notice`: the KEK does not open their address (breach runbook). */
+  unreadable_accounts: 'some accounts could not be read with the KEK: they got no notice',
 } as const;
 
 /** The command did everything it could and left the rest for a decision by hand; its log line has the counts. */
@@ -59,6 +82,11 @@ export interface MaintenanceDependencies {
     readonly kek: Kek;
     readonly current: Uint8Array;
     readonly previous: Uint8Array | undefined;
+  };
+  /** The incident notice's commands: the notice, read from its file; `send-incident-notice` also the KEK. */
+  readonly incident?: {
+    readonly notice: IncidentNotice;
+    readonly kek?: Kek;
   };
 }
 
@@ -101,12 +129,14 @@ export async function runMaintenance(
       ),
     );
     const connected = [...new Set(found.flat())].toSorted();
-    if (connected.length > 0) {
+    if (OFFLINE.has(command) && connected.length > 0) {
       logger.error({ command, connected }, 'maintenance refused');
       throw new MaintenanceRefusedError();
     }
     if (command === 'rewrap-data-keys') await rewrap(restored, dependencies, logger);
     else if (command === 'reindex-email-blind-index') await reindex(restored, dependencies, logger);
+    else if (command === 'preview-incident-notice') await preview(restored, dependencies, logger);
+    else if (command === 'send-incident-notice') await notify(restored, dependencies, logger);
     else await replay(restored, replaced, dependencies, logger);
   } finally {
     await Promise.all([target.close(), source?.close()]);
@@ -137,4 +167,24 @@ async function reindex(db: Database, dependencies: MaintenanceDependencies, logg
   const result = await reindexEmailBlindIndexes(db, createDataKeys(localKeyWrapper(keys.kek)), keys);
   logger.info({ command: 'reindex-email-blind-index', ...result }, 'blind indexes re-indexed');
   if (result.unknown > 0) throw new MaintenanceIncompleteError('unknown_blind_indexes');
+}
+
+async function preview(db: Database, dependencies: MaintenanceDependencies, logger: Logger): Promise<void> {
+  const notice = dependencies.incident?.notice;
+  if (notice === undefined) throw new TypeError('preview-incident-notice needs the notice');
+  const result = await previewIncidentNotice(db, notice);
+  logger.info(
+    { command: 'preview-incident-notice', incident: notice.incident, ...result },
+    'incident notice previewed',
+  );
+}
+
+async function notify(db: Database, dependencies: MaintenanceDependencies, logger: Logger): Promise<void> {
+  const { notice, kek } = dependencies.incident ?? {};
+  if (notice === undefined || kek === undefined)
+    throw new TypeError('send-incident-notice needs the notice and the KEK');
+  const now = (dependencies.clock ?? systemClock).now();
+  const result = await sendIncidentNotice(db, createDataKeys(localKeyWrapper(kek)), notice, { now });
+  logger.info({ command: 'send-incident-notice', incident: notice.incident, ...result }, 'incident notice queued');
+  if (result.unreadable > 0) throw new MaintenanceIncompleteError('unreadable_accounts');
 }
