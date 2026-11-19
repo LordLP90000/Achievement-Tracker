@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Design system · Questline</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="assets/css/tokens.css" />
+    <link rel="stylesheet" href="assets/css/base.css" />
+    <link rel="stylesheet" href="assets/css/components.css" />
+    <link rel="stylesheet" href="assets/css/screens.css" />
+    <link rel="stylesheet" href="assets/css/screens-2.css" />
+    <link rel="stylesheet" href="assets/css/board.css" />
+  </head>
+  <body class="doc-body">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="doc">
+      <header class="doc-nav">
+        <a class="doc-nav__brand" href="index.html">Questline <span class="pill">Design</span></a>
+        <nav class="doc-nav__links" aria-label="Design package">
+          <a href="index.html">Overview</a>
+          <a href="design-system.html" aria-current="page">Design system</a>
+          <a href="pass-1.html">Pass 1</a>
+          <a href="pass-2.html">Pass 2 · All screens</a>
+          <a href="prototype.html">Prototype</a>
+          <a href="README.md">Notes &amp; open questions</a>
+        </nav>
+      </header>
+      <main id="main">
+        <div class="doc-hero">
+          <p><span class="pill pill--go">Direction approved · extended in pass 2</span></p>
+          <h1 style="margin-top: 14px">Design system</h1>
+          <p>
+            A quest log that feels like a calm, modern productivity app: warm sand neutrals, one honey accent, rounded cards
+            and quiet depth. Tokens live in <code>tokens.json</code> (source of truth; <code>tools/tokens.mjs</code>
+            generates the CSS and checks every contrast pair), components in <code>assets/js/ui.js</code>. Use the
+            toolbar to view every specimen at 150 % / 200 % text, on Android, or with reduced motion.
+          </p>
+        </div>
+        <div class="toolbar" id="toolbar"></div>
+        <nav aria-label="On this page" class="doc-nav__links">
+          <a href="#colour">Colour</a>
+          <a href="#type">Typography</a>
+          <a href="#space">Spacing &amp; elevation</a>
+          <a href="#icons">Icons</a>
+          <a href="#motion">Motion</a>
+          <a href="#components">Components</a>
+          <a href="#components-2">Pass 2 components</a>
+          <a href="#a11y">Accessibility</a>
+        </nav>
+        <div id="ds"></div>
+      </main>
+      <footer class="doc-footer">
+        Fonts: Fraunces, plus Inter and Roboto as preview stand-ins for the system fonts (all SIL OFL 1.1). Icons: Lucide (ISC). Licences in <code>assets/licenses/</code>.
+      </footer>
+    </div>
+    <script src="assets/js/icons.js"></script>
+    <script src="assets/js/tokens.js"></script>
+    <script src="assets/js/data.js"></script>
+    <script src="assets/js/ui.js"></script>
+    <script src="assets/js/ui-more.js"></script>
+    <script src="assets/js/screens.js"></script>
+    <script src="assets/js/board.js"></script>
+    <script src="assets/js/design-system.js"></script>
+  </body>
+</html>

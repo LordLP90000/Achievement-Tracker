@@ -1,0 +1,2421 @@
+/* Questline components. Semantic tokens only (tokens.css); no raw colours below this line except
+   transparent/currentColor. Layout switches for accessibility text sizes hang off [data-text='ax']
+   (set when the text scale is 150 % or more), reduced motion off .reduce-motion, and platform
+   adaptations off [data-platform='android']. */
+
+/* ───────────── Screen scaffolding ───────────── */
+
+.screen {
+  position: relative;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+}
+
+.screen__content {
+  flex: 1;
+  padding: 0 var(--space-gutter) var(--space-32);
+}
+
+[data-text='ax'] .screen__content {
+  padding-inline: var(--space-16);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap, var(--space-12));
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap, var(--space-8));
+}
+
+.section {
+  margin-top: var(--space-32);
+}
+
+.section__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-12);
+}
+
+.section__header .btn--text {
+  margin-right: calc(var(--space-12) * -1);
+}
+
+.divider {
+  height: 1px;
+  background: var(--border-subtle);
+  border: 0;
+  margin: 0;
+}
+
+.dot-sep::before {
+  content: '·';
+  margin-inline: 2px;
+  color: var(--text-tertiary);
+}
+
+/* ───────────── System chrome: status bar, home indicator, nav bars ───────────── */
+
+.statusbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: none;
+  height: var(--statusbar-h, 54px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 30px 0 44px;
+  font: 600 16px/1 var(--font-text);
+  color: var(--text-primary);
+  font-feature-settings: 'tnum';
+}
+
+.statusbar__island {
+  position: absolute;
+  left: 50%;
+  top: 11px;
+  width: 124px;
+  height: 36px;
+  margin-left: -62px;
+  border-radius: 20px;
+  background: #000;
+}
+
+.statusbar__icons {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.statusbar__icons svg {
+  display: block;
+  fill: currentColor;
+}
+
+[data-platform='android'] {
+  --statusbar-h: 36px;
+}
+
+[data-platform='android'] .statusbar {
+  background: var(--bg-canvas);
+  height: var(--statusbar-h);
+  padding: 4px 20px 0 24px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+[data-platform='android'] .statusbar__island {
+  width: 22px;
+  height: 22px;
+  top: 8px;
+  margin-left: -11px;
+  border-radius: 50%;
+}
+
+.home-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  width: 134px;
+  height: 5px;
+  margin-left: -67px;
+  border-radius: 3px;
+  background: var(--text-primary);
+  z-index: 6;
+}
+
+[data-platform='android'] .home-indicator {
+  width: 108px;
+  height: 4px;
+  margin-left: -54px;
+  bottom: 9px;
+  opacity: 0.7;
+}
+
+.navbar {
+  position: sticky;
+  top: var(--statusbar-h, 54px);
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 56px;
+  padding: 0 var(--space-16);
+}
+
+.navbar__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px;
+  max-width: 60%;
+  padding: 0 var(--space-16) 0 var(--space-8);
+  color: var(--text-primary);
+  border-radius: var(--radius-pill);
+}
+
+.navbar__back-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.navbar--root {
+  justify-content: flex-end;
+}
+
+[data-platform='android'] .navbar {
+  padding: 0 var(--space-4);
+  background: var(--bg-canvas);
+}
+
+.navbar__title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.navbar__actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0;
+  border-radius: var(--radius-pill);
+}
+
+.navbar__actions.glass .icon-btn {
+  width: 44px;
+  height: 44px;
+}
+
+[data-platform='android'] .navbar__back-label {
+  display: none;
+}
+
+[data-platform='android'] .navbar__back {
+  width: 48px;
+  justify-content: center;
+  padding: 0;
+  color: var(--text-primary);
+}
+
+.screen-header {
+  padding: var(--space-8) var(--space-gutter) 0;
+}
+
+[data-text='ax'] .screen-header {
+  padding-inline: var(--space-16);
+}
+
+.screen-header__overline {
+  color: var(--text-tertiary);
+}
+
+.screen-header__title {
+  margin-top: var(--space-4);
+}
+
+.screen-header__sub {
+  margin-top: var(--space-4);
+  color: var(--text-secondary);
+}
+
+/* ───────────── Buttons ───────────── */
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-height: var(--size-button-md);
+  padding: var(--space-8) var(--space-24);
+  border-radius: var(--radius-pill);
+  font-family: var(--type-label-family);
+  font-weight: var(--type-label-weight);
+  font-size: calc(var(--type-label-size) * var(--ts));
+  line-height: calc(var(--type-label-line) * var(--ts));
+  text-align: center;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
+}
+
+.btn:active,
+.btn.is-pressed {
+  transform: scale(0.98);
+}
+
+.btn--lg {
+  min-height: var(--size-button-lg);
+}
+
+.btn--sm {
+  min-height: 40px;
+  padding: var(--space-4) var(--space-16);
+  font-size: calc(15px * var(--ts));
+  line-height: calc(20px * var(--ts));
+}
+
+/* Small buttons keep a 48 pt hit area. */
+.btn--sm::before {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+}
+
+.btn--block {
+  display: flex;
+  width: 100%;
+}
+
+.btn--primary {
+  background: var(--action-primary);
+  color: var(--text-on-primary);
+}
+
+.btn--primary:active,
+.btn--primary.is-pressed {
+  background: var(--action-primary-pressed);
+}
+
+.btn--secondary {
+  background: var(--action-secondary);
+  color: var(--action-on-secondary);
+}
+
+.btn--secondary:active,
+.btn--secondary.is-pressed {
+  background: var(--action-secondary-pressed);
+}
+
+.btn--outline {
+  background: transparent;
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+}
+
+.btn--text {
+  background: transparent;
+  color: var(--text-accent);
+  padding-inline: var(--space-12);
+}
+
+.btn--danger {
+  background: transparent;
+  color: var(--state-danger-fg);
+  box-shadow: inset 0 0 0 1.5px var(--state-danger-fg);
+}
+
+.btn--danger-solid {
+  background: var(--state-danger-solid);
+  color: var(--state-on-danger-solid);
+}
+
+.btn[disabled],
+.btn.is-disabled {
+  background: var(--action-disabled);
+  color: var(--text-disabled);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn.is-focus {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.btn.is-loading .icon {
+  animation: ql-spin 900ms linear infinite;
+}
+
+.icon-btn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--size-touch-min);
+  height: var(--size-touch-min);
+  border-radius: 50%;
+  color: var(--text-primary);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.icon-btn:active,
+.icon-btn.is-pressed {
+  background: var(--action-secondary);
+}
+
+.icon-btn--tonal {
+  background: var(--action-secondary);
+}
+
+.icon-btn--accent {
+  color: var(--text-accent);
+}
+
+/* ───────────── Tags & chips ───────────── */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: calc(24px * var(--ts));
+  padding: 2px var(--space-8);
+  border-radius: var(--radius-sm);
+  font-family: var(--type-caption-family);
+  font-weight: var(--type-caption-weight);
+  font-size: calc(var(--type-caption-size) * var(--ts));
+  line-height: calc(var(--type-caption-line) * var(--ts));
+  letter-spacing: var(--type-caption-tracking);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.tag .icon {
+  width: calc(14px * var(--ts-icon));
+  height: calc(14px * var(--ts-icon));
+  stroke-width: 2.25;
+}
+
+.tag--xp,
+.tag--active {
+  background: var(--state-active-container);
+  color: var(--state-active-fg);
+}
+
+.tag--done {
+  background: var(--state-done-container);
+  color: var(--state-done-fg);
+}
+
+.tag--bonus {
+  background: var(--state-bonus-container);
+  color: var(--state-bonus-fg);
+}
+
+.tag--locked {
+  background: var(--state-locked-container);
+  color: var(--state-locked-fg);
+}
+
+.tag--paused {
+  background: var(--state-paused-container);
+  color: var(--state-paused-fg);
+}
+
+.tag--danger {
+  background: var(--state-danger-container);
+  color: var(--state-danger-fg);
+}
+
+.tag--outline {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
+}
+
+.chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: var(--size-touch-min);
+  padding: var(--space-8) var(--space-16);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--border-subtle);
+  font-weight: 600;
+  font-size: calc(16px * var(--ts));
+  line-height: calc(20px * var(--ts));
+  color: var(--text-primary);
+}
+
+.chip[aria-pressed='true'],
+.chip[aria-checked='true'] {
+  background: var(--state-active-container);
+  box-shadow: inset 0 0 0 2px var(--progress-fill);
+  color: var(--text-primary);
+}
+
+/* ───────────── Cards ───────────── */
+
+.card {
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--elevation-e1);
+  outline: 1px solid var(--border-hairline);
+  outline-offset: -1px;
+  padding: var(--space-16);
+}
+
+.card--flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.card--muted {
+  background: var(--bg-muted);
+  box-shadow: none;
+}
+
+.card--accent {
+  outline: 2px solid var(--progress-fill);
+  outline-offset: -2px;
+}
+
+/* Level card: emblem, XP bar, distance to next level */
+.level-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-16);
+  align-items: center;
+}
+
+.level-card__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.level-card__hint {
+  margin-top: var(--space-8);
+  color: var(--text-secondary);
+}
+
+[data-text='ax'] .level-card {
+  grid-template-columns: 1fr;
+}
+
+.level-emblem {
+  position: relative;
+  width: 52px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+}
+
+.level-emblem svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.level-emblem__shape {
+  fill: var(--action-primary);
+  stroke: var(--action-primary);
+  stroke-width: 6;
+  stroke-linejoin: round;
+}
+
+.level-emblem__inner {
+  fill: none;
+  stroke: var(--text-on-primary);
+  stroke-opacity: 0.18;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.level-emblem__num {
+  position: relative;
+  font-family: var(--font-display);
+  font-variation-settings: 'SOFT' 100, 'WONK' 0;
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--text-on-primary);
+  font-feature-settings: 'lnum';
+}
+
+/* XP bar and mini progress bars. The fill moves with transform, never width. */
+.bar {
+  position: relative;
+  height: var(--bar-h, 10px);
+  border-radius: var(--radius-pill);
+  background: var(--progress-track);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.bar__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--bar-color, var(--progress-fill));
+  transform: translateX(calc((var(--p, 0) - 1) * 100%));
+  transition: transform var(--duration-slow) var(--ease-standard);
+}
+
+.bar--sm {
+  --bar-h: 6px;
+}
+
+.bar--xp {
+  --bar-h: 12px;
+}
+
+.xp-gain {
+  position: absolute;
+  right: 0;
+  top: -26px;
+  color: var(--text-accent);
+  font-weight: 700;
+  font-feature-settings: 'tnum';
+  animation: ql-xp-float 1200ms var(--ease-enter) both;
+}
+
+.xp-gain--static,
+.reduce-motion .xp-gain--static {
+  animation: none;
+}
+
+/* ───────────── Quest card (Today list, achievement list view) ───────────── */
+
+.qcard {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-12);
+  align-items: center;
+  min-height: 76px;
+  padding: var(--space-12) var(--space-12) var(--space-12) var(--space-16);
+  background: var(--bg-surface);
+  border-radius: 20px;
+  box-shadow: var(--elevation-e1);
+  outline: 1px solid var(--border-hairline);
+  outline-offset: -1px;
+  transition: background-color var(--duration-base) var(--ease-standard);
+}
+
+.qcard__lead {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  background: var(--state-active-container);
+  color: var(--state-active-fg);
+}
+
+.qcard__lead .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.qcard__body {
+  min-width: 0;
+}
+
+.qcard__context {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--text-tertiary);
+  margin-bottom: 2px;
+}
+
+.qcard__context .icon {
+  width: calc(14px * var(--ts-icon));
+  height: calc(14px * var(--ts-icon));
+}
+
+.qcard__title {
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.qcard__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-8);
+  margin-top: var(--space-4);
+  color: var(--text-secondary);
+}
+
+.qcard__meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.qcard__meta .icon {
+  width: calc(16px * var(--ts-icon));
+  height: calc(16px * var(--ts-icon));
+}
+
+.qcard__progress {
+  margin-top: var(--space-8);
+}
+
+.qcard__action {
+  display: flex;
+  align-items: center;
+}
+
+.qcard--link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.qcard--done-today .qcard__title,
+.qcard--completed .qcard__title {
+  color: var(--text-secondary);
+}
+
+.qcard--done-today .qcard__lead,
+.qcard--completed .qcard__lead {
+  background: var(--state-done-container);
+  color: var(--state-done-fg);
+}
+
+.qcard--locked {
+  background: var(--bg-muted);
+  box-shadow: none;
+}
+
+.qcard--locked .qcard__lead {
+  background: transparent;
+  color: var(--state-locked-fg);
+  outline: 1.5px dashed var(--state-locked-border);
+  outline-offset: -1.5px;
+}
+
+.qcard--locked .qcard__title {
+  color: var(--text-secondary);
+}
+
+.qcard--bonus .qcard__lead {
+  background: var(--state-bonus-container);
+  color: var(--state-bonus-fg);
+}
+
+.qcard--paused .qcard__lead,
+.qcard--restart .qcard__lead {
+  background: var(--state-paused-container);
+  color: var(--state-paused-fg);
+}
+
+.qcard--private .qcard__lead {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
+.qcard--current {
+  outline: 2px solid var(--progress-fill);
+  outline-offset: -2px;
+}
+
+.qcard--syncing .qcard__meta {
+  color: var(--text-secondary);
+}
+
+[data-text='ax'] .qcard {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+[data-text='ax'] .qcard__lead {
+  display: none;
+}
+
+/* Private placeholder: fixed-length bars, so a hidden title never leaks its length. */
+.redact {
+  display: inline-block;
+  height: 0.75em;
+  width: var(--w, 9em);
+  max-width: 100%;
+  border-radius: 6px;
+  background: var(--state-private-bar);
+  vertical-align: middle;
+}
+
+/* ───────────── One-tap check-in button ───────────── */
+
+.check {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--size-check);
+  height: var(--size-check);
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 2px var(--border-strong);
+  color: transparent;
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.check::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+}
+
+.check .icon {
+  width: 22px;
+  height: 22px;
+  stroke-width: 3;
+}
+
+.check:active,
+.check.is-pressed {
+  box-shadow: inset 0 0 0 2px var(--progress-fill);
+  color: var(--text-tertiary);
+  background: var(--state-active-container);
+}
+
+.check--done {
+  background: var(--state-done-solid);
+  box-shadow: none;
+  color: var(--state-on-done-solid);
+}
+
+.check--log {
+  background: var(--state-active-container);
+  box-shadow: inset 0 0 0 2px var(--progress-fill);
+  color: var(--text-accent);
+}
+
+.check--log .icon {
+  stroke-width: 2.5;
+}
+
+.check--just-done .icon {
+  stroke-dasharray: 24;
+  animation: ql-draw var(--duration-tick) var(--ease-enter) both;
+}
+
+.check--just-completed {
+  animation: ql-pop 360ms var(--ease-standard) both;
+}
+
+.check--just-completed::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  animation: ql-burst 480ms var(--ease-enter) both;
+}
+
+/* ───────────── Progress ring ───────────── */
+
+.ring {
+  --size: 72px;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: var(--size);
+  height: var(--size);
+  flex: none;
+}
+
+.ring > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.ring__track {
+  fill: none;
+  stroke: var(--progress-track);
+}
+
+.ring__fill {
+  fill: none;
+  stroke: var(--ring-color, var(--progress-fill));
+  stroke-linecap: round;
+  transition: stroke-dashoffset var(--duration-slow) var(--ease-standard);
+}
+
+.ring__center {
+  position: relative;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.ring--sm {
+  --size: 44px;
+}
+
+.ring--lg {
+  --size: 128px;
+}
+
+.ring--private .ring__center,
+.ring--paused .ring__center {
+  color: var(--text-secondary);
+}
+
+.ring--done {
+  --ring-color: var(--state-done-solid);
+}
+
+.ring-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-12);
+}
+
+.ring-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  height: 100%;
+  padding: var(--space-16) var(--space-8) var(--space-12);
+  text-align: center;
+  min-width: 0;
+}
+
+.ring-tile__title {
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.ring-tile__meta {
+  color: var(--text-secondary);
+}
+
+[data-text='ax'] .ring-grid {
+  grid-template-columns: 1fr;
+}
+
+[data-text='ax'] .ring-tile {
+  flex-direction: row;
+  text-align: left;
+  padding: var(--space-12) var(--space-16);
+  gap: var(--space-16);
+}
+
+/* ───────────── Streaks and the week strip ───────────── */
+
+.streak {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--text-primary);
+  font-feature-settings: 'tnum';
+  white-space: nowrap;
+}
+
+.streak .icon {
+  color: var(--state-streak);
+}
+
+.streak--lg .icon {
+  width: calc(28px * var(--ts-icon));
+  height: calc(28px * var(--ts-icon));
+}
+
+.week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.week__day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--text-tertiary);
+}
+
+.week__dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+
+.week__dot .icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 3;
+}
+
+.week__day--done .week__dot {
+  background: var(--state-done-solid);
+  color: var(--state-on-done-solid);
+}
+
+.week__day--today .week__dot {
+  box-shadow:
+    inset 0 0 0 2px var(--progress-fill),
+    0 0 0 4px var(--progress-glow);
+}
+
+.week__day--today .week__label {
+  color: var(--text-accent);
+  font-weight: 700;
+}
+
+.week__day--today-done .week__dot {
+  background: var(--state-done-solid);
+  color: var(--state-on-done-solid);
+  box-shadow: 0 0 0 4px var(--progress-glow);
+}
+
+/* A past day without a check-in: neutral and hollow, never red. */
+.week__day--none .week__dot {
+  box-shadow: inset 0 0 0 1.5px var(--state-missed-border);
+}
+
+.week__day--missed .week__dot {
+  box-shadow: inset 0 0 0 1.5px var(--state-missed-border);
+  color: var(--text-tertiary);
+}
+
+.week__day--upcoming .week__dot {
+  background: var(--state-upcoming);
+}
+
+/* Days before the habit’s run began: no expectation, so no outline. */
+.week__day--off .week__dot {
+  background: transparent;
+}
+
+.week__day--off .week__label {
+  opacity: 0.6;
+}
+
+/* ───────────── Quest path (vertical journey map) ───────────── */
+
+.qpath {
+  --node-slot: 56px;
+  --line: 4px;
+  position: relative;
+}
+
+.qpath__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--node-slot) minmax(0, 1fr);
+  column-gap: var(--space-12);
+  padding-bottom: var(--space-16);
+}
+
+.qpath__item:last-child {
+  padding-bottom: 0;
+}
+
+/* Two half segments per item: above the node (from the previous one) and below it (to the next). */
+.qpath__item::before,
+.qpath__item::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--node-slot) / 2 - var(--line) / 2);
+  width: var(--line);
+  border-radius: 2px;
+  background-image: linear-gradient(to bottom, var(--state-locked-border) 55%, transparent 55%);
+  background-size: var(--line) 11px;
+  opacity: 0.75;
+}
+
+.qpath__item::before {
+  top: 0;
+  height: calc(var(--node-slot) / 2);
+}
+
+.qpath__item::after {
+  top: calc(var(--node-slot) / 2);
+  bottom: 0;
+}
+
+.qpath__item.seg-top-done::before,
+.qpath__item.seg-bottom-done::after {
+  background: var(--progress-fill);
+  opacity: 1;
+}
+
+.qpath__item.is-first::before,
+.qpath__item.is-last::after {
+  display: none;
+}
+
+.qpath__node-slot {
+  position: relative;
+  z-index: 1;
+  height: var(--node-slot);
+  display: grid;
+  place-items: center;
+}
+
+.pnode {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--bg-canvas);
+}
+
+.pnode .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.pnode--done {
+  background: var(--state-done-solid);
+  color: var(--state-on-done-solid);
+}
+
+.pnode--done .icon {
+  stroke-width: 3;
+}
+
+.pnode--current {
+  width: 52px;
+  height: 52px;
+  background: var(--state-active-solid);
+  color: var(--state-on-active-solid);
+  box-shadow: 0 0 0 6px var(--progress-glow);
+}
+
+.pnode--current .icon {
+  width: 24px;
+  height: 24px;
+  stroke-width: 2.25;
+}
+
+.pnode--available {
+  box-shadow: inset 0 0 0 2.5px var(--progress-fill);
+  color: var(--text-accent);
+  background: var(--bg-surface);
+}
+
+.pnode--locked {
+  background: var(--state-locked-container);
+  color: var(--state-locked-fg);
+  outline: 1.5px dashed var(--state-locked-border);
+  outline-offset: -1.5px;
+}
+
+.pnode--bonus {
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 2.5px var(--state-bonus-solid);
+  color: var(--state-bonus-fg);
+}
+
+.pnode--bonus-done {
+  background: var(--state-bonus-solid);
+  color: var(--state-on-bonus-solid);
+}
+
+.pnode--restart {
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 2.5px var(--state-paused-fg);
+  color: var(--state-paused-fg);
+}
+
+.pnode--start {
+  width: 14px;
+  height: 14px;
+  background: var(--progress-fill);
+}
+
+.pnode--goal {
+  width: 48px;
+  height: 52px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--state-locked-fg);
+}
+
+.pnode--goal svg.goal-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.goal-shape path {
+  fill: var(--state-locked-container);
+  stroke: var(--state-locked-border);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+
+.pnode--goal .icon {
+  position: relative;
+}
+
+.pnode--goal-done {
+  color: var(--text-on-primary);
+}
+
+.pnode--goal-done .goal-shape path {
+  fill: var(--action-primary);
+  stroke: var(--action-primary);
+  stroke-dasharray: none;
+}
+
+.qpath__card {
+  align-self: start;
+  min-width: 0;
+  padding: var(--space-12) var(--space-16);
+  border-radius: 20px;
+  background: var(--bg-surface);
+  box-shadow: var(--elevation-e1);
+  outline: 1px solid var(--border-hairline);
+  outline-offset: -1px;
+}
+
+.qpath__card--plain {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+  align-self: center;
+}
+
+.qpath__item--current .qpath__card {
+  outline: 2px solid var(--progress-fill);
+  outline-offset: -2px;
+}
+
+.qpath__item--locked .qpath__card {
+  background: var(--bg-muted);
+  box-shadow: none;
+}
+
+.qpath__item--locked .qpath__title,
+.qpath__item--done .qpath__title {
+  color: var(--text-secondary);
+}
+
+.qpath__title {
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.qpath__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px var(--space-8);
+  margin-top: var(--space-4);
+  color: var(--text-secondary);
+}
+
+.qpath__meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.qpath__meta .icon {
+  width: calc(16px * var(--ts-icon));
+  height: calc(16px * var(--ts-icon));
+}
+
+.qpath__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
+.qpath__progress {
+  margin-top: var(--space-12);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+/* Bonus quests branch off the main line as a side quest. */
+.qpath__item--side {
+  grid-template-columns: var(--node-slot) minmax(0, 1fr);
+}
+
+.qpath__side {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  column-gap: var(--space-12);
+}
+
+/* Dotted branch from the main line to the side node (main line edge → side node edge). */
+.qpath__branch {
+  position: absolute;
+  z-index: 0;
+  left: calc(var(--node-slot) / 2 + var(--line) / 2);
+  width: calc(var(--node-slot) / 2 - var(--line) / 2 + var(--space-12));
+  top: calc(var(--node-slot) / 2 - 1.5px);
+  height: 3px;
+  background-image: linear-gradient(to right, var(--state-bonus-solid) 50%, transparent 50%);
+  background-size: 8px 3px;
+}
+
+[data-text='ax'] .qpath {
+  --node-slot: 48px;
+}
+
+[data-text='ax'] .pnode--current {
+  width: 44px;
+  height: 44px;
+}
+
+/* ───────────── Segmented control ───────────── */
+
+.seg {
+  display: inline-flex;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+}
+
+.seg__btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: var(--space-4) var(--space-16);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: calc(15px * var(--ts));
+  line-height: calc(20px * var(--ts));
+  transition:
+    background-color var(--duration-base) var(--ease-standard),
+    color var(--duration-base) var(--ease-standard);
+}
+
+.seg__btn::before {
+  content: '';
+  position: absolute;
+  inset: -4px 0;
+}
+
+.seg__btn .icon {
+  width: calc(18px * var(--ts-icon));
+  height: calc(18px * var(--ts-icon));
+}
+
+.seg__btn[aria-pressed='true'],
+.seg__btn[aria-checked='true'] {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-weight: 700;
+  box-shadow: var(--elevation-e1);
+}
+
+.seg--block {
+  display: flex;
+}
+
+.seg--block .seg__btn {
+  flex: 1;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ───────────── Badge (earned when an achievement is unlocked; carries the rank) ───────────── */
+
+.badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-8);
+  text-align: center;
+}
+
+.badge__art {
+  position: relative;
+  width: var(--badge, 88px);
+  height: calc(var(--badge, 88px) * 1.08);
+}
+
+.badge__art > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.badge__art .badge__glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--badge-ink, var(--text-primary));
+}
+
+.badge__glyph .icon {
+  width: calc(var(--badge, 88px) * 0.34);
+  height: calc(var(--badge, 88px) * 0.34);
+  stroke-width: 1.75;
+}
+
+.badge__inner {
+  fill: var(--bg-surface);
+}
+
+.badge__line {
+  fill: none;
+  stroke-width: 1.25;
+  stroke-opacity: 0.55;
+}
+
+.badge--unearned .badge__outer {
+  fill: var(--state-locked-container);
+  stroke: var(--state-locked-border);
+  stroke-dasharray: 5 4;
+  stroke-width: 1.5;
+}
+
+.badge--unearned .badge__glyph {
+  color: var(--state-locked-fg);
+}
+
+/* ───────────── Liquid Glass (iOS functional layer only) ─────────────
+   Tab bar, bar-button capsules and the “+” button. Never on cards or content (HIG materials.md). Reduce
+   Transparency swaps in an opaque fill; Android has no glass at all. */
+
+.glass {
+  background: var(--glass-fill);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 0 0 1px var(--glass-stroke),
+    inset 0 1px 0 var(--glass-edge);
+}
+
+[data-transparency='reduced'] .glass {
+  background: var(--glass-opaque);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+[data-platform='android'] .glass {
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.glass-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--text-primary);
+}
+
+.glass-btn::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+}
+
+/* The one tinted control in the bar: colour goes on the background, not the symbol (HIG color.md). */
+.glass-btn--prominent {
+  background: var(--action-primary);
+  color: var(--text-on-primary);
+  box-shadow:
+    var(--glass-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.glass-btn--prominent .icon {
+  stroke-width: 2.5;
+}
+
+/* ───────────── Tab bar ─────────────
+   iOS (default): a capsule floating above content, filled symbols, the selected tab tinted on a glass platter.
+   Android: Material 3 navigation bar — opaque, outlined icons, the selected one filled in a pill indicator. */
+
+.tabbar {
+  position: sticky;
+  bottom: 24px;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  margin: var(--space-8) var(--space-16) 24px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+}
+
+.tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 54px;
+  padding: 4px 2px;
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+}
+
+.tab__icon {
+  display: grid;
+  place-items: center;
+}
+
+.tab__icon .icon {
+  width: 24px;
+  height: 24px;
+  stroke-width: 1.75;
+}
+
+.tab .f {
+  fill: currentColor;
+}
+
+.tab__label {
+  font-weight: 600;
+  font-size: calc(10px * var(--ts-tab));
+  line-height: calc(12px * var(--ts-tab));
+  white-space: nowrap;
+}
+
+.tab[aria-current='page'] {
+  background: var(--glass-selected);
+  color: var(--text-accent);
+}
+
+.tab[aria-current='page'] .tab__label {
+  font-weight: 700;
+}
+
+[data-platform='android'] .tabbar {
+  bottom: 0;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 12px var(--space-8) 28px;
+  border-radius: 0;
+  background: var(--bg-surface);
+}
+
+[data-platform='android'] .tab {
+  justify-content: flex-start;
+  gap: var(--space-4);
+  min-height: 56px;
+  padding: 0;
+  background: none;
+  color: var(--text-secondary);
+}
+
+[data-platform='android'] .tab__icon {
+  width: 64px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+}
+
+[data-platform='android'] .tab .f {
+  fill: none;
+}
+
+[data-platform='android'] .tab__icon .icon {
+  stroke-width: 2;
+}
+
+[data-platform='android'] .tab__label {
+  font-weight: 500;
+  font-size: calc(12px * var(--ts-tab));
+  line-height: calc(16px * var(--ts-tab));
+}
+
+[data-platform='android'] .tab[aria-current='page'] {
+  color: var(--text-primary);
+}
+
+[data-platform='android'] .tab[aria-current='page'] .tab__icon {
+  background: var(--state-active-container);
+  color: var(--state-active-fg);
+}
+
+[data-platform='android'] .tab[aria-current='page'] .f {
+  fill: currentColor;
+}
+
+/* ───────────── Android: extended floating action button ───────────── */
+
+/* Sits 16 dp above the navigation bar (Material 3); content can scroll clear of it. */
+.fab-wrap {
+  position: sticky;
+  bottom: var(--tabbar-h, 96px);
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-8) var(--space-16) var(--space-16);
+  pointer-events: none;
+}
+
+.fab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--size-fab);
+  padding: 0 var(--space-24) 0 var(--space-16);
+  border-radius: var(--radius-lg);
+  background: var(--action-primary);
+  color: var(--text-on-primary);
+  box-shadow: var(--elevation-e2);
+  font-weight: 600;
+  font-size: calc(15px * var(--ts));
+  pointer-events: auto;
+}
+
+.fab .icon {
+  stroke-width: 2.5;
+}
+
+/* ───────────── Snackbar & banner ───────────── */
+
+.snackbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: 56px;
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-16);
+  border-radius: var(--radius-lg);
+  background: var(--bg-inverse);
+  color: var(--text-inverse);
+  box-shadow: var(--elevation-e3);
+}
+
+.snackbar__text {
+  flex: 1;
+  min-width: 0;
+  padding-block: var(--space-8);
+}
+
+.snackbar .icon {
+  color: inherit;
+}
+
+.snackbar__action {
+  position: relative;
+  min-height: var(--size-touch-min);
+  padding: 0 var(--space-16);
+  border-radius: var(--radius-pill);
+  color: var(--action-inverse-accent);
+  font-weight: 700;
+  font-size: calc(16px * var(--ts));
+}
+
+.snackbar--floating {
+  position: absolute;
+  left: var(--space-12);
+  right: var(--space-12);
+  bottom: calc(var(--tabbar-h, 98px) + var(--space-12));
+  z-index: 7;
+  animation: ql-rise var(--duration-medium) var(--ease-enter) both;
+}
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-12);
+  padding: var(--space-12) var(--space-16);
+  border-radius: var(--radius-lg);
+  background: var(--state-paused-container);
+  color: var(--state-paused-fg);
+}
+
+.banner__text {
+  flex: 1;
+  color: var(--text-primary);
+}
+
+.banner .icon {
+  margin-top: 1px;
+}
+
+/* ───────────── Sheet, dialog, menu ───────────── */
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  background: var(--bg-scrim);
+  animation: ql-fade-in var(--duration-medium) var(--ease-standard) both;
+}
+
+.sheet {
+  position: relative;
+  background: var(--bg-surface-raised);
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  box-shadow: var(--elevation-e3);
+  padding: var(--space-8) var(--space-24) var(--space-32);
+}
+
+.sheet--docked {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9;
+  max-height: calc(100% - 64px);
+  overflow: auto;
+  animation: ql-sheet-in var(--duration-medium) var(--ease-enter) both;
+}
+
+/* iOS 26: a partial-height sheet (medium detent) floats inset from the screen edges with corners concentric to
+   the display. A full-height sheet (.sheet--large, large detent) and every Android bottom sheet run edge to edge
+   with rounded top corners. The system draws both; these frames imitate them. */
+.sheet:not(.sheet--large) {
+  border-radius: 42px;
+}
+
+.sheet--docked:not(.sheet--large) {
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  max-height: calc(100% - 72px);
+  padding-bottom: var(--space-24);
+}
+
+[data-platform='android'] .sheet:not(.sheet--large) {
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+}
+
+[data-platform='android'] .sheet--docked:not(.sheet--large) {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: calc(100% - 64px);
+  padding-bottom: var(--space-32);
+}
+
+.sheet__grabber {
+  width: 40px;
+  height: 5px;
+  margin: 0 auto var(--space-12);
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  opacity: 0.5;
+}
+
+.sheet__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin-bottom: var(--space-16);
+}
+
+.sheet__header h2 {
+  flex: 1;
+}
+
+/* iOS: Close on the leading edge and the title centred (HIG sheets.md › Platform considerations); Android: title
+   first, Close at the end. The DOM order stays title → Close, so screen readers hear the title first. */
+.sheet__header h2 {
+  text-align: center;
+}
+
+.sheet__header .icon-btn {
+  order: -1;
+  margin-left: calc(var(--space-12) * -1);
+  border-radius: 50%;
+  background: var(--bg-muted);
+}
+
+.sheet__header::after {
+  content: '';
+  flex: none;
+  width: 36px;
+  margin-right: calc(var(--space-12) * -1);
+}
+
+[data-platform='android'] .sheet__header h2 {
+  text-align: left;
+}
+
+[data-platform='android'] .sheet__header .icon-btn {
+  order: 0;
+  margin: 0 calc(var(--space-12) * -1) 0 0;
+  background: none;
+}
+
+[data-platform='android'] .sheet__header::after {
+  display: none;
+}
+
+.sheet__quest {
+  display: flex;
+  gap: var(--space-12);
+  align-items: center;
+  padding: var(--space-12);
+  border-radius: var(--radius-lg);
+  background: var(--bg-muted);
+}
+
+.sheet__footer {
+  margin-top: var(--space-24);
+}
+
+.dialog {
+  position: relative;
+  max-width: 342px;
+  padding: var(--space-24);
+  border-radius: var(--radius-sheet);
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e3);
+}
+
+.dialog--centered {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 9;
+  margin: 0 auto;
+}
+
+.dialog__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  margin-bottom: var(--space-16);
+  background: var(--state-paused-container);
+  color: var(--state-paused-fg);
+}
+
+.dialog__icon--danger {
+  background: var(--state-danger-container);
+  color: var(--state-danger-fg);
+}
+
+.dialog__body {
+  margin-top: var(--space-8);
+  color: var(--text-secondary);
+}
+
+.dialog__list {
+  margin-top: var(--space-12);
+  display: grid;
+  gap: var(--space-8);
+}
+
+.dialog__list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-8);
+  color: var(--text-primary);
+}
+
+.dialog__list .icon {
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.dialog__actions {
+  display: grid;
+  gap: var(--space-8);
+  margin-top: var(--space-24);
+}
+
+.menu {
+  min-width: 248px;
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e3);
+  outline: 1px solid var(--border-hairline);
+}
+
+.menu__item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--size-touch-min);
+  padding: var(--space-8) var(--space-12);
+  border-radius: 10px;
+  text-align: left;
+  color: var(--text-primary);
+  font-size: calc(17px * var(--ts));
+  line-height: calc(22px * var(--ts));
+}
+
+.menu__item .icon {
+  color: var(--text-secondary);
+}
+
+.menu__item--danger,
+.menu__item--danger .icon {
+  color: var(--state-danger-fg);
+}
+
+.menu__note {
+  margin-left: auto;
+}
+
+.menu__sep {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--border-subtle);
+}
+
+/* iOS action sheet: the destructive choice on top, Cancel apart at the bottom. */
+.asheet {
+  position: absolute;
+  left: var(--space-8);
+  right: var(--space-8);
+  bottom: 28px;
+  z-index: 9;
+  display: grid;
+  gap: var(--space-8);
+  animation: ql-sheet-in var(--duration-medium) var(--ease-enter) both;
+}
+
+.asheet__group,
+.asheet__cancel {
+  border-radius: 28px;
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e3);
+}
+
+.asheet__group {
+  overflow: hidden;
+}
+
+.asheet__head {
+  padding: var(--space-16) var(--space-24);
+  text-align: center;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.asheet__title {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: calc(13px * var(--ts));
+  line-height: calc(18px * var(--ts));
+}
+
+.asheet__msg {
+  margin-top: var(--space-4);
+  color: var(--text-secondary);
+  font-size: calc(13px * var(--ts));
+  line-height: calc(18px * var(--ts));
+}
+
+.asheet__btn {
+  display: block;
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-12) var(--space-16);
+  color: var(--text-accent);
+  font-size: calc(20px * var(--ts-t));
+  line-height: calc(25px * var(--ts-t));
+  text-align: center;
+}
+
+.asheet__btn--destructive {
+  color: var(--state-danger-fg);
+}
+
+.asheet__cancel {
+  font-weight: 600;
+}
+
+/* Material 3 dialog: centred, text buttons on the trailing side, Cancel first. */
+.mdialog {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 50%;
+  z-index: 9;
+  transform: translateY(-50%);
+  max-width: 342px;
+  margin: 0 auto;
+  padding: var(--space-24);
+  border-radius: 28px;
+  background: var(--bg-surface-raised);
+  box-shadow: var(--elevation-e3);
+  animation: ql-fade-in var(--duration-medium) var(--ease-standard) both;
+}
+
+.mdialog__icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-16);
+  color: var(--text-secondary);
+}
+
+.mdialog__icon + .mdialog__title {
+  text-align: center;
+}
+
+.mdialog__title {
+  font-weight: 400;
+  font-size: calc(24px * var(--ts-t));
+  line-height: calc(32px * var(--ts-t));
+}
+
+.mdialog__msg {
+  margin-top: var(--space-16);
+  color: var(--text-secondary);
+  font-size: calc(14px * var(--ts));
+  line-height: calc(20px * var(--ts));
+  letter-spacing: 0.018em;
+}
+
+.mdialog__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  margin-top: var(--space-24);
+}
+
+.mbtn {
+  min-height: 48px;
+  padding: 0 var(--space-12);
+  border-radius: var(--radius-pill);
+  color: var(--text-accent);
+  font-weight: 500;
+  font-size: calc(14px * var(--ts));
+  letter-spacing: 0.007em;
+}
+
+.mbtn--danger {
+  color: var(--state-danger-fg);
+}
+
+/* ───────────── Form controls ───────────── */
+
+.field {
+  display: grid;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.field__label {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: calc(15px * var(--ts));
+  line-height: calc(20px * var(--ts));
+}
+
+.field__optional {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.field__control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 52px;
+  padding: 0 var(--space-16);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.field__control input,
+.field__control textarea {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  padding: var(--space-12) 0;
+  background: transparent;
+  font-size: calc(17px * var(--ts));
+  line-height: calc(24px * var(--ts));
+  color: var(--text-primary);
+  resize: none;
+}
+
+.field__control input::placeholder,
+.field__control textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.field__control:focus-within,
+.field__control.is-focus {
+  box-shadow:
+    inset 0 0 0 2px var(--focus-ring),
+    0 0 0 4px color-mix(in srgb, var(--focus-ring) 18%, transparent);
+}
+
+.field__control--area {
+  align-items: flex-start;
+}
+
+.field__suffix {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.field__helper {
+  color: var(--text-tertiary);
+}
+
+.field--error .field__control {
+  box-shadow: inset 0 0 0 2px var(--state-danger-fg);
+}
+
+.field--error .field__helper {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  color: var(--state-danger-fg);
+}
+
+.field--disabled .field__control {
+  background: var(--bg-muted);
+  box-shadow: none;
+}
+
+/* A fixed value stays readable (it still informs); the muted fill and the helper text say it can’t change. */
+.field--disabled .field__control input {
+  color: var(--text-secondary);
+}
+
+.field__value {
+  flex: 1;
+  padding: var(--space-12) 0;
+  font-size: calc(17px * var(--ts));
+  line-height: calc(24px * var(--ts));
+}
+
+.field__value--placeholder {
+  color: var(--text-tertiary);
+}
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  min-height: 56px;
+  padding: var(--space-8) 0;
+}
+
+.toggle-row__text {
+  flex: 1;
+}
+
+.toggle-row__hint {
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 52px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  box-shadow: inset 0 0 0 2px var(--border-strong);
+  transition: background-color var(--duration-base) var(--ease-standard);
+}
+
+.switch::before {
+  content: '';
+  position: absolute;
+  inset: -8px -2px;
+}
+
+.switch__thumb {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--border-strong);
+  display: grid;
+  place-items: center;
+  color: transparent;
+  transition:
+    transform var(--duration-base) var(--ease-standard),
+    width var(--duration-base) var(--ease-standard);
+}
+
+.switch[aria-checked='true'] {
+  background: var(--action-primary);
+  box-shadow: none;
+}
+
+.switch[aria-checked='true'] .switch__thumb {
+  top: 4px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  transform: translateX(20px);
+  background: var(--text-on-primary);
+  color: var(--action-primary);
+}
+
+.switch__thumb .icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3.5;
+}
+
+.checkbox-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-12);
+  align-items: start;
+  min-height: 48px;
+  padding: var(--space-12);
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 0 0 1.5px var(--border-subtle);
+}
+
+.checkbox {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 2px var(--border-strong);
+  background: var(--bg-surface);
+  color: transparent;
+  margin-top: 1px;
+}
+
+.checkbox::before {
+  content: '';
+  position: absolute;
+  inset: -11px;
+}
+
+.checkbox[aria-checked='true'] {
+  background: var(--action-primary);
+  box-shadow: none;
+  color: var(--text-on-primary);
+}
+
+.checkbox .icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 3.25;
+}
+
+.stepper {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-12);
+  align-items: center;
+}
+
+.stepper__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-8);
+  min-height: 72px;
+  padding: var(--space-8) var(--space-16);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  cursor: text;
+}
+
+.stepper__number {
+  min-width: 2ch;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  text-align: right;
+  font-family: var(--font-text);
+  font-weight: 700;
+  font-size: calc(36px * var(--ts-t));
+  line-height: calc(44px * var(--ts-t));
+  font-feature-settings: 'tnum';
+  color: var(--text-primary);
+}
+
+.stepper__value:focus-within {
+  box-shadow:
+    inset 0 0 0 2px var(--focus-ring),
+    0 0 0 4px color-mix(in srgb, var(--focus-ring) 18%, transparent);
+}
+
+.stepper__unit {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: calc(20px * var(--ts));
+}
+
+/* ───────────── Skeleton (loading) ───────────── */
+
+.skel {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-muted);
+}
+
+.skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--bg-surface) 70%, transparent), transparent);
+  animation: ql-shimmer 1400ms var(--ease-standard) infinite;
+}
+
+/* ───────────── Motion ───────────── */
+
+@keyframes ql-pop {
+  0% {
+    transform: scale(0.82);
+  }
+  55% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes ql-burst {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--state-done-solid) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 14px transparent;
+  }
+}
+
+@keyframes ql-draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes ql-xp-float {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  20% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+
+@keyframes ql-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ql-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: none;
+  }
+}
+
+@keyframes ql-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ql-shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes ql-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reduced motion: every movement becomes a short opacity fade; nothing pulses, pops or slides. */
+.reduce-motion .check--just-completed,
+.reduce-motion .snackbar--floating,
+.reduce-motion .sheet--docked,
+.reduce-motion .xp-gain {
+  animation: ql-fade-in var(--duration-reduced) linear both;
+}
+
+.reduce-motion .check--just-completed::after {
+  animation: none;
+}
+
+.reduce-motion .check--just-done .icon {
+  animation: none;
+  stroke-dasharray: none;
+}
+
+.reduce-motion .skel::after,
+.reduce-motion .btn.is-loading .icon {
+  animation: none;
+}
+
+.reduce-motion .bar__fill,
+.reduce-motion .ring__fill {
+  transition: none;
+}

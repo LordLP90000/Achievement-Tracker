@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pass 1 · Today and Achievement detail · Questline</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="assets/css/tokens.css" />
+    <link rel="stylesheet" href="assets/css/base.css" />
+    <link rel="stylesheet" href="assets/css/components.css" />
+    <link rel="stylesheet" href="assets/css/screens.css" />
+    <link rel="stylesheet" href="assets/css/screens-2.css" />
+    <link rel="stylesheet" href="assets/css/board.css" />
+  </head>
+  <body class="doc-body">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="doc">
+      <header class="doc-nav">
+        <a class="doc-nav__brand" href="index.html">Questline <span class="pill">Design</span></a>
+        <nav class="doc-nav__links" aria-label="Design package">
+          <a href="index.html">Overview</a>
+          <a href="design-system.html">Design system</a>
+          <a href="pass-1.html" aria-current="page">Pass 1</a>
+          <a href="pass-2.html">Pass 2 · All screens</a>
+          <a href="prototype.html">Prototype</a>
+          <a href="README.md">Notes &amp; open questions</a>
+        </nav>
+      </header>
+      <main id="main">
+        <div class="doc-hero">
+          <p><span class="pill pill--go">Pass 1 · approved 05.11.2026</span></p>
+          <h1 style="margin-top: 14px">Today and Achievement detail</h1>
+          <p>
+            Light and dark, with Lena’s example data on Thursday, 05.11.2026, 18:40 (Swiss formats). The frames are live:
+            tap a check circle, <em>Show</em> on the private row, <em>Path / List</em>, or <em>⋯ → Pause…</em>. Numbered
+            pins match the developer notes next to each board. The toolbar switches all frames to 150 % / 200 % text,
+            Android, reduced motion or full length.
+          </p>
+        </div>
+        <div class="toolbar" id="toolbar"></div>
+
+        <section class="board" id="today" aria-labelledby="today-h">
+          <div class="board__head">
+            <h2 id="today-h">Today</h2>
+            <p>
+              One job: check in. Level and XP on top, then today’s quests from all achievements with a one-tap check-in,
+              the active achievements as rings, and the running streaks. “Lose 10 kg” is private, so its quests collapse
+              into a single row until Lena taps <em>Show</em>.
+            </p>
+          </div>
+          <div class="board__body" id="board-today"></div>
+        </section>
+
+        <section class="board" id="detail" aria-labelledby="detail-h">
+          <div class="board__head">
+            <h2 id="detail-h">Achievement detail</h2>
+            <p>
+              The quest line itself: why it matters, overall progress, the next quest as the one primary action, and the
+              vertical quest path — walked part solid, the way ahead dashed, locked quests with a lock and what unlocks
+              them, the bonus quest on a side branch. The list view shows the same quests grouped by state.
+            </p>
+          </div>
+          <div class="board__body" id="board-detail"></div>
+        </section>
+
+        <section class="board" id="states" aria-labelledby="states-h">
+          <div class="board__head">
+            <h2 id="states-h">Interaction states</h2>
+            <p>
+              The check-in sheet for a target quest (the value is shown here although overview screens hide it), the
+              moment right after a one-tap check-in (+10 XP, undo snackbar) and the pause confirmation, which states the
+              consequences plainly and gives both choices the same weight.
+            </p>
+          </div>
+          <div class="board__body" id="board-states"></div>
+        </section>
+
+        <section class="board" id="access" aria-labelledby="access-h">
+          <div class="board__head">
+            <h2 id="access-h">200 % text and Android</h2>
+            <p>
+              At accessibility text sizes the layout reflows instead of truncating: rings become a list, quest cards drop
+              their lead icon, the level card stacks. Android keeps the same design with its own system bars and back
+              arrow.
+            </p>
+          </div>
+          <div class="board__body" id="board-access"></div>
+        </section>
+
+        <section class="prose" id="review">
+          <h2>Decisions, assumptions and open questions</h2>
+          <p>
+            Listed in <a href="README.md#pass-1-review">README.md → Pass 1 review</a>, with your answers. Pass 2 refined
+            Today (Today’s quests and Up next) — see the pass 2 notes.
+          </p>
+        </section>
+      </main>
+      <footer class="doc-footer">
+        Example data follows the backend’s rules (docs/requirements.md): XP, levels, progress and streaks are consistent.
+      </footer>
+    </div>
+    <script src="assets/js/icons.js"></script>
+    <script src="assets/js/tokens.js"></script>
+    <script src="assets/js/data.js"></script>
+    <script src="assets/js/ui.js"></script>
+    <script src="assets/js/ui-more.js"></script>
+    <script src="assets/js/screens.js"></script>
+    <script src="assets/js/board.js"></script>
+    <script src="assets/js/pass-1.js"></script>
+  </body>
+</html>

@@ -1,0 +1,142 @@
+/* Screen-level layouts (Today, Achievement detail). Components live in components.css. */
+
+/* Today: streak list */
+.streak-list {
+  display: grid;
+}
+
+.streak-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-12);
+  align-items: center;
+  padding: var(--space-12) var(--space-16);
+}
+
+.streak-row + .streak-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.streak-row__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  background: var(--state-active-container);
+  color: var(--state-streak);
+}
+
+.streak-row__body .t-footnote {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+
+/* Achievement detail */
+.detail-head {
+  padding-top: var(--space-8);
+}
+
+.detail-head__why {
+  margin-top: var(--space-12);
+  padding-left: var(--space-12);
+  border-left: 3px solid var(--progress-fill);
+  font-size: calc(17px * var(--ts));
+  line-height: calc(24px * var(--ts));
+  letter-spacing: var(--type-body-tracking);
+  color: var(--text-secondary);
+}
+
+.detail-head__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-12);
+  color: var(--text-secondary);
+}
+
+.progress-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-24);
+  align-items: center;
+  padding: var(--space-24) var(--space-16) var(--space-24) var(--space-24);
+}
+
+.progress-card .ring__center {
+  gap: 0;
+}
+
+.progress-card__stats {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.progress-card__stats li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-8);
+  align-items: start;
+}
+
+/* Number on the first line, its meaning below: reads as one phrase (“2 of 6 quests done”). */
+.progress-card__stats li > span > span {
+  display: block;
+}
+
+.progress-card__stats .icon {
+  margin-top: 2px;
+}
+
+[data-text='ax'] .progress-card {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  padding: var(--space-24) var(--space-16);
+}
+
+[data-text='ax'] .progress-card__stats {
+  justify-self: stretch;
+}
+
+.next-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--space-4);
+}
+
+.next-card__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-12);
+  margin-top: var(--space-12);
+}
+
+/* Overlays */
+.scrim--clear {
+  background: transparent;
+  animation: none;
+}
+
+.popover {
+  animation: ql-pop-in var(--duration-base) var(--ease-enter) both;
+  transform-origin: top right;
+}
+
+@keyframes ql-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.reduce-motion .popover {
+  animation: ql-fade-in var(--duration-reduced) linear both;
+}

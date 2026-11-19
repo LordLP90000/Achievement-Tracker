@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prototype · Main flow · Questline</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="assets/css/tokens.css" />
+    <link rel="stylesheet" href="assets/css/base.css" />
+    <link rel="stylesheet" href="assets/css/components.css" />
+    <link rel="stylesheet" href="assets/css/screens.css" />
+    <link rel="stylesheet" href="assets/css/screens-2.css" />
+    <link rel="stylesheet" href="assets/css/board.css" />
+  </head>
+  <body class="doc-body">
+    <a class="skip-link" href="#device">Skip to the prototype</a>
+    <div class="doc">
+      <header class="doc-nav">
+        <a class="doc-nav__brand" href="index.html">Questline <span class="pill">Design</span></a>
+        <nav class="doc-nav__links" aria-label="Design package">
+          <a href="index.html">Overview</a>
+          <a href="design-system.html">Design system</a>
+          <a href="pass-1.html">Pass 1</a>
+          <a href="pass-2.html">Pass 2 · All screens</a>
+          <a href="prototype.html" aria-current="page">Prototype</a>
+          <a href="README.md">Notes &amp; open questions</a>
+        </nav>
+      </header>
+      <main id="main">
+        <div class="doc-hero" style="padding-bottom: 0">
+          <h1>Prototype: the main flow</h1>
+          <p>
+            Create an achievement → add quests → check in → quest complete → achievement unlocked. Lena turns her wish to
+            run Zurich’s Silvesterlauf into a quest line, checks in her first quest, and — after one clearly marked time
+            skip — unlocks it on race day. Every tab works; the list on the left jumps to any step.
+          </p>
+        </div>
+        <div class="proto">
+          <aside class="proto__side" aria-labelledby="flow-h">
+            <h2 id="flow-h">The flow</h2>
+            <ol class="proto-steps" id="steps"></ol>
+            <button type="button" class="btn btn--secondary btn--sm" id="restart">Restart</button>
+          </aside>
+          <div class="device ts-scope" id="device" data-theme="light" role="region" aria-label="Questline prototype">
+            <div class="device__screen">
+              <div class="device__scroll" id="scroll"></div>
+              <div class="device__overlay" id="overlay"></div>
+              <div class="home-indicator" aria-hidden="true"></div>
+            </div>
+          </div>
+          <aside class="proto__side" aria-labelledby="next-h">
+            <h2 id="next-h">What to do</h2>
+            <div class="proto__hint" id="hint" aria-live="polite"></div>
+            <h2>View</h2>
+            <div class="stack" style="--gap: 12px" id="proto-settings"></div>
+            <p class="t-footnote" style="color: var(--doc-muted)">
+              The numbers follow the backend’s rules: 110 quest XP, Diamond rank bonus ×120 = 13’200 XP, Level 3 → 6. See
+              <a href="README.md#pass-2-review">the pass 2 notes</a>.
+            </p>
+          </aside>
+        </div>
+      </main>
+    </div>
+    <script src="assets/js/icons.js"></script>
+    <script src="assets/js/tokens.js"></script>
+    <script src="assets/js/data.js"></script>
+    <script src="assets/js/ui.js"></script>
+    <script src="assets/js/ui-more.js"></script>
+    <script src="assets/js/screens.js"></script>
+    <script src="assets/js/screens-auth.js"></script>
+    <script src="assets/js/screens-goals.js"></script>
+    <script src="assets/js/screens-rewards.js"></script>
+    <script src="assets/js/screens-settings.js"></script>
+    <script src="assets/js/prototype.js"></script>
+  </body>
+</html>

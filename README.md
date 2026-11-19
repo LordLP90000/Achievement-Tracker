@@ -26,6 +26,7 @@ for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for archi
 | [docs/privacy/processors.md](docs/privacy/processors.md) | External processors (each requires PM approval) |
 | [docs/test-strategy.md](docs/test-strategy.md) | Test layers, determinism rules, coverage & mutation targets, CI gates |
 | [docs/client-security.md](docs/client-security.md) | Security guidance for the mobile app (OWASP MASVS-aligned) |
+| [docs/design/](docs/design/README.md) | App design: design system, screens and prototype (HTML, open in a browser) |
 | [docs/runbooks/restore.md](docs/runbooks/restore.md) | Restore runbook: the database from a backup, with tombstone replay (M6) |
 | [docs/runbooks/key-rotation.md](docs/runbooks/key-rotation.md) | Key-rotation runbook: the KEK, the blind-index key and the rate-limit key (M6) |
 | [docs/runbooks/breach.md](docs/runbooks/breach.md) | Breach-notification runbook: FDPIC and EU authorities, the people concerned (M6) |

@@ -1,0 +1,350 @@
+/* Questline design package: fonts, reset and the text-style utilities.
+   Text scales with --ts (1 = default, up to 2 = 200 %), set per device frame by the board toolbar.
+   Large display styles scale less (capped at 150 %), as iOS large titles and Android 14's non-linear
+   font scaling do; body text scales fully.
+   UI text is the platform's system font (SF Pro / Roboto). The apps never bundle it; these previews load
+   Inter (as SF Pro's stand-in where SF Pro isn't installed) and Roboto. Fraunces is the brand display face. */
+
+@font-face {
+  font-family: Fraunces;
+  src: url('../fonts/fraunces-latin-full-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: Fraunces;
+  src: url('../fonts/fraunces-latin-full-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Inter Variable';
+  src: url('../fonts/inter-latin-opsz-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Roboto Variable';
+  src: url('../fonts/roboto-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-text);
+  color: var(--text-primary);
+  background: var(--bg-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Inside a phone frame, text that has no text style yet still gets the platform's system font. */
+.ts-scope {
+  font-family: var(--font-text);
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+ol,
+ul,
+figure {
+  margin: 0;
+}
+
+ol,
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Inside the app, links look like the control they are; links within running text stay underlined (WCAG 1.4.1).
+   :where() keeps this reset at element specificity, so component colours (.tab, .btn--text …) win. */
+:where(.ts-scope) a {
+  color: inherit;
+  text-decoration: none;
+}
+
+:where(.ts-scope) a.link {
+  color: var(--text-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+:root,
+.ts-scope {
+  --ts: 1;
+  --ts-d: min(var(--ts), 1.5);
+  --ts-t: min(var(--ts), 1.75);
+  --ts-tab: 1;
+  --ts-icon: min(var(--ts), 1.5);
+}
+
+.sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Text styles (tokens.json → type). The Fraunces styles (display, brand-*) are for brand moments only and
+   use soft terminals; everything else is the system font. */
+.t-display,
+.t-brand-large,
+.t-brand-title {
+  font-variation-settings: 'SOFT' 100, 'WONK' 0;
+  font-optical-sizing: auto;
+  text-wrap: balance;
+}
+
+.t-large-title,
+.t-title-1 {
+  text-wrap: balance;
+}
+
+.t-display {
+  font-family: var(--type-display-family);
+  font-weight: var(--type-display-weight);
+  font-size: calc(var(--type-display-size) * var(--ts-d));
+  line-height: calc(var(--type-display-line) * var(--ts-d));
+  letter-spacing: var(--type-display-tracking);
+}
+
+.t-brand-large {
+  font-family: var(--type-brand-large-family);
+  font-weight: var(--type-brand-large-weight);
+  font-size: calc(var(--type-brand-large-size) * var(--ts-d));
+  line-height: calc(var(--type-brand-large-line) * var(--ts-d));
+  letter-spacing: var(--type-brand-large-tracking);
+}
+
+.t-brand-title {
+  font-family: var(--type-brand-title-family);
+  font-weight: var(--type-brand-title-weight);
+  font-size: calc(var(--type-brand-title-size) * var(--ts-d));
+  line-height: calc(var(--type-brand-title-line) * var(--ts-d));
+  letter-spacing: var(--type-brand-title-tracking);
+}
+
+.t-large-title {
+  font-family: var(--type-large-title-family);
+  font-weight: var(--type-large-title-weight);
+  font-size: calc(var(--type-large-title-size) * var(--ts-d));
+  line-height: calc(var(--type-large-title-line) * var(--ts-d));
+  letter-spacing: var(--type-large-title-tracking);
+}
+
+.t-title-1 {
+  font-family: var(--type-title-1-family);
+  font-weight: var(--type-title-1-weight);
+  font-size: calc(var(--type-title-1-size) * var(--ts-d));
+  line-height: calc(var(--type-title-1-line) * var(--ts-d));
+  letter-spacing: var(--type-title-1-tracking);
+}
+
+.t-title-2 {
+  font-family: var(--type-title-2-family);
+  font-weight: var(--type-title-2-weight);
+  font-size: calc(var(--type-title-2-size) * var(--ts-t));
+  line-height: calc(var(--type-title-2-line) * var(--ts-t));
+  letter-spacing: var(--type-title-2-tracking);
+}
+
+.t-title-3 {
+  font-family: var(--type-title-3-family);
+  font-weight: var(--type-title-3-weight);
+  font-size: calc(var(--type-title-3-size) * var(--ts-t));
+  line-height: calc(var(--type-title-3-line) * var(--ts-t));
+  letter-spacing: var(--type-title-3-tracking);
+}
+
+.t-headline {
+  font-family: var(--type-headline-family);
+  font-weight: var(--type-headline-weight);
+  font-size: calc(var(--type-headline-size) * var(--ts));
+  line-height: calc(var(--type-headline-line) * var(--ts));
+  letter-spacing: var(--type-headline-tracking);
+}
+
+.t-body {
+  font-family: var(--type-body-family);
+  font-weight: var(--type-body-weight);
+  font-size: calc(var(--type-body-size) * var(--ts));
+  line-height: calc(var(--type-body-line) * var(--ts));
+  letter-spacing: var(--type-body-tracking);
+}
+
+.t-callout {
+  font-family: var(--type-callout-family);
+  font-weight: var(--type-callout-weight);
+  font-size: calc(var(--type-callout-size) * var(--ts));
+  line-height: calc(var(--type-callout-line) * var(--ts));
+  letter-spacing: var(--type-callout-tracking);
+}
+
+.t-subhead {
+  font-family: var(--type-subhead-family);
+  font-weight: var(--type-subhead-weight);
+  font-size: calc(var(--type-subhead-size) * var(--ts));
+  line-height: calc(var(--type-subhead-line) * var(--ts));
+  letter-spacing: var(--type-subhead-tracking);
+}
+
+.t-footnote {
+  font-family: var(--type-footnote-family);
+  font-weight: var(--type-footnote-weight);
+  font-size: calc(var(--type-footnote-size) * var(--ts));
+  line-height: calc(var(--type-footnote-line) * var(--ts));
+  letter-spacing: var(--type-footnote-tracking);
+}
+
+.t-caption {
+  font-family: var(--type-caption-family);
+  font-weight: var(--type-caption-weight);
+  font-size: calc(var(--type-caption-size) * var(--ts));
+  line-height: calc(var(--type-caption-line) * var(--ts));
+  letter-spacing: var(--type-caption-tracking);
+}
+
+.t-overline {
+  font-family: var(--type-overline-family);
+  font-weight: var(--type-overline-weight);
+  font-size: calc(var(--type-overline-size) * var(--ts));
+  line-height: calc(var(--type-overline-line) * var(--ts));
+  letter-spacing: var(--type-overline-tracking);
+  text-transform: uppercase;
+}
+
+.t-label {
+  font-family: var(--type-label-family);
+  font-weight: var(--type-label-weight);
+  font-size: calc(var(--type-label-size) * var(--ts));
+  line-height: calc(var(--type-label-line) * var(--ts));
+  letter-spacing: var(--type-label-tracking);
+}
+
+.t-stat {
+  font-family: var(--type-stat-family);
+  font-weight: var(--type-stat-weight);
+  font-size: calc(var(--type-stat-size) * var(--ts-t));
+  line-height: calc(var(--type-stat-line) * var(--ts-t));
+  letter-spacing: var(--type-stat-tracking);
+  font-feature-settings: 'tnum';
+}
+
+.tnum {
+  font-feature-settings: 'tnum';
+}
+
+.c-secondary {
+  color: var(--text-secondary);
+}
+
+.c-tertiary {
+  color: var(--text-tertiary);
+}
+
+.c-accent {
+  color: var(--text-accent);
+}
+
+.c-done {
+  color: var(--state-done-fg);
+}
+
+.c-bonus {
+  color: var(--state-bonus-fg);
+}
+
+.c-danger {
+  color: var(--state-danger-fg);
+}
+
+.icon {
+  width: calc(24px * var(--ts-icon));
+  height: calc(24px * var(--ts-icon));
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon--sm {
+  width: calc(16px * var(--ts-icon));
+  height: calc(16px * var(--ts-icon));
+}
+
+.icon--md {
+  width: calc(20px * var(--ts-icon));
+  height: calc(20px * var(--ts-icon));
+}
+
+.icon--lg {
+  width: calc(28px * var(--ts-icon));
+  height: calc(28px * var(--ts-icon));
+}
+
+.icon--xl {
+  width: 40px;
+  height: 40px;
+  stroke-width: 1.75;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: var(--duration-reduced) !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: var(--duration-reduced) !important;
+  }
+}

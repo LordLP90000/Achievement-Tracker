@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Questline · Design</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="assets/css/tokens.css" />
+    <link rel="stylesheet" href="assets/css/base.css" />
+    <link rel="stylesheet" href="assets/css/components.css" />
+    <link rel="stylesheet" href="assets/css/board.css" />
+  </head>
+  <body class="doc-body">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="doc">
+      <header class="doc-nav">
+        <a class="doc-nav__brand" href="index.html">Questline <span class="pill">Design</span></a>
+        <nav class="doc-nav__links" aria-label="Design package">
+          <a href="index.html" aria-current="page">Overview</a>
+          <a href="design-system.html">Design system</a>
+          <a href="pass-1.html">Pass 1</a>
+          <a href="pass-2.html">Pass 2 · All screens</a>
+          <a href="prototype.html">Prototype</a>
+          <a href="README.md">Notes &amp; open questions</a>
+        </nav>
+      </header>
+      <main id="main">
+        <div class="doc-hero">
+          <h1>Questline — app design</h1>
+          <p>
+            An achievement tracker that turns any big goal into a quest line. iOS and Android, phone, portrait. This
+            package holds the design system, every screen and state, and a clickable prototype — built from shared,
+            accessible components with realistic example data that follows the backend’s rules.
+          </p>
+        </div>
+        <div class="cards">
+          <a class="link-card" href="design-system.html">
+            <span class="pill pill--go">Approved direction</span>
+            <h2>Design system</h2>
+            <p>Colour (light and dark, every contrast pair checked), type, spacing, radius, elevation, icons, motion and all components in every state.</p>
+          </a>
+          <a class="link-card" href="pass-1.html">
+            <span class="pill pill--go">Pass 1 · approved</span>
+            <h2>Today &amp; Achievement detail</h2>
+            <p>The two key screens in light and dark, live and annotated, plus interaction states, 200 % text and Android.</p>
+          </a>
+          <a class="link-card" href="pass-2.html">
+            <span class="pill pill--wait">Pass 2 · for review</span>
+            <h2>All other screens</h2>
+            <p>Onboarding, sign-in and consent, Today’s states, achievements, the create wizard, quest sheets and detail, celebrations, stats, gambles, settings, privacy &amp; data, notifications and the app switcher.</p>
+          </a>
+          <a class="link-card" href="prototype.html">
+            <span class="pill pill--wait">Pass 2 · for review</span>
+            <h2>Prototype</h2>
+            <p>The main flow, clickable: create an achievement → add quests → check in → quest complete → achievement unlocked → level up → share card.</p>
+          </a>
+        </div>
+        <section class="prose">
+          <h2>How to review</h2>
+          <ol>
+            <li>Open these pages in Chrome, Edge or Safari (double-click works; no server needed).</li>
+            <li>Use the toolbar to check large text, Android and reduced motion; numbered pins match the developer notes.</li>
+            <li>Read the decisions, assumptions and open questions in <a href="README.md">README.md</a> (pass 1 and pass 2 reviews).</li>
+          </ol>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

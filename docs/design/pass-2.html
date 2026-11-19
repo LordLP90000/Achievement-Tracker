@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pass 2 · All screens and states · Questline</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="assets/css/tokens.css" />
+    <link rel="stylesheet" href="assets/css/base.css" />
+    <link rel="stylesheet" href="assets/css/components.css" />
+    <link rel="stylesheet" href="assets/css/screens.css" />
+    <link rel="stylesheet" href="assets/css/screens-2.css" />
+    <link rel="stylesheet" href="assets/css/board.css" />
+  </head>
+  <body class="doc-body">
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="doc">
+      <header class="doc-nav">
+        <a class="doc-nav__brand" href="index.html">Questline <span class="pill">Design</span></a>
+        <nav class="doc-nav__links" aria-label="Design package">
+          <a href="index.html">Overview</a>
+          <a href="design-system.html">Design system</a>
+          <a href="pass-1.html">Pass 1</a>
+          <a href="pass-2.html" aria-current="page">Pass 2 · All screens</a>
+          <a href="prototype.html">Prototype</a>
+          <a href="README.md">Notes &amp; open questions</a>
+        </nav>
+      </header>
+      <main id="main">
+        <div class="doc-hero">
+          <p><span class="pill pill--wait">Pass 2 · for review</span></p>
+          <h1 style="margin-top: 14px">Every other screen and state</h1>
+          <p>
+            Built on the approved direction and your answers (no Archive, pause starts over, ranks shown, gambles opt-in,
+            generic notifications by default, reminder times and hide-numbers synced). Frames show their full length;
+            sheets and dialogs show in a phone viewport. The clickable main flow is in the
+            <a href="prototype.html">prototype</a>.
+          </p>
+        </div>
+        <div class="toolbar" id="toolbar"></div>
+        <nav aria-label="Boards on this page" class="doc-nav__links">
+          <a href="#onboarding">Onboarding</a>
+          <a href="#signin">Sign in</a>
+          <a href="#consent">Consent</a>
+          <a href="#today-states">Today states</a>
+          <a href="#achievements">Achievements</a>
+          <a href="#create">Create</a>
+          <a href="#quest-sheets">Quest sheet</a>
+          <a href="#quest-detail">Quest detail</a>
+          <a href="#celebrations">Celebrations</a>
+          <a href="#stats">Stats</a>
+          <a href="#gambles">Gambles</a>
+          <a href="#profile">Settings</a>
+          <a href="#privacy">Privacy</a>
+          <a href="#system">Around the app</a>
+        </nav>
+
+        <section class="board" id="onboarding" aria-labelledby="onboarding-h">
+          <div class="board__head"><h2 id="onboarding-h">Onboarding</h2><p>Three screens at most: how it works (achievement → quests → XP), the privacy promise, and the first goal in the user’s own words.</p></div>
+          <div class="board__body" id="board-auth"></div>
+        </section>
+
+        <section class="board" id="signin" aria-labelledby="signin-h">
+          <div class="board__head"><h2 id="signin-h">Sign up and sign in</h2><p>Email and password to sign up, passkey first to sign in, the “check your email” state and the two-step code.</p></div>
+          <div class="board__body" id="board-signin"></div>
+        </section>
+
+        <section class="board" id="consent" aria-labelledby="consent-h">
+          <div class="board__head"><h2 id="consent-h">Consent</h2><p>The explicit, unticked consent for goal content, its plain-language summary, and one calm passkey offer.</p></div>
+          <div class="board__body" id="board-consent"></div>
+        </section>
+
+        <section class="board" id="today-states" aria-labelledby="today-states-h">
+          <div class="board__head"><h2 id="today-states-h">Today: states</h2><p>First launch, nothing due, loading, offline and error. Today now separates <em>Today’s quests</em> (due habits) from <em>Up next</em> (undated quests, whenever you’re ready) — see the pass 2 notes.</p></div>
+          <div class="board__body" id="board-today-states"></div>
+        </section>
+
+        <section class="board" id="achievements" aria-labelledby="achievements-h">
+          <div class="board__head"><h2 id="achievements-h">Achievements</h2><p>The list with its status filter and row actions (iOS swipe, Android long-press), and the detail screen when paused, private behind App lock, and completed (read-only, with badge and rank).</p></div>
+          <div class="board__body" id="board-achievements"></div>
+        </section>
+
+        <section class="board" id="create" aria-labelledby="create-h">
+          <div class="board__head"><h2 id="create-h">Create achievement</h2><p>Four steps, two of them skippable: goal and category (or a template), why and when, quests, privacy and reminders.</p></div>
+          <div class="board__body" id="board-wizard"></div>
+        </section>
+
+        <section class="board" id="quest-sheets" aria-labelledby="quest-sheets-h">
+          <div class="board__head"><h2 id="quest-sheets-h">Add and edit quests</h2><p>One bottom sheet with type-specific fields: schedule for habits, start and target values for targets, size, prerequisite, bonus and reminder.</p></div>
+          <div class="board__body" id="board-quest-sheets"></div>
+        </section>
+
+        <section class="board" id="quest-detail" aria-labelledby="quest-detail-h">
+          <div class="board__head"><h2 id="quest-detail-h">Quest detail</h2><p>Check-in history, streak calendar for habits, progress chart for targets, notes — and a locked quest.</p></div>
+          <div class="board__body" id="board-quest-detail"></div>
+        </section>
+
+        <section class="board" id="celebrations" aria-labelledby="celebrations-h">
+          <div class="board__head"><h2 id="celebrations-h">Celebrations</h2><p>Small for a quest, full screen for an unlocked achievement (with and without motion), medium for a level up, and the share card where the user picks what’s shown.</p></div>
+          <div class="board__body" id="board-celebrations"></div>
+        </section>
+
+        <section class="board" id="stats" aria-labelledby="stats-h">
+          <div class="board__head"><h2 id="stats-h">Stats and trophy room</h2><p>XP over time, totals, best streaks and badges; the trophy room explains ranks in plain words.</p></div>
+          <div class="board__body" id="board-stats"></div>
+        </section>
+
+        <section class="board" id="gambles" aria-labelledby="gambles-h">
+          <div class="board__head"><h2 id="gambles-h">XP gambles (opt-in)</h2><p>Off by default. Turning them on, placing one, the running state and a neutral end.</p></div>
+          <div class="board__body" id="board-gambles"></div>
+        </section>
+
+        <section class="board" id="profile" aria-labelledby="profile-h">
+          <div class="board__head"><h2 id="profile-h">Profile and settings</h2><p>Account, security (password, passkeys, two-step, devices), notifications, appearance and App lock.</p></div>
+          <div class="board__body" id="board-profile"></div>
+        </section>
+
+        <section class="board" id="privacy" aria-labelledby="privacy-h">
+          <div class="board__head"><h2 id="privacy-h">Privacy &amp; data</h2><p>What is stored and why, the consent, download, and account deletion with re-authentication and a final confirmation — without guilt.</p></div>
+          <div class="board__body" id="board-privacy"></div>
+        </section>
+
+        <section class="board" id="system" aria-labelledby="system-h">
+          <div class="board__head"><h2 id="system-h">Around the app</h2><p>What leaves the app: notifications on the Lock Screen, the app-switcher cover, and Home Screen and Lock Screen widgets — none of them ever shows a private achievement.</p></div>
+          <div class="board__body" id="board-system"></div>
+        </section>
+
+        <section class="prose" id="review">
+          <h2>Decisions, assumptions and open questions</h2>
+          <p>Listed in <a href="README.md#pass-2-review">README.md → Pass 2 review</a>; the Apple HIG review is in <a href="README.md#hig-review-apple-design-skill">README.md → HIG review</a>.</p>
+        </section>
+      </main>
+      <footer class="doc-footer">Example data follows the backend’s rules (docs/requirements.md): XP, levels, progress, streaks, ranks and gambles are consistent.</footer>
+    </div>
+    <script src="assets/js/icons.js"></script>
+    <script src="assets/js/tokens.js"></script>
+    <script src="assets/js/data.js"></script>
+    <script src="assets/js/ui.js"></script>
+    <script src="assets/js/ui-more.js"></script>
+    <script src="assets/js/screens.js"></script>
+    <script src="assets/js/screens-auth.js"></script>
+    <script src="assets/js/screens-goals.js"></script>
+    <script src="assets/js/screens-rewards.js"></script>
+    <script src="assets/js/screens-settings.js"></script>
+    <script src="assets/js/board.js"></script>
+    <script src="assets/js/pass-2.js"></script>
+  </body>
+</html>
