@@ -80,8 +80,10 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   already-rotated token revokes the entire session (reuse detection).
 - **Consequences:** One indexed DB lookup per authenticated request (acceptable at our scale, and gives exact
   revocation semantics). No crypto-agility problems, no `alg=none`, no clock-skew issues.
-- **Tests:** `security/tokens.test.ts` (entropy/length/prefix, hash-only storage, constant-time compare),
-  `security/refresh-rotation.test.ts` (rotation, reuse → full session revocation), `security/sessions.test.ts`.
+- **Tests:** `src/platform/crypto/tokens.test.ts` (entropy/length/prefix, only the digest for storage),
+  `src/platform/crypto/compare.test.ts` (constant-time compare), `integration/encryption-at-rest.test.ts` (no token
+  readable in any table), `integration/refresh.test.ts` (rotation, reuse → full session revocation),
+  `integration/auth-guard.test.ts`, `integration/my-sessions.test.ts`.
 
 ## ADR-0005 · libsodium (`sodium-native`) for password hashing, AEAD and constant-time comparison
 
@@ -132,7 +134,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Consequences:** Encrypted fields cannot be searched/aggregated in SQL; all progress maths happens in the domain
   layer (which we want anyway for testability). Key rotation = re-wrap DEKs (cheap) or re-encrypt fields
   (background job, versioned).
-- **Tests:** `unit/crypto/envelope.test.ts`, `integration/encryption-at-rest.test.ts` (raw DB rows contain no
+- **Tests:** `src/platform/crypto/aead.test.ts`, `key-wrapper.test.ts` and `data-keys.test.ts` (the envelope: sealing,
+  wrapping, field encryption), `integration/encryption-at-rest.test.ts` (raw DB rows contain no
   plaintext of seeded goal content; AD mismatch across users/records/fields fails), `integration/key-rotation.test.ts`,
   `integration/account-deletion.test.ts` (DEK destroyed, rows gone, tombstone written).
 
@@ -162,7 +165,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
     require `If-Match`; a mismatch → `409 urn:questline:problem:version-conflict` with the current version in the
     problem body. (HTTP would also allow 412; the brief specifies 409 and we follow it.)
 - **Tests:** `integration/idempotency.test.ts` (replay, body mismatch, cross-user key isolation, expiry),
-  `integration/concurrency.test.ts` (stale version → 409, missing header → 428).
+  `integration/me.test.ts`, `integration/achievement-changes.test.ts` and `integration/quest-changes.test.ts` (stale
+  version → 409, missing header → 428), `contract/preconditions.test.ts` (the operations that need `If-Match`).
 - **Amendment (2026-10-29, M3, Q-39):** only successful responses are stored and replayed; a request that failed
   changed nothing and runs again on retry. The request digest is SHA-256 over canonical JSON (properties sorted) of
   the path parameters and the body, so the same key under another parent is a different request. The record is
@@ -338,8 +342,11 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Consequences:** M3 grows by ≈ 5–7 engineering days; new table `gambles`, new columns on achievements/quests/
   check-ins; `achievement_pauses` is dropped (pause = reset, no freezing); OpenAPI gains gamble placement and rank
   fields. DPIA R-15 assesses gambling-like mechanics for users aged 13+.
-- **Tests:** `unit/domain/{habit-reset,rank,gamble,duration}.test.ts` with property tests; `integration/attempts.test.ts`;
-  `integration/gamble-settlement.test.ts` with injected clock across the Zurich DST dates.
+- **Tests:** `src/domain/{habit-reset,rank,gamble,duration}.test.ts` with property tests;
+  `integration/achievement-changes.test.ts` and `integration/goal-engine.test.ts` (attempts);
+  `integration/gambles.test.ts` and `integration/goal-evaluation.test.ts` (settlement with the injected clock, at the
+  local midnight); both Zurich DST dates in `src/platform/time/time-zones.test.ts`,
+  `src/domain/habit-reset.test.ts` and `integration/check-ins.test.ts`.
 
 ## ADR-0016 · Supply-chain controls and CI gates
 
