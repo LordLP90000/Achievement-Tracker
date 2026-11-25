@@ -383,7 +383,8 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 
 ## ADR-0017 · Runtime image: distroless Node.js 26 on Debian 13
 
-- **Status:** accepted (2026-10-29, PM "go" for M2; proposed in M1 on 2026-10-22)
+- **Status:** accepted (2026-10-29, PM "go" for M2; proposed in M1 on 2026-10-22); the amendment of 2026-11-25 below
+  is proposed
 - **Context:** The plan allowed "distroless or Alpine"; threat E-06 lists "no shell in distroless image" as a
   mitigation. The first M1 image (Alpine) still contained a busybox shell.
 - **Decision:** Runtime stage `gcr.io/distroless/nodejs26-debian13:nonroot`, build stages `node:26-trixie-slim`
@@ -392,7 +393,54 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Consequences:** No shell for debugging inside containers (deliberate); base updates are digest bumps verified by
   the strict Trivy gate (0 HIGH/CRITICAL incl. unfixed at adoption). Native add-ons must ship glibc builds.
 - **Tests:** `test/e2e/smoke.test.ts` (uid ≠ 0, read-only root, no shell, no package manager, no secrets in logs,
-  production refusal); CI Trivy gate.
+  production refusal; for the amendment: the image's file system and settings against the distroless image's),
+  `test/scripts/remove-image-packages.test.ts` (the amendment's build step); CI Trivy gate.
+- **Amendment (2026-11-25, proposed for the M6 review):** the runtime is the pinned distroless image **without three
+  of its 15 Debian packages**: the system OpenSSL (`libssl3t64`) and the zstd and zlib that only it needs
+  (`libzstd1`, `zlib1g`). The rest of the decision stands.
+  - **Context:** every finding that has failed the image job was in one of these packages: zlib from 2026-11-05
+    (Q-54), OpenSSL from 2026-11-21 (O-14), zstd on 2026-11-25. Nothing in the image uses them. Node.js brings its
+    own OpenSSL, zlib and zstd; only OpenSSL's own files are linked against the three; a process with the native
+    add-on loaded and TLS, gzip and zstd in use maps none of them. No image update helped on 2026-11-25: the newest
+    distroless image carried all three open findings. Each finding meant a red pipeline that ran no e2e suite —
+    from 2026-11-06 to 2026-11-18 and again since 2026-11-21 — until Debian's fix reached an image or the PM
+    accepted the finding (ADR-0016): a decision each time about code that never runs.
+  - **The build** (`docker/Dockerfile`): a build stage copies the file system of the pinned distroless image, with
+    its owners, modes and links, and runs `scripts/remove-image-packages.ts` on the copy. The script removes the
+    files that the three packages list (`var/lib/dpkg/status.d/<name>.md5sums`), the links to those files, the
+    directories this empties and the packages' entries in the package list: 30 paths, 8.6 MiB. The runtime stage
+    starts empty (`FROM scratch`), takes that file system as one layer and then the application as before.
+  - **The guard:** the script checks everything first and removes nothing if a check fails, and the image build
+    fails with it. Each package must be in the image, with a file list that can be read and stays inside the image.
+    No package that stays may depend on one that goes (`Depends` and `Pre-Depends`, with alternatives and provided
+    names; a dependency that was unmet before, as `ca-certificates` on `openssl`, does not count). No program or
+    library that stays may be linked against a library that goes: its `DT_NEEDED` entries are compared with each
+    such library's `DT_SONAME`, its file name and the names of the links to it. A program or library the script
+    cannot read stops it, instead of passing as one that needs nothing. In today's image it reads 278.
+  - **Set by hand:** an empty base hands nothing on, so the Dockerfile sets what the distroless image sets: `PATH`,
+    `SSL_CERT_FILE` and the entry point `/nodejs/bin/node`, besides the user, which it set before.
+  - **Consequences:**
+    - The image holds 12 Debian packages. Trivy and the image's SBOM list those 12, since the three are gone with
+      every file; the gate passes with an empty `.trivyignore.yaml` and is as strict as before. A finding in one of
+      the three no longer concerns the image.
+    - What no scanner sees is unchanged, and is now the image's only OpenSSL, zlib and zstd: the ones Node.js
+      bundles. They are in no package list, so neither Trivy nor osv-scanner reports a finding in them; they are
+      fixed by Node.js releases, which the weekly routine now reads (threat T-10, operations runbook §5).
+    - A base update stays a digest bump. If a new base needs one of the three, the build stops with
+      `cannot remove …` and names what needs which library; that package then stays (operations runbook §5).
+    - The guard reads the distroless file system, not the application added on top. A native add-on linked against
+      one of the three would not load; today's only one, `sodium-native`, needs the C and C++ runtime alone, and the
+      e2e suite loads it in the built image.
+    - The image is one layer of files and four of the application, no longer the distroless image's 23 layers
+      under ours, so nothing in it names the distroless image. What ties the two together is the digest in the
+      Dockerfile and an e2e check that pulls the pinned image and compares the two file systems path by path. The
+      image is 66.8 MB compressed, 1.9 MB less than before.
+    - Undone by reverting one commit; O-14 says what follows if the PM prefers exceptions.
+  - **Not chosen:** a Trivy exception for each finding (O-14 as first written) — a decision of the PM each time, a
+    red pipeline until it is taken, and the unused code still shipped; distroless's `base-nossl` with the C++
+    runtime and Node.js added by us — distroless publishes no Node.js image without the system OpenSSL, so we would
+    assemble the runtime from several sources and keep them in step; deleting the files in a layer on top — they
+    would stay in the layers below, for anyone who pulls the image.
 
 ## ADR-0018 · Local mail catcher: Mailpit over TLS in the Compose stack
 

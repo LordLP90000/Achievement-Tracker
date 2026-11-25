@@ -1,7 +1,8 @@
 # STATUS REPORT – M6 Hardening & handover – 2026-11-05
 
-*Addendum of 2026-11-25 at the end: CI is red and waits for your decision (O-14); M6 cannot close without your
-decisions, and how it ends is one of them.*
+*Addendum of 2026-11-25 at the end: CI was red, and I fixed its cause without an exception, by a change to the
+runtime image that waits for your approval (O-14); M6 cannot close without your decisions, and how it ends is one of
+them.*
 
 **Overall: AMBER.** Everything in M6 that needs no decision from you is built test-first and green on `master`:
 
@@ -143,32 +144,55 @@ still finish without one:
   the export. It needed it: with 345 600 check-ins, two days of one account at its rate limit, one export took
   1.2 GB of memory and kept the API from answering anyone for 2.8 s. Now memory stays near 20 MB and the longest
   pause under 50 ms, whatever the account holds; the document is the same byte for byte
-- this commit: a second finding I did not fix. The threat model and the test strategy have named a nightly timing
+- `324930a` a second finding I did not fix. The threat model and the test strategy have named a nightly timing
   comparison against account enumeration since M0; it was never built, so I measured it. A login and a registration
   take the same time for every address, within a millisecond in a hundred. Forgot-password and resend-verification
   do not: 2.4 to 3.5 ms longer for an account (O-21)
 
+Then you told me that the jobs still fail:
+
+- this commit: **the runtime image without the libraries that nothing in it uses.** Trivy had a third finding by
+  then, in the system zstd. Every finding that ever failed the image job was in one of three Debian packages of the
+  base image: its system OpenSSL, and the zstd and zlib that only that OpenSSL needs. Node.js brings its own and
+  loads none of them. The image is now built without the three, and the build fails if anything that stays needs
+  them (ADR-0017, an amendment proposed for your approval; O-14). No exception was added
+
 ### CI and tests
 
-- **CI is red** since the nightly run of 2026-11-21 (#170–#174), only in Trivy: two HIGH findings in the system
-  OpenSSL of the base image (`libssl3t64`), both denial-of-service bugs in OpenSSL's QUIC code that OpenSSL itself
-  rates Low. Debian has no fix yet, the newer base images carry both, and nothing in our image can reach the code:
-  Node never loads that library and cannot speak QUIC. I added no exception; that is yours to decide (O-14).
-- Every other job is green, the nightly `perf` job included: k6 and ZAP now run on CI's Linux runners. Run #174,
-  your push of `1713bad` today, shows the same: the static checks, the tests, mutation testing, Semgrep, osv-scanner
+- **CI has been red since the nightly run of 2026-11-21** (#170–#175), only in Trivy. First two HIGH findings in
+  the system OpenSSL of the base image (`libssl3t64`), both denial-of-service bugs in OpenSSL's QUIC code that
+  OpenSSL itself rates Low; since 2026-11-25 a third, in the system zstd (`libzstd1`). Debian has no fix for the
+  first two yet, the newest base image carries all three, and nothing in our image can reach the code: Node never
+  loads these libraries and cannot speak QUIC.
+- Every other job is green, the nightly `perf` job included: k6 and ZAP now run on CI's Linux runners. Run #175,
+  your push of `324930a` today, shows the same: the static checks, the tests, mutation testing, Semgrep, osv-scanner
   and gitleaks green, the image job stopped at Trivy.
-- While CI is red its image job stops before the e2e smoke test, and the README's rule is that a red pipeline is
-  fixed first. Up to `1713bad` I therefore changed documents only. **The export (`a73cf4b`) is the exception**: it
+- **This commit takes the cause away, without an exception.** I ran CI's image job on this machine, step by step
+  with CI's own images and commands: the build; Trivy, which passes on the 12 Debian packages that remain, with
+  `.trivyignore.yaml` empty; both SBOMs; and the e2e suite on the new image, 19 of 19 — the 17 of before and two new
+  checks that compare our image with the distroless image, path by path. The first CI run of this commit is the
+  proof still to come. The nightly `perf` job builds the same image; I have not run it here.
+- While CI was red its image job stopped before the e2e smoke test, and the README's rule is that a red pipeline is
+  fixed first. Up to `1713bad` I therefore changed documents only. **The export (`a73cf4b`) was the exception**: it
   changes the image and adds a migration. I judged closing a way to exhaust the API's memory worth more than keeping
-  the image still, and I verified it as far as I can without CI: every local gate, and the e2e suite on the built
-  image (17 of 17, the export in its app journey). CI will not have run that suite on it until O-14 is decided.
-  If you would rather hold it back, the commits before it are documents and the Compose file only.
-- Local gates on the final code (`npm run check`): 2 340 tests in 145 files, coverage 98.8 % of statements and
-  96.6 % of branches; Semgrep 0 findings; gitleaks no leaks. The last complete CI run, #169 on 2026-11-20, was
-  green on `7afc5b4`, the e2e checks included.
+  the image still, and verified it with every local gate and the e2e suite on the built image. CI has not run that
+  suite since #169, on 2026-11-20; the run of this commit will be the first to run it on the export change.
+- Local gates on this commit (`npm run check`): 2 353 tests in 146 files, coverage 98.8 % of statements and 96.6 %
+  of branches; Semgrep 0 findings; gitleaks no leaks.
 
 ### Decisions I made
 
+- **The runtime image without its system OpenSSL, zstd and zlib (ADR-0017, an amendment proposed).** This morning I
+  recommended an exception and did not propose this. Three things changed. Trivy failed for the third time in three
+  weeks on a library that nothing in the image uses. You told me the jobs still fail, and an exception is yours to
+  decide, not mine to add. And I found a simpler way than the one I had ruled out: not a runtime assembled by us,
+  but the same pinned distroless image minus three packages, with a build step that refuses if anything left needs
+  them. It amends a decision you accepted, so it is yours to confirm; it is one commit, and reverting it undoes it.
+  Two things you should know before you decide. The image now holds the distroless image's files, no longer its
+  layers; an e2e check compares the two, path by path, on every run. And no scanner in CI ever saw the OpenSSL, zlib
+  and zstd that Node.js itself bundles, which are now the only ones in the image. That limit is not new, but I had
+  not written it down: it is in the threat model now (T-10), and the weekly routine reads Node.js's security
+  releases. Today Node's bundled zstd is in the range of the zstd finding; I found no way to reach it.
 - **The export's design (ADR-0022, proposed).** Three things change for the user, and they are yours to approve:
   the parts of the document are no longer read at one instant, so what the user changes while it is written may
   show in one section and not in another; the audit event is stored before the document is read and stays if the
@@ -185,7 +209,7 @@ still finish without one:
 
 | ID | Decision | I recommend | It blocks |
 |----|----------|-------------|-----------|
-| O-14 | A Trivy exception for the two OpenSSL findings, or none | Accept both for `libssl3t64` until 2027-01-31, removed when an image with Debian's fix is adopted | A green CI; every change to the image, the security update to Node 26.13.1 included |
+| O-14 | ADR-0017's amendment, the runtime image without its unused system OpenSSL, zstd and zlib: accept it, or prefer exceptions for the three findings | Accept it as built. If you prefer exceptions, I revert the commit and add the three, until 2027-01-31 | Nothing while it stands. Reverted, CI is red again until the exceptions are in |
 | O-04 | The two drafts: approve or correct them; the controller's name, address and privacy contact; who writes the terms of use | – | The translations; the review package complete |
 | O-15 | Recording a newer version of the consent text for accounts that already agreed | An additive contract change, before launch | Changing the consent text later without deleting anyone's goals |
 | O-16 | How requests the app cannot serve are handled | The expert's answer first, then a maintenance command that deletes one account | What the policy draft promises in §8 |
@@ -196,7 +220,7 @@ still finish without one:
 | O-21 | Forgot-password and resend-verification answer 2.4 to 3.5 ms later for an account than for an unknown address: one request per address tells them apart from a machine close to the server | The mail endpoints answer no sooner than about 100 ms after the request arrived, so the work no longer shows; the measurement becomes the nightly check that was planned | Launch: R-AUTH-07 does not hold against such an attacker |
 | ADR-0021 | The incident notice's design | Accept it as built | – |
 | ADR-0022 | The export in bounded parts, with the three changes under *Decisions I made* | Accept it as built | – |
-| – | **How M6 ends.** Four of its tasks cannot start: staging (O-01 and a budget), the runs on staging, the real relay and Connect server (O-02, O-03), the domain (Q-19). Either M6 stays open until they are done, or it closes with what needs no host and the four move into a new milestone M7, "Staging & launch", with what launch still needs (O-15, O-16, O-20, O-21, the translations) | Close M6 and open M7, once CI is green (O-14) and ADR-0021 and ADR-0022 are decided. The work is the same either way; a milestone that waits for a host for weeks tells you less than one that is closed with its open ends named | The M6 review and your "go"; the plan for M7 |
+| – | **How M6 ends.** Four of its tasks cannot start: staging (O-01 and a budget), the runs on staging, the real relay and Connect server (O-02, O-03), the domain (Q-19). Either M6 stays open until they are done, or it closes with what needs no host and the four move into a new milestone M7, "Staging & launch", with what launch still needs (O-15, O-16, O-20, O-21, the translations) | Close M6 and open M7, once CI is green and O-14, ADR-0021 and ADR-0022 are decided. The work is the same either way; a milestone that waits for a host for weeks tells you less than one that is closed with its open ends named | The M6 review and your "go"; the plan for M7 |
 | – | App design: pass 2 and the prototype | – | The app team's work on those screens |
 
 Unchanged: O-01, O-02, O-03 and Q-19 (staging, the real relay and Connect server, the domain), O-08 (a native
@@ -204,8 +228,11 @@ speaker's review of the email texts) and the tabletop exercise of the breach run
 
 ### Next
 
-- With O-14: the exception as you decide it, then a green CI run that includes the e2e suite on the export change,
-  then the update to Node 26.13.1 with the matching distroless image, as a step of its own.
+- The first CI run of this commit: it should pass Trivy, build the SBOMs and run the e2e suite, for the first time
+  since #169. If it does not, that comes first.
+- From 2026-11-29: the update to Node 26.13.1, a security release, with the distroless image of 2026-11-22, as a
+  step of its own. Only the 7-day rule holds it until then, no finding any more: built on that image today, ours
+  passes Trivy.
 - With your decision on how M6 ends: either the final M6 report for your review and a plan for M7 with its effort,
   or the staging tasks as soon as O-01 is decided.
 - With your answers: O-20 and O-21 first, then O-15, O-17, O-18 and O-19, test-first, each with its change to the

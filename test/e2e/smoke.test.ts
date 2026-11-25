@@ -33,6 +33,38 @@ const PLAINTEXT_SMTP_PROBE = [
   'setTimeout(() => { console.log(JSON.stringify({ smtpReply: /^\\d{3}[ -]/m.test(received) })); process.exit(0); }, 2000);',
 ].join(' ');
 
+/** The image `docker/compose.yml` builds, and the distroless image its runtime is made of (ADR-0017). */
+const APP_IMAGE = 'questline-api:local';
+const DISTROLESS_IMAGE = /^ARG RUNTIME_IMAGE=(\S+)$/m.exec(readFileSync('docker/Dockerfile', 'utf8'))?.[1] ?? '';
+/** The packages the image build takes out of the distroless image, and how their libraries are called. */
+const REMOVED_PACKAGES = ['libssl3t64', 'libzstd1', 'zlib1g'];
+const REMOVED_LIBRARIES = /\/(?:libssl|libcrypto|libzstd|libz)\.so[.\d]*$|\/engines-3(?:\/|$)/;
+
+/**
+ * Every path of an image outside /app as `[kind, mode and owner, path, content]`: a file's digest, a link's target
+ * and whether it leads anywhere. What Docker itself puts into a running container is left out.
+ */
+const IMAGE_LISTING = [
+  "const fs = require('node:fs');",
+  "const { createHash } = require('node:crypto');",
+  "const fromDocker = ['/app', '/proc', '/sys', '/dev', '/.dockerenv', '/etc/hostname', '/etc/hosts', '/etc/resolv.conf'];",
+  'const entries = [];',
+  'const walk = (directory) => {',
+  '  for (const name of fs.readdirSync(directory)) {',
+  "    const path = (directory === '/' ? '' : directory) + '/' + name;",
+  '    if (fromDocker.includes(path)) continue;',
+  '    const found = fs.lstatSync(path);',
+  "    const about = (found.mode & 0o7777).toString(8) + ' ' + found.uid + ':' + found.gid;",
+  "    if (found.isSymbolicLink()) entries.push(['link', about, path, fs.readlinkSync(path) + (fs.existsSync(path) ? '' : ' (dangling)')]);",
+  "    else if (found.isFile()) entries.push(['file', about, path, createHash('sha256').update(fs.readFileSync(path)).digest('hex')]);",
+  "    else entries.push([found.isDirectory() ? 'directory' : 'other', about, path, '']);",
+  '    if (found.isDirectory()) walk(path);',
+  '  }',
+  '};',
+  "walk('/');",
+  'process.stdout.write(JSON.stringify(entries));',
+].join(' ');
+
 /** A random password the offline breach filter accepts: about 1 % of random strings are false positives (ADR-0012). */
 function acceptedPassword(): string {
   const breached = loadBreachedPasswordFilter();
@@ -201,6 +233,71 @@ describe('container smoke test', () => {
     await expect(inApi('/bin/sh', '-c', 'true')).rejects.toThrow();
     await expect(inApi('sh', '-c', 'true')).rejects.toThrow();
     await expect(inApi('npm', '--version')).rejects.toThrow();
+  });
+
+  it('is the distroless Node.js image without its system OpenSSL, zstd and zlib: nothing else missing, added or changed [E-06, ADR-0017]', async () => {
+    await run('docker', ['pull', '--quiet', DISTROLESS_IMAGE]);
+    const listed = async (image: string) => {
+      const { stdout } = await run(
+        'docker',
+        [
+          'run',
+          '--rm',
+          '--user',
+          '0',
+          '--network',
+          'none',
+          '--entrypoint',
+          '/nodejs/bin/node',
+          image,
+          '-e',
+          IMAGE_LISTING,
+        ],
+        { maxBuffer: MAX_BUFFER },
+      );
+      return (JSON.parse(stdout) as [kind: string, about: string, path: string, content: string][]).map((entry) => ({
+        path: entry[2],
+        line: entry.join(' '),
+      }));
+    };
+    const [distroless, ours] = await Promise.all([listed(DISTROLESS_IMAGE), listed(APP_IMAGE)]);
+    const ofRemovedPackage = (path: string) =>
+      REMOVED_LIBRARIES.test(path) ||
+      REMOVED_PACKAGES.some(
+        (name) =>
+          path.startsWith(`/usr/share/doc/${name}/`) || path.endsWith(`/${name}`) || path.endsWith(`/${name}.md5sums`),
+      );
+    const inOurs = new Set(ours.map((entry) => entry.line));
+    const inDistroless = new Set(distroless.map((entry) => entry.line));
+
+    // The three packages are gone: their libraries, their other files and their entries in the package list.
+    expect(ours.filter((entry) => ofRemovedPackage(entry.path))).toEqual([]);
+    expect(distroless.filter((entry) => ofRemovedPackage(entry.path)).length).toBeGreaterThan(20);
+    // Nothing else is: what the distroless image has besides them is here, with its content, mode and owner …
+    expect(distroless.filter((entry) => !inOurs.has(entry.line) && !ofRemovedPackage(entry.path))).toEqual([]);
+    // … and nothing was added, and no link lost what it points to.
+    expect(ours.filter((entry) => !inDistroless.has(entry.line))).toEqual([]);
+    expect(ours.length).toBeGreaterThan(1000);
+  });
+
+  it('keeps what the distroless image sets for its programs: the entry point, the paths, its user [ADR-0017]', async () => {
+    interface ImageSettings {
+      readonly Entrypoint: string[];
+      readonly Env: string[];
+      readonly User: string;
+    }
+    const settings = async (image: string) =>
+      JSON.parse(
+        (await run('docker', ['image', 'inspect', image, '--format', '{{json .Config}}'])).stdout,
+      ) as ImageSettings;
+    await run('docker', ['pull', '--quiet', DISTROLESS_IMAGE]);
+    const [distroless, ours] = await Promise.all([settings(DISTROLESS_IMAGE), settings(APP_IMAGE)]);
+
+    expect(distroless.Entrypoint).toEqual(['/nodejs/bin/node']);
+    expect(ours.Entrypoint).toEqual(distroless.Entrypoint);
+    expect(distroless.Env.length).toBeGreaterThan(0);
+    expect(ours.Env).toEqual(expect.arrayContaining(distroless.Env));
+    expect(ours.User).toBe(`${distroless.User}:${distroless.User}`);
   });
 
   it('loads libsodium with guarded memory from the only native prebuild left in the image [ADR-0005]', async () => {

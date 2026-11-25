@@ -8,3 +8,4 @@
 !src/
 src/**/*.test.ts
 !docker/keep-native-prebuild.mjs
+!scripts/remove-image-packages.ts

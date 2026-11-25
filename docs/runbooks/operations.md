@@ -93,10 +93,23 @@ select template, last_error_code, count(*) from email_outbox where dead_at is no
 | When | What |
 |------|------|
 | Daily | The nightly CI run: fresh vulnerability databases (Trivy, osv-scanner) and the load and DAST job `perf` (`npm run test:load`, `npm run test:dast`); a red run is fixed or put to the PM the same day |
-| Weekly | The job and outbox queries (§4); dependency and image updates under the 7-day rule (ADR-0016) |
+| Weekly | The job and outbox queries (§4); dependency and image updates under the 7-day rule (ADR-0016); the Node.js releases since the last look, its security releases first (both below) |
 | Yearly | The KEK rotation with a new Connect token (Q-63, key-rotation runbook §3) |
 | On their dates | Expiring exceptions: `.trivyignore.yaml` (empty since 2026-11-19) and `osv-scanner.toml`; deleting an old KEK item or blind-index key 30 days after a rotation (key-rotation runbook); re-pinning the ZAP image (Q-59) |
 | Monthly, once staging exists | A restore drill on staging (restore runbook; the e2e suite rehearses it on every push already) |
+
+**Image updates.** A new base is a new digest in `docker/Dockerfile`, adopted when it is 7 days old and the image
+built on it passes Trivy. The build takes three Debian packages out of the distroless image, because nothing in the
+image uses them: the system OpenSSL and the zstd and zlib that only it needs (ADR-0017 as amended). If a build on a
+new digest stops with `cannot remove libssl3t64, libzstd1, zlib1g: …`, the new base needs one of them, and the
+message names what needs which library. That package then stays: take its name out of the `RUN` line of the
+Dockerfile, and its name and libraries out of what `test/e2e/smoke.test.ts` expects to be gone, and report the
+change. The check itself is never removed or bypassed.
+
+**Node.js releases.** No scanner in CI sees Node.js or the OpenSSL, zlib, zstd and undici it bundles: they are in no
+package list (threat T-10). So someone reads its release notes and security announcements
+(`https://nodejs.org/en/blog/vulnerability`) every week. A security release is adopted with the distroless image
+that carries it, in one step: the build image, the runtime digest and `.nvmrc`.
 
 ## 6. Secrets
 

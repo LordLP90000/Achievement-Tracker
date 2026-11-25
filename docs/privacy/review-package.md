@@ -33,8 +33,8 @@ French, Italian and English to people aged 13 or older in Switzerland and the EU
 
 ## 3. The evidence
 
-- **Automated tests on every change**: 2 313 tests (unit, integration, contract, security), 98.9 % of statements
-  and 96.8 % of branches covered; mutation testing of the domain, cryptography and passkey code (`platform/crypto`:
+- **Automated tests on every change**: 2 353 tests (unit, integration, contract, security), 98.8 % of statements
+  and 96.6 % of branches covered; mutation testing of the domain, cryptography and passkey code (`platform/crypto`:
   every mutant detected).
 - **Privacy in particular**: the inventory guard (`test/privacy/data-inventory-guard.test.ts`); no address, nickname,
   device label, password, token or goal content readable in any table (`test/integration/encryption-at-rest.test.ts`);

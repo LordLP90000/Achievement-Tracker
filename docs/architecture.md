@@ -332,7 +332,8 @@ the archive has no limit (Q-40).
 .
 ├── .github/workflows/ci.yml           # every gate on each push + nightly (test-strategy §7)
 ├── docker/
-│   ├── Dockerfile                     # multi-stage; distroless Node 26 runtime (no shell), non-root, read-only FS
+│   ├── Dockerfile                     # multi-stage; distroless Node 26 runtime (no shell), non-root, read-only FS;
+│   │                                  # without the system OpenSSL, zstd and zlib that nothing uses (ADR-0017)
 │   ├── compose.yml                    # local dev: postgres → db-init → migrate → api + worker
 │   └── .env.example                   # placeholders only (copy to docker/.env)
 ├── docs/                              # see README documentation map
@@ -340,6 +341,7 @@ the archive has no limit (Q-40).
 ├── scripts/
 │   ├── build-api-reference.ts         # static API reference from the contract (`npm run docs:api`), loads nothing
 │   ├── build-password-filter.ts       # Bloom filter from pinned list (ADR-0012)
+│   ├── remove-image-packages.ts       # image build step: takes unused Debian packages out of the runtime (ADR-0017)
 │   └── offline.ts, offline-preload.ts # development tools run with every outbound connection refused (ADR-0016)
 ├── src/
 │   ├── app.ts                         # buildApp(deps): Fastify instance with all plugins and modules
@@ -414,6 +416,10 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
 ## 8. Deployment & operations view (details: `docs/runbooks/operations.md`)
 
 - One immutable image per commit, signed digest pinned in deployment config; API and worker are the same image.
+- The image's file system is that of the pinned distroless Node.js image without its system OpenSSL, zstd and zlib
+  (ADR-0017 as amended, proposed on 2026-11-25): 12 Debian packages, Node.js with the OpenSSL, zlib and zstd it
+  bundles, and under `/app` the application with its production dependencies. Nothing in the image used the three
+  packages, and the build fails if anything that stays needs them (`scripts/remove-image-packages.ts`).
 - Containers run as non-root with a read-only root filesystem and `tmpfs` for `/tmp`; no secrets baked in;
   secrets injected as environment variables (from 1Password or the host's secret store); the KEK itself is
   fetched from the self-hosted 1Password Connect server at startup (ADR-0013).
