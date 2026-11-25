@@ -8,8 +8,9 @@ Security, privacy and test-driven development are core requirements of this proj
 
 ## Status
 
-**M6 – Hardening & handover** is in progress (M5 – Auth hardening is done, [report](docs/reports/M5-status-report.md)).
-See [`docs/PROGRESS.md`](docs/PROGRESS.md)
+**M6 – Hardening & handover** is in progress: what needs no decision from the PM is done, the rest waits for
+decisions ([report](docs/reports/M6-status-report.md), with an addendum of 2026-11-25). M5 – Auth hardening is done
+([report](docs/reports/M5-status-report.md)). See [`docs/PROGRESS.md`](docs/PROGRESS.md)
 for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for architecture decisions.
 
 ## Documentation map

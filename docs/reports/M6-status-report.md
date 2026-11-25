@@ -1,6 +1,7 @@
 # STATUS REPORT – M6 Hardening & handover – 2026-11-05
 
-*Addendum of 2026-11-25 at the end: CI is red and waits for your decision (O-14).*
+*Addendum of 2026-11-25 at the end: CI is red and waits for your decision (O-14); M6 cannot close without your
+decisions, and how it ends is one of them.*
 
 **Overall: AMBER.** Everything in M6 that needs no decision from you is built test-first and green on `master`:
 
@@ -126,20 +127,53 @@ Where M6 stands twenty days later. The sections above are as written on 2026-11-
 - `7afc5b4` the incident notice (Q-61): two maintenance commands, ADR-0021 proposed, rehearsed in the e2e suite
 - `82d6519` the red CI analysed and put to you (O-14)
 - `779c79f` English drafts of the privacy policy and the consent text (Q-62), now in the review package
-- this commit: the backend follow-ups of the design review as open items with proposals (O-17 to O-19)
+- `1713bad` the backend follow-ups of the design review as open items with proposals (O-17 to O-19)
+
+You then asked me to finish M6. Its four remaining tasks wait for your decisions, so I looked for what M6 could
+still finish without one:
+
+- `5296abc` four ADRs named test files that were never created under those names; each now names the tests that
+  cover it
+- `e023441` the local stack builds its image once. On Docker's containerd image store, the default of new
+  installations, `docker compose up --build` failed now and then, the app team's command in the README included
+- `5563300` a finding I did not fix, made while measuring the export: the cost of every read grows with the
+  check-ins of an attempt (threat D-12, O-20)
+- `a73cf4b` **the export is read and sent in bounded parts** (threat D-09, ADR-0022 proposed, migration 0012). The
+  threat model had left "streaming if a maxed-out account needs it" to M6's load test, and that test never covered
+  the export. It needed it: with 345 600 check-ins, two days of one account at its rate limit, one export took
+  1.2 GB of memory and kept the API from answering anyone for 2.8 s. Now memory stays near 20 MB and the longest
+  pause under 50 ms, whatever the account holds; the document is the same byte for byte
 
 ### CI and tests
 
-- **CI is red** since the nightly run of 2026-11-21 (#170–#173), only in Trivy: two HIGH findings in the system
+- **CI is red** since the nightly run of 2026-11-21 (#170–#174), only in Trivy: two HIGH findings in the system
   OpenSSL of the base image (`libssl3t64`), both denial-of-service bugs in OpenSSL's QUIC code that OpenSSL itself
   rates Low. Debian has no fix yet, the newer base images carry both, and nothing in our image can reach the code:
   Node never loads that library and cannot speak QUIC. I added no exception; that is yours to decide (O-14).
-- Every other job is green, the nightly `perf` job included: k6 and ZAP now run on CI's Linux runners.
-- While CI is red its image job runs no e2e smoke test, so I push nothing that changes the image: documents only, as
-  on 2026-11-05.
-- The code is unchanged since `7afc5b4`. Local gates (`npm run check`): 2 313 tests in 143 files, coverage 98.89 % of
-  statements and 96.84 % of branches. The last complete CI run, #169 on 2026-11-20, was green on the same code,
-  the e2e checks included.
+- Every other job is green, the nightly `perf` job included: k6 and ZAP now run on CI's Linux runners. Run #174,
+  your push of `1713bad` today, shows the same: tests, mutation testing, Semgrep, osv-scanner and gitleaks green,
+  the image job stopped at Trivy.
+- While CI is red its image job stops before the e2e smoke test, and the README's rule is that a red pipeline is
+  fixed first. Up to `1713bad` I therefore changed documents only. **The export (`a73cf4b`) is the exception**: it
+  changes the image and adds a migration. I judged closing a way to exhaust the API's memory worth more than keeping
+  the image still, and I verified it as far as I can without CI: every local gate, and the e2e suite on the built
+  image (17 of 17, the export in its app journey). CI will not have run that suite on it until O-14 is decided.
+  If you would rather hold it back, the commits before it are documents and the Compose file only.
+- Local gates on the final code (`npm run check`): 2 340 tests in 145 files, coverage 98.8 % of statements and
+  96.6 % of branches; Semgrep 0 findings; gitleaks no leaks. The last complete CI run, #169 on 2026-11-20, was
+  green on `7afc5b4`, the e2e checks included.
+
+### Decisions I made
+
+- **The export's design (ADR-0022, proposed).** Three things change for the user, and they are yours to approve:
+  the parts of the document are no longer read at one instant, so what the user changes while it is written may
+  show in one section and not in another; the audit event is stored before the document is read and stays if the
+  document fails, so a failed export counts as one of the two a day; a failure after the first piece cannot become
+  a problem response any more, so the connection is cut and the API logs `export interrupted`. The contract is
+  unchanged.
+- **I did not build the fix for O-20.** Two of its three options are product decisions, and the fix is in the core
+  of M3: not a change to stack on a red CI without your word.
+- **One service builds the image** in the local stack (`db-init`); no command changes.
 
 ### Decisions I need from you, the most urgent first
 
@@ -152,7 +186,10 @@ Where M6 stands twenty days later. The sections above are as written on 2026-11-
 | O-17 | `Quest.reminder` and `Achievement.hide_numbers`: the shape (contract 0.4.9) | As proposed in O-17, the reminder stored encrypted | Reminders that follow the user to every device |
 | O-18 | The smaller rank-bonus scale | Each rank twice the one below: ×0.5 to ×32 | – |
 | O-19 | The email when a deletion is complete: the address is kept up to 24 hours longer | As proposed in O-19 | – |
+| O-20 | Reads that get slower with every check-in of an attempt: 36 ms at 2 500, 533 ms at 100 000, and the last blocks everyone for 282 ms | The engine reads the counts per quest and day from the database instead of the rows: about two days, no rule and no contract changes | Launch: one patient account can slow the service for all |
 | ADR-0021 | The incident notice's design | Accept it as built | – |
+| ADR-0022 | The export in bounded parts, with the three changes under *Decisions I made* | Accept it as built | – |
+| – | **How M6 ends.** Four of its tasks cannot start: staging (O-01 and a budget), the runs on staging, the real relay and Connect server (O-02, O-03), the domain (Q-19). Either M6 stays open until they are done, or it closes with what needs no host and the four move into a new milestone M7, "Staging & launch", with what launch still needs (O-15, O-16, O-20, the translations) | Close M6 and open M7, once CI is green (O-14) and ADR-0021 and ADR-0022 are decided. The work is the same either way; a milestone that waits for a host for weeks tells you less than one that is closed with its open ends named | The M6 review and your "go"; the plan for M7 |
 | – | App design: pass 2 and the prototype | – | The app team's work on those screens |
 
 Unchanged: O-01, O-02, O-03 and Q-19 (staging, the real relay and Connect server, the domain), O-08 (a native
@@ -160,7 +197,12 @@ speaker's review of the email texts) and the tabletop exercise of the breach run
 
 ### Next
 
-- With O-14: the exception as you decide it, then the update to Node 26.13.1 with the matching distroless image, as
-  a step of its own.
-- With your answers: O-15, O-17, O-18 and O-19, test-first, each with its change to the contract or the requirements.
+- With O-14: the exception as you decide it, then a green CI run that includes the e2e suite on the export change,
+  then the update to Node 26.13.1 with the matching distroless image, as a step of its own.
+- With your decision on how M6 ends: either the final M6 report for your review and a plan for M7 with its effort,
+  or the staging tasks as soon as O-01 is decided.
+- With your answers: O-20 first, then O-15, O-17, O-18 and O-19, test-first, each with its change to the contract or
+  the requirements.
 - With the approved drafts: the German, French and Italian versions.
+
+**Status**: M6 is still **IN PROGRESS**. What it can finish without your decisions is finished.
