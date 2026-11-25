@@ -5,11 +5,12 @@
 
 name: questline
 
+# One image for the five services that run the application. Only `db-init` builds it: services that each build the
+# same tag do so at once, and on Docker's containerd image store (the default of new installations) their exports
+# collide — `image "questline-api:local": already exists`, now and then. The others take what was built, never a pull.
 x-app: &app
-  build:
-    context: ..
-    dockerfile: docker/Dockerfile
   image: questline-api:local
+  pull_policy: never
   read_only: true
   tmpfs:
     - /tmp
@@ -40,6 +41,9 @@ services:
 
   db-init:
     <<: *app
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     command: ['dist/bootstrap-db.js']
     environment:
       APP_ENV: development
