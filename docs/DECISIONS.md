@@ -618,3 +618,55 @@ Format: Context → Decision → Consequences → Tests that enforce it.
   and the file), `src/platform/email/templates.test.ts` (the frame in each language), `src/main/maintenance.test.ts`,
   `test/integration/incident-notice.test.ts`, `test/security/db-roles.test.ts`, `test/security/rls-coverage.test.ts`,
   `test/e2e/smoke.test.ts` (the drill).
+
+## ADR-0022 · The export is read and sent in bounded parts (M6)
+
+- **Status:** proposed (2026-11-25, for the M6 review; built for the residual of threat D-09, which the threat model
+  had left to M6's load test)
+- **Context:** The export (R-PRIV-05) read every row of the account in one transaction, built the document in memory
+  and sent it as one text. An account has no limit on its completed achievements (Q-40), and none over time on its
+  check-ins, gambles, XP events, audit events, consents or badges. M6's load test did not cover the export. Measured
+  on 2026-11-25 with check-ins that carry the longest note, 500 characters: 100 000 of them gave a document of 75 MB,
+  took 358 MB of memory and kept the process from answering anyone for 0.9 s; 172 800, what one account can add in a
+  day within its rate limit, 125 MB, 602 MB and 1.4 s; 345 600, 244 MB, 1.2 GB and 2.8 s. Around 700 000 the text
+  exceeds the longest string the runtime holds, and the export fails for good. One account could exhaust the API's
+  memory this way, twice a day (D-09).
+- **Decision:**
+  - **In parts.** The document is written as it is read (`export-document.ts`): each list in pages of 1 000 records;
+    achievements 20 at a time with their quests, at most 50 each (R-IN-01); the gambles of an achievement and the
+    check-ins of a quest in parts of at most 1 000 — for many parents in one read while their children fit together,
+    for one parent page by page when it has more. The text goes to the response in pieces of about 16 KiB and is sent
+    without a length (chunked). It is the same document as before, byte for byte.
+  - **Each read is a unit of work of its own**: a short read-only transaction bound to the user (RLS), with the data
+    key unwrapped for that read only (ADR-0006). Between two reads nothing is held — no connection, no lock, no key —
+    so a slow or stalled download costs the database nothing, and no timeout of the database can cut it off.
+  - **Admission first, under the user's goal lock, as before**, in one short transaction: the limit of 2 in 24 hours,
+    the `export_requested` audit event, and what time alone changed (A-21).
+  - **In the order of an index.** Every page continues after its last record by time, then ID. Migration 0012 adds
+    the indexes that make each page one range scan: `(user_id, created_at, id)` on `achievements`, `sessions` and
+    `xp_events`, `(user_id, granted_at, id)` on `consents`, `(user_id, awarded_at, id)` on `badges` and
+    `(achievement_id, placed_at, id)` on `gambles`; three of them replace an index on their first column alone.
+    `check_ins` and `audit_events` had theirs.
+  - **Not chosen:** one transaction with a cursor for the whole document — a single snapshot, but one of the pool's
+    ten connections held for as long as the client reads, and a download on a mobile network cut by the
+    idle-in-transaction timeout after a stall of 10 seconds; writing in pieces from rows read all at once — no long
+    pause, but memory still grows with the account; a limit on what an account may hold — a product decision, which
+    Q-40 took the other way for the archive.
+- **Consequences:**
+  - Memory and the longest pause no longer grow with the account: about 15 to 25 MB and under 50 ms at every size
+    measured. A very large export takes longer in all, being many short transactions: 345 600 check-ins 11 to 14 s
+    instead of 7 s, 54 750 short ones (150 a day for a year) 2.9 s instead of 1.2 s.
+  - **The parts are not read at one instant.** What the user changes while their own document is being written may
+    show in one section and not in another — a check-in made on another device in those seconds, with its XP event
+    or without. Every record listed existed when it was read, children are always listed under their parent, and
+    every read is bound to the user, so nothing of another account can appear. Before, the goal lock held the user's
+    own goal changes off for the duration.
+  - **A failure after the first piece cannot be reported as a problem document**: the status is already sent. The
+    connection is cut, so the client sees a broken transfer, never a file that only looks whole (client security §5),
+    and the API logs `export interrupted` with the error's class (operations runbook §3). A failure in the first
+    reads still answers `500`. A download the client breaks off is no failure: nothing more is read and nothing is
+    logged. The audit event stays in all three cases: the export was asked for, and it counts as one of the two.
+  - The contract is unchanged: the same `ExportDocument` and headers; it never promised a length.
+- **Tests:** `src/modules/privacy/export-document.test.ts`, `test/privacy/export.test.ts`,
+  `test/integration/export-stream.test.ts`, `test/security/export.test.ts` (the guards, unchanged),
+  `test/e2e/smoke.test.ts` (the export through the built image).

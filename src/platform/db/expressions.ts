@@ -22,6 +22,18 @@ export function afterPosition(
   return sql`(${createdAt}, ${id}) < (${sql.param(position.createdAt, createdAt)}, ${sql.param(position.id, id)})`;
 }
 
+/**
+ * The rows after `position` in `time, id` order, oldest first, as the export reads its lists (D-09). One row
+ * comparison like `afterPosition`, so an index ending in `(time, id)` serves each page as a single range scan.
+ */
+export function afterPositionOldestFirst(
+  time: AnyColumn,
+  id: AnyColumn,
+  position: { readonly at: Date; readonly id: string },
+): SQL {
+  return sql`(${time}, ${id}) > (${sql.param(position.at, time)}, ${sql.param(position.id, id)})`;
+}
+
 /** Ascending, with NULLs first (PostgreSQL puts them last by default): rows never handled come before all others. */
 export function ascNullsFirst(column: AnyColumn): SQL {
   return sql`${column} asc nulls first`;

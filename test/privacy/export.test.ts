@@ -1,7 +1,11 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { exportText } from '../../src/modules/privacy/export-document.ts';
+import { EXPORT_READ_SIZES, exportSource, type ExportReadSizes } from '../../src/modules/privacy/export-source.ts';
 import { encryptText } from '../../src/platform/crypto/field-cipher.ts';
+import { createDatabaseClient, type DatabaseClient } from '../../src/platform/db/client.ts';
+import { createDatabase } from '../../src/platform/db/database.ts';
 import { startAccountsApp, TEST_PASSWORD, type AccountsApp } from '../helpers/accounts-app.ts';
 import { contractInject } from '../helpers/contract.ts';
 import { includedColumns, loadInventory, type Inventory } from '../helpers/data-inventory.ts';
@@ -67,6 +71,7 @@ describe('export completeness against the data inventory [R-PRIV-05, R-PRIV-08, 
   let inventory: Inventory;
   let user: GoalUser;
   let document: ExportDocument;
+  let client: DatabaseClient;
 
   const call = (
     method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
@@ -237,14 +242,24 @@ describe('export completeness against the data inventory [R-PRIV-05, R-PRIV-08, 
     return isDeepStrictEqual(exported, stored);
   };
 
+  /** The document as reads of these sizes write it — without a request, so nothing is audited or limited. */
+  const writtenWith = async (sizes: ExportReadSizes): Promise<string> => {
+    const source = exportSource({ db: createDatabase(client), dataKeys: ctx.dataKeys }, user.userId, sizes);
+    let text = '';
+    for await (const piece of exportText(source, ctx.clock.now())) text += piece;
+    return text;
+  };
+
   beforeAll(async () => {
     ctx = await startAccountsApp();
     ctx.clock.set(START);
+    client = createDatabaseClient({ url: ctx.database.urls.app, applicationName: 'questline-test' });
     inventory = loadInventory();
     await seed();
   });
 
   afterAll(async () => {
+    await client.close();
     await ctx.close();
   });
 
@@ -293,6 +308,40 @@ describe('export completeness against the data inventory [R-PRIV-05, R-PRIV-08, 
           `${table}.${column}`,
         ).toBe(true);
       }
+    }
+  });
+
+  it('lists every section oldest first, records of one instant by their ID', () => {
+    const inOrder = (records: readonly Row[], ...keys: string[]) => {
+      const key = (record: Row) => keys.map((name) => String(record[name]).padStart(12, '0')).join(' ');
+      expect(records.map(key)).toEqual(records.map(key).sort());
+    };
+
+    inOrder(document.consents, 'granted_at', 'id');
+    inOrder(document.sessions, 'created_at', 'id');
+    inOrder(document.passkeys, 'created_at', 'id');
+    inOrder(document.two_factor.recovery_codes, 'created_at', 'id');
+    inOrder(document.achievements, 'created_at', 'id');
+    for (const achievement of document.achievements) {
+      inOrder(achievement.gambles, 'placed_at', 'id');
+      inOrder(achievement.quests, 'position', 'created_at', 'id');
+      for (const quest of achievement.quests) inOrder(quest.check_ins, 'created_at', 'id');
+    }
+    inOrder(document.xp_events, 'created_at', 'id');
+    inOrder(document.badges, 'awarded_at', 'id');
+    inOrder(document.audit_events, 'created_at', 'id');
+  });
+
+  it('writes the same document however small its reads are: every list in pages [D-09]', async () => {
+    const whole = await writtenWith(EXPORT_READ_SIZES);
+
+    expect(JSON.parse(whole)).toEqual({ ...document, generated_at: ctx.clock.now().toISOString() });
+    for (const sizes of [
+      { rows: 1, achievements: 1 },
+      { rows: 2, achievements: 3 },
+      { rows: 3, achievements: 2 },
+    ]) {
+      expect(await writtenWith(sizes)).toBe(whole);
     }
   });
 
@@ -403,5 +452,12 @@ describe('export completeness against the data inventory [R-PRIV-05, R-PRIV-08, 
       archive.every((achievement) => achievement.quests.length === 1 && achievement.quests[0]?.check_ins.length === 1),
     ).toBe(true);
     expect(new Set(archive.map((achievement) => achievement.quests[0]?.['title'])).size).toBe(1001);
+  });
+
+  it('pages through that archive the same way, though all of it was created at one instant [Q-40, D-09]', async () => {
+    const whole = await writtenWith(EXPORT_READ_SIZES);
+
+    expect(await writtenWith({ rows: 7, achievements: 13 })).toBe(whole);
+    expect((JSON.parse(whole) as ExportDocument).achievements.length).toBeGreaterThan(1001);
   });
 });

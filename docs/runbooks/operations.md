@@ -50,6 +50,7 @@ start without it; the error names a class only (`connect_http_401`, `connect_tim
 | `password hashing saturated` | API | More sign-ins than Argon2id can take: they get 429 with `Retry-After: 1` (D-01). Sustained: a flood, or too little CPU |
 | `rate limited` | API | A client hit a limit; only the scope is logged (`ip-auth`, `email-mail`, `user-mail`, `user`, `email-login`, `user-password`). Many at once: abuse, or a client bug |
 | `rate limits scaled: development and test only (Q-60)` | API | Never in production (refused at start). Seen anywhere but the DAST stack: find out why |
+| `export interrupted` | API | A data export failed after its first part was sent, so the connection was cut and the user got an incomplete file (ADR-0022); the error's class is logged, never data. The export counted as one of the user's two a day. A client that breaks its download off leaves no such line. `DecryptionError`: a record of that account does not open with its key — find out why before anything else (key-rotation runbook). A database error: see `job failed` |
 | `maintenance refused` | maintenance | A command was started while an API or a worker was connected |
 | `shutdown timed out`, `shutdown failed` | API, worker | A process did not stop cleanly within its grace period |
 

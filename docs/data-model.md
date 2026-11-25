@@ -126,7 +126,8 @@ hourly.
 | `revoked_reason` | text NULL CHECK IN (`logout`, `logout_all`, `user_revoked`, `password_changed`, `password_reset`, `refresh_reuse`, `expired`, `account_deleted`, `session_limit`) | `session_limit`: logged out to make room for a new login (Q-29, migration 0003) |
 | `auth_method` | text NOT NULL CHECK IN (`password`, `password_totp`, `password_recovery_code`, `passkey`) | how the session signed in (M5, ADR-0019, migration 0009); no default — sessions from before M5 were filled in with `password`, every insert names it |
 
-Session rows are deleted 7 days after their revocation, their absolute expiry or the end of their refresh lifetime (last use + 30 d). Revocation deletes a session's tokens at once; otherwise a token generation is deleted when its refresh token expires — rotated generations stay until then, so a replayed refresh token is still recognised as reuse (hourly purge jobs, architecture §4.7).
+Index `(user_id, created_at, id)`: a user's sessions oldest first, for the export's pages (migration 0012, D-09) and
+every lookup by user. Session rows are deleted 7 days after their revocation, their absolute expiry or the end of their refresh lifetime (last use + 30 d). Revocation deletes a session's tokens at once; otherwise a token generation is deleted when its refresh token expires — rotated generations stay until then, so a replayed refresh token is still recognised as reuse (hourly purge jobs, architecture §4.7).
 
 #### `session_tokens` ⟂
 
@@ -237,6 +238,8 @@ Looked up by token hash before the session exists (⟂); deleted when used, expi
 | `withdrawn_at` | timestamptz NULL | partial UNIQUE (`user_id`, `type`) WHERE `withdrawn_at IS NULL` |
 
 History is kept for the lifetime of the account as proof of the lawful processing period; deleted with the account.
+Index `(user_id, granted_at, id)` (migration 0012): the withdrawn consents had none; it serves the list, the cascade
+and the export's pages (D-09).
 
 ### 3.3 Goal content
 
@@ -262,7 +265,8 @@ History is kept for the lifetime of the account as proof of the lawful processin
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
 | `version` | integer NOT NULL | |
 
-Index `(user_id, status, created_at, id)` for cursor pagination, scanned backwards for newest-first pages.
+Index `(user_id, status, created_at, id)` for cursor pagination, scanned backwards for newest-first pages; index
+`(user_id, created_at, id)` for the export, which reads every status oldest first in pages (migration 0012, D-09).
 `UNIQUE (id, user_id)` is the target of the children's composite foreign keys. CHECK: `completed` exactly when
 `completed_at`, `execution_score` (0–100) and `rank` are set. A restrictive policy keeps a `completed` achievement
 undeletable for the API until the goal-content consent is withdrawn (R-ACH-07, Q-10).
@@ -281,7 +285,8 @@ undeletable for the API until the goal-content consent is withdrawn (R-ACH-07, Q
 | `placed_at`, `settled_at` | timestamptz | `settled_at` set exactly when not `pending`, never before `placed_at` |
 
 History of won/lost gambles is kept (counts against Champion, R-RANK-02) until the achievement or account is deleted.
-Index `(achievement_id)`.
+Index `(achievement_id, placed_at, id)`: an achievement's gambles oldest first, for the export's pages (migration
+0012, D-09) and the cascade from the achievement.
 
 #### `quests` RLS
 
@@ -369,7 +374,8 @@ the XP the state deserves, run by the goal engine (`src/modules/goals/engine.ts`
 Deleting a quest, achievement or gamble keeps its ledger rows and clears only the reference (the column list keeps
 `user_id`; PostgreSQL ≥ 15). The API has no UPDATE grant, and a restrictive policy lets it delete ledger rows only
 after the goal-content consent is withdrawn (Q-10). Indexes `(user_id, local_date)` and partial `(quest_id)`,
-`(achievement_id)`, `(gamble_id)` (sums per quest/achievement for the effects engine; unlinking on deletion).
+`(achievement_id)`, `(gamble_id)` (sums per quest/achievement for the effects engine; unlinking on deletion), and
+`(user_id, created_at, id)` for the export's pages (migration 0012, D-09).
 
 #### `badges` RLS
 
@@ -382,7 +388,8 @@ after the goal-content consent is withdrawn (Q-10). Indexes `(user_id, local_dat
 | `rank` | text NOT NULL | same enum as `achievements.rank` |
 | `awarded_at` | timestamptz NOT NULL | |
 
-Removed on re-lock (R-ACH-05) and on achievement deletion. Index `(user_id)`.
+Removed on re-lock (R-ACH-05) and on achievement deletion. Index `(user_id, awarded_at, id)`: the user's badges
+oldest first, for the export's pages (migration 0012, D-09).
 
 ### 3.5 Security & operations
 
@@ -626,5 +633,7 @@ can use and exporting them would weaken security), nor the TOTP secret, the pass
 counters, the recovery codes' digests or the 5-minute challenges (M5), nor the account's ID in every record (it is
 `account.id`) or bookkeeping (stored idempotent responses, the email outbox, the daily evaluation); the data
 inventory gives each reason. The export reads as of now (A-21): what time alone changed is stored first, as by every
-read. Its children
-of the unlimited archive (Q-40) are read by their parents' IDs in batches of 1 000 (`src/modules/privacy/export-repository.ts`).
+read. The document is then read and sent in bounded parts (D-09, ADR-0022): every list oldest first in pages of
+1 000 records, achievements 20 at a time, gambles and check-ins in parts of at most 1 000, each read a short
+transaction of its own (`src/modules/privacy/export-source.ts`, `export-repository.ts`). The parts are not read at
+one instant: a change the user makes meanwhile may show in one section and not in another.

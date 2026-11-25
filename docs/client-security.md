@@ -111,6 +111,9 @@ target values and check-in notes are encrypted at rest on the server — the dev
   included, and cannot be undone: confirm with the user first, then clear the cache.
 - **Export** (R-PRIV-05, M4): `GET /me/export` after re-authentication, at most 2 per 24 hours; the JSON file holds
   all of the user's data. Hand it to the system's share sheet or document picker without keeping a copy in the app.
+  The file arrives as it is read, without a `Content-Length` (ADR-0022): write it to its place only when the
+  transfer has ended properly and the text is one complete JSON document. A transfer that breaks off is a failed
+  export — discard what arrived and ask again; it counted as one of the two.
 - **Account deletion** (R-PRIV-06, Q-11, A-22, M4): explain before the user confirms that signing in again within 30
   days — with the password (and its code when TOTP is on) or a passkey — cancels the deletion, and that afterwards
   everything is gone for good. After re-auth, `DELETE /me` answers `202` with `deletion_scheduled_for` and ends

@@ -59,6 +59,8 @@ export const achievements = pgTable(
     unique('achievements_id_user_id_unique').on(table.id, table.userId),
     // Scanned backwards for newest-first pages: `created_at desc, id desc` is the exact reverse of this order.
     index('achievements_user_status_created_idx').on(table.userId, table.status, table.createdAt, table.id),
+    // The export reads every achievement of the user, whatever its status, oldest first in pages (D-09).
+    index('achievements_user_created_idx').on(table.userId, table.createdAt, table.id),
     check('achievements_status_check', sql`${table.status} in ('active', 'paused', 'completed')`),
     check('achievements_rank_check', sql`${table.rank} in (${RANKS})`),
     check('achievements_execution_score_check', sql`${table.executionScore} between 0 and 100`),
@@ -98,7 +100,8 @@ export const gambles = pgTable(
     uniqueIndex('gambles_pending_unique')
       .on(table.userId)
       .where(sql`${table.status} = 'pending'`),
-    index('gambles_achievement_idx').on(table.achievementId),
+    // An achievement's gambles, oldest first: the export's pages (D-09), and the cascade from the achievement.
+    index('gambles_achievement_placed_idx').on(table.achievementId, table.placedAt, table.id),
     check('gambles_status_check', sql`${table.status} in ('pending', 'won', 'lost')`),
     check(
       'gambles_loss_reason_check',
@@ -255,6 +258,8 @@ export const xpEvents = pgTable(
       foreignColumns: [gambles.id, gambles.userId],
     }).onDelete('set null'),
     index('xp_events_user_date_idx').on(table.userId, table.localDate),
+    // The ledger oldest first, as the export reads it in pages (D-09).
+    index('xp_events_user_created_idx').on(table.userId, table.createdAt, table.id),
     index('xp_events_quest_idx')
       .on(table.questId)
       .where(sql`${table.questId} is not null`),
@@ -289,7 +294,8 @@ export const badges = pgTable(
       foreignColumns: [achievements.id, achievements.userId],
     }).onDelete('cascade'),
     unique('badges_achievement_kind_unique').on(table.achievementId, table.kind),
-    index('badges_user_id_idx').on(table.userId),
+    // The user's badges, oldest first: the export's pages (D-09).
+    index('badges_user_awarded_idx').on(table.userId, table.awardedAt, table.id),
     check('badges_kind_check', sql`${table.kind} in ('achievement_rank')`),
     check('badges_rank_check', sql`${table.rank} in (${RANKS})`),
   ],

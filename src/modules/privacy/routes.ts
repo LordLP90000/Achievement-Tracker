@@ -1,4 +1,5 @@
-import type { FastifyPluginCallback } from 'fastify';
+import { Readable } from 'node:stream';
+import type { FastifyBaseLogger, FastifyPluginCallback } from 'fastify';
 import { Problems } from '../../platform/http/problem.ts';
 import { ProblemError } from '../../platform/http/validation.ts';
 import { requestContext } from '../audit/context.ts';
@@ -13,6 +14,24 @@ export interface PrivacyRoutesOptions {
   readonly deletions: DeletionService;
 }
 
+/**
+ * The export's pieces on their way out. Once the first one is sent, so is the status: a later failure cannot become
+ * a problem response any more. The connection is cut instead — the client sees an incomplete transfer, never a file
+ * that only looks whole — and the failure is logged here, by its class alone.
+ */
+async function* sentAsRead(document: AsyncIterable<string>, log: FastifyBaseLogger): AsyncGenerator<string> {
+  let begun = false;
+  try {
+    for await (const piece of document) {
+      begun = true;
+      yield piece;
+    }
+  } catch (error) {
+    if (begun) log.error({ err: error }, 'export interrupted');
+    throw error;
+  }
+}
+
 export const privacyRoutes: FastifyPluginCallback<PrivacyRoutesOptions> = (app, { exports, deletions }, done) => {
   app.get('/me/export', async (request, reply) => {
     const result = await exports.export(principalOf(request), requestContext(request));
@@ -23,9 +42,11 @@ export const privacyRoutes: FastifyPluginCallback<PrivacyRoutesOptions> = (app, 
         request.log.warn({ scope: 'export' }, 'rate limited');
         throw new ProblemError({ ...Problems.rateLimited, retryAfterSeconds: result.retryAfterSeconds });
       case 'exported':
+        // Sent as it is read (D-09, ADR-0022): no length is known beforehand.
         return reply
+          .type('application/json; charset=utf-8')
           .header('content-disposition', 'attachment; filename="questline-export.json"')
-          .send(result.document);
+          .send(Readable.from(sentAsRead(result.document, request.log), { objectMode: false }));
     }
   });
 

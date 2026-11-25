@@ -111,7 +111,8 @@ export const sessions = pgTable(
   (table) => [
     // Target of the session_tokens foreign key that keeps a token's user equal to its session's user.
     unique('sessions_id_user_id_unique').on(table.id, table.userId),
-    index('sessions_user_id_idx').on(table.userId),
+    // The user's sessions, oldest first: the export's pages (D-09).
+    index('sessions_user_created_idx').on(table.userId, table.createdAt, table.id),
     check('sessions_client_check', sql`${table.client} in ('ios', 'android')`),
     check(
       'sessions_auth_method_check',
@@ -188,5 +189,7 @@ export const consents = pgTable(
     uniqueIndex('consents_active_unique')
       .on(table.userId, table.type)
       .where(sql`${table.withdrawnAt} is null`),
+    // The user's consents with the withdrawn ones, oldest first: the export's pages (D-09), the list, the cascade.
+    index('consents_user_granted_idx').on(table.userId, table.grantedAt, table.id),
   ],
 );
