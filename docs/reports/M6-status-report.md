@@ -143,6 +143,10 @@ still finish without one:
   the export. It needed it: with 345 600 check-ins, two days of one account at its rate limit, one export took
   1.2 GB of memory and kept the API from answering anyone for 2.8 s. Now memory stays near 20 MB and the longest
   pause under 50 ms, whatever the account holds; the document is the same byte for byte
+- this commit: a second finding I did not fix. The threat model and the test strategy have named a nightly timing
+  comparison against account enumeration since M0; it was never built, so I measured it. A login and a registration
+  take the same time for every address, within a millisecond in a hundred. Forgot-password and resend-verification
+  do not: 2.4 to 3.5 ms longer for an account (O-21)
 
 ### CI and tests
 
@@ -151,8 +155,8 @@ still finish without one:
   rates Low. Debian has no fix yet, the newer base images carry both, and nothing in our image can reach the code:
   Node never loads that library and cannot speak QUIC. I added no exception; that is yours to decide (O-14).
 - Every other job is green, the nightly `perf` job included: k6 and ZAP now run on CI's Linux runners. Run #174,
-  your push of `1713bad` today, shows the same: tests, mutation testing, Semgrep, osv-scanner and gitleaks green,
-  the image job stopped at Trivy.
+  your push of `1713bad` today, shows the same: the static checks, the tests, mutation testing, Semgrep, osv-scanner
+  and gitleaks green, the image job stopped at Trivy.
 - While CI is red its image job stops before the e2e smoke test, and the README's rule is that a red pipeline is
   fixed first. Up to `1713bad` I therefore changed documents only. **The export (`a73cf4b`) is the exception**: it
   changes the image and adds a migration. I judged closing a way to exhaust the API's memory worth more than keeping
@@ -173,6 +177,8 @@ still finish without one:
   unchanged.
 - **I did not build the fix for O-20.** Two of its three options are product decisions, and the fix is in the core
   of M3: not a change to stack on a red CI without your word.
+- **Nor the one for O-21.** M2's report put that residual to you as impractical to exploit, and you accepted it on
+  my word. The figures show it is practical for an attacker close to the server, so it is yours to decide again.
 - **One service builds the image** in the local stack (`db-init`); no command changes.
 
 ### Decisions I need from you, the most urgent first
@@ -187,9 +193,10 @@ still finish without one:
 | O-18 | The smaller rank-bonus scale | Each rank twice the one below: ×0.5 to ×32 | – |
 | O-19 | The email when a deletion is complete: the address is kept up to 24 hours longer | As proposed in O-19 | – |
 | O-20 | Reads that get slower with every check-in of an attempt: 36 ms at 2 500, 533 ms at 100 000, and the last blocks everyone for 282 ms | The engine reads the counts per quest and day from the database instead of the rows: about two days, no rule and no contract changes | Launch: one patient account can slow the service for all |
+| O-21 | Forgot-password and resend-verification answer 2.4 to 3.5 ms later for an account than for an unknown address: one request per address tells them apart from a machine close to the server | The mail endpoints answer no sooner than about 100 ms after the request arrived, so the work no longer shows; the measurement becomes the nightly check that was planned | Launch: R-AUTH-07 does not hold against such an attacker |
 | ADR-0021 | The incident notice's design | Accept it as built | – |
 | ADR-0022 | The export in bounded parts, with the three changes under *Decisions I made* | Accept it as built | – |
-| – | **How M6 ends.** Four of its tasks cannot start: staging (O-01 and a budget), the runs on staging, the real relay and Connect server (O-02, O-03), the domain (Q-19). Either M6 stays open until they are done, or it closes with what needs no host and the four move into a new milestone M7, "Staging & launch", with what launch still needs (O-15, O-16, O-20, the translations) | Close M6 and open M7, once CI is green (O-14) and ADR-0021 and ADR-0022 are decided. The work is the same either way; a milestone that waits for a host for weeks tells you less than one that is closed with its open ends named | The M6 review and your "go"; the plan for M7 |
+| – | **How M6 ends.** Four of its tasks cannot start: staging (O-01 and a budget), the runs on staging, the real relay and Connect server (O-02, O-03), the domain (Q-19). Either M6 stays open until they are done, or it closes with what needs no host and the four move into a new milestone M7, "Staging & launch", with what launch still needs (O-15, O-16, O-20, O-21, the translations) | Close M6 and open M7, once CI is green (O-14) and ADR-0021 and ADR-0022 are decided. The work is the same either way; a milestone that waits for a host for weeks tells you less than one that is closed with its open ends named | The M6 review and your "go"; the plan for M7 |
 | – | App design: pass 2 and the prototype | – | The app team's work on those screens |
 
 Unchanged: O-01, O-02, O-03 and Q-19 (staging, the real relay and Connect server, the domain), O-08 (a native
@@ -201,8 +208,8 @@ speaker's review of the email texts) and the tabletop exercise of the breach run
   then the update to Node 26.13.1 with the matching distroless image, as a step of its own.
 - With your decision on how M6 ends: either the final M6 report for your review and a plan for M7 with its effort,
   or the staging tasks as soon as O-01 is decided.
-- With your answers: O-20 first, then O-15, O-17, O-18 and O-19, test-first, each with its change to the contract or
-  the requirements.
+- With your answers: O-20 and O-21 first, then O-15, O-17, O-18 and O-19, test-first, each with its change to the
+  contract or the requirements.
 - With the approved drafts: the German, French and Italian versions.
 
 **Status**: M6 is still **IN PROGRESS**. What it can finish without your decisions is finished.
