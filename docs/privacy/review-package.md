@@ -1,7 +1,9 @@
 # Review package for the data-protection expert (M6)
 
-Status: 2026-11-05. Complete except the privacy policy, the consent texts and the controller's identity, which the
-PM provides (O-04, DPIA open items 3 and 5). Questline has not launched: no real personal data has been processed.
+Status: 2026-11-25 (first issued on 2026-11-05). Since 2026-11-25 with English drafts of the privacy policy and the
+consent text, written by engineering (Q-62) and not yet approved by the PM. Still missing: the controller's identity,
+the approved texts with their translations, and the terms of use (O-04, DPIA open items 3 and 5). Questline has not
+launched: no real personal data has been processed.
 
 ## 1. Questline in brief
 
@@ -14,7 +16,9 @@ French, Italian and English to people aged 13 or older in Switzerland and the EU
 
 | Document | What it holds | Status |
 |----------|---------------|--------|
-| `docs/privacy/dpia.md` | The DPIA: necessity, the processing, risks R-1 to R-17 with measures and residual risk, open items | v0.6 |
+| `docs/privacy/dpia.md` | The DPIA: necessity, the processing, risks R-1 to R-17 with measures and residual risk, open items | v0.7 |
+| `docs/privacy/privacy-policy.md` | The privacy policy in English, with what the PM and the expert still have to fill in or settle, the source of each statement, and what drafting it brought up | draft v0.1, not approved |
+| `docs/privacy/consent-text.md` | The consent text for goal content in English: the question, the privacy summary and the withdrawal dialog; how it is recorded; the version rule; a check against the conditions for a valid consent | draft v0.1, not approved |
 | `docs/privacy/data-inventory.md`, `data-inventory.yaml` | Every data category (C1–C15): purpose, legal basis, retention, export and deletion; a test fails when a table or column holding user data is missing from it | v2, reviewed in M6 |
 | `docs/privacy/processors.md` | 1Password (holds the key-encryption key, no personal data) and the SMTP relay | host and relay not yet named (O-01, O-02) |
 | `docs/security/threat-model.md` | STRIDE threats, each with its mitigation and an automated test; accepted residual risks RR-1 to RR-8 | current as of M6 |
@@ -29,8 +33,8 @@ French, Italian and English to people aged 13 or older in Switzerland and the EU
 
 ## 3. The evidence
 
-- **Automated tests on every change**: 2 270 tests (unit, integration, contract, security), 98.9 % of statements
-  and 96.9 % of branches covered; mutation testing of the domain, cryptography and passkey code (`platform/crypto`:
+- **Automated tests on every change**: 2 313 tests (unit, integration, contract, security), 98.9 % of statements
+  and 96.8 % of branches covered; mutation testing of the domain, cryptography and passkey code (`platform/crypto`:
   every mutant detected).
 - **Privacy in particular**: the inventory guard (`test/privacy/data-inventory-guard.test.ts`); no address, nickname,
   device label, password, token or goal content readable in any table (`test/integration/encryption-at-rest.test.ts`);
@@ -39,7 +43,8 @@ French, Italian and English to people aged 13 or older in Switzerland and the EU
   (`test/integration/consents.test.ts`, `test/security/consent.test.ts`); no personal value in any log line
   (`test/security/log-leakage.test.ts`).
 - **Drills in the built image on every CI run** (`test/e2e/smoke.test.ts`): a restore with the replay, a KEK rotation
-  and a blind-index key rotation.
+  and a blind-index key rotation; since 2026-11-19 also the notice that tells every account of an incident (breach
+  runbook §7).
 - **Load test and DAST** (2026-11-05, local stack): the limits per user, per client and on wrong passwords hold
   under bursts, and ordinary use meets none; a
   ZAP API scan, passive and active and signed in, reached every operation, raised no high alert and caused no server
@@ -66,9 +71,23 @@ French, Italian and English to people aged 13 or older in Switzerland and the EU
 7. **Processors** (R-7, R-9): once the PM names the host and the SMTP relay; a US relay would receive addresses
    and one-time links only.
 8. **Passkeys and two-step sign-in** (R-17, open item 8): an account whose owner loses every authenticator and
-   recovery code stays locked; how should the privacy policy describe it?
+   recovery code stays locked; how should the privacy policy describe it? The draft's answer: `privacy-policy.md` §10.
+9. **Correcting and erasing single items** (`privacy-policy.md` §8 and note C1): a completed achievement is read-only
+   and cannot be deleted on its own, and a check-in is final after its day (R-ACH-07, Q-36) — both keep XP, ranks and
+   gambles honest. Everything can still be erased together, by withdrawing the consent or deleting the account. Is
+   that enough for GDPR Art. 16 and 17 and FADP Art. 32? What must the controller do with a request to correct one
+   such item, and with the other requests the app cannot serve (O-16)?
+10. **The consent text** (`consent-text.md`): is the statement "Store my goals – they may include health information
+    – so the app can work" explicit enough for storing the goals and for working out progress from them? Must the
+    first screen name the legal entity? At sign-up, should the app say that the user accepts the privacy policy, or
+    only point to it (§4)? And when the consent text changes in meaning, how must existing users be asked again
+    (O-15)?
+11. **A data protection officer**: possible health data of many people — does the GDPR require one here
+    (Art. 37(1)(c))?
 
 ## 5. Not in this package
 
-- The privacy policy, the consent texts and the controller's identity (O-04; DPIA open items 3 and 5).
+- The approved privacy policy and consent texts in the four languages, and the controller's identity (O-04; DPIA
+  open items 3 and 5): the English drafts are in §2.
+- The terms of use: not written, and nobody is charged with them yet (O-04).
 - The host and the SMTP relay (O-01, O-02), and so the staging deployment and its tests.

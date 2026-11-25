@@ -1,6 +1,6 @@
 # Data Protection Impact Assessment (DPIA) — draft
 
-Status: **draft v0.6** (2026-11-05, M6: key rotation, restores that re-apply what users changed since the restore point (Q-57), the breach-notification runbook, the load test and the signed-in DAST scan — R-1, R-3 and R-8, open item 6, whose question to the PM the incident notice answered on 2026-11-19, Q-61 and ADR-0021; v0.5 on 2026-11-04, M5: passkeys and optional TOTP with recovery codes, ADR-0019 — necessity, rights,
+Status: **draft v0.7** (2026-11-25: English drafts of the privacy policy and the consent text, Q-62 — transparency and rights in §3, the consultation in §6, open items 3 and 8; the limits on correcting and erasing single items named, open items 9 and 10 added; v0.6 on 2026-11-05, M6: key rotation, restores that re-apply what users changed since the restore point (Q-57), the breach-notification runbook, the load test and the signed-in DAST scan — R-1, R-3 and R-8, open item 6, whose question to the PM the incident notice answered on 2026-11-19, Q-61 and ADR-0021; v0.5 on 2026-11-04, M5: passkeys and optional TOTP with recovery codes, ADR-0019 — necessity, rights,
 R-1, R-2 and the new R-17 on being locked out, open item 8; v0.4 on 2026-11-02, M4: the data-subject rights built and tested — export, deletion with the 30-day
 window, hard delete with crypto-shredding and tombstone, no email to accounts pending deletion as decided with Q-46;
 R-6, R-14 and R-16 updated, open item 7 added and closed by the PM's decision Q-48 at the M4 review; v0.3 on 2026-10-29: the PM's product review of R-15 recorded, Q-32; v0.2 in M0, 2026-10-22, with the PM decisions applied), maintained every milestone; to be reviewed by a data-protection expert
@@ -47,8 +47,8 @@ and "data processed on a large scale / systematic monitoring" apply.
 | Is each data element necessary? | Email: account recovery and verification (no username alternative chosen because recovery would be impossible). Password: authentication. Timezone: correctness of local dates/streaks. Locale: email language. Nickname: optional. Goal content: the product itself. Audit/rate-limit data: security, minimised (truncated/hashed IPs). Passkeys and TOTP (M5, optional, chosen by the user): stronger sign-in; stored minimally — a passkey's public key, counter, backup state, transports and an optional name (encrypted), the TOTP secret encrypted, recovery codes and one-time challenges only as digests, and each session's sign-in method; no biometric data ever reaches the service (the device checks it). |
 | Could the purpose be achieved with less data? | Considered: no email (device-only accounts) — rejected because of recovery and multi-device needs, but **end-to-end encryption** is evaluated for v2 (threat model §2). No analytics or crash reporters by design. |
 | Lawfulness | Contract (service), explicit consent for potentially sensitive content, legitimate interest for security-only processing, legal obligation for consent proof. |
-| Transparency | Privacy policy in the app (PM/legal), consent text at the point of collection, export shows exactly what is stored. |
-| Data-subject rights | All exercisable in-app without manual processing (`data-inventory.md` §5) — except by a user locked out after losing the authenticator with no recovery code left, whose erasure needs a request to the controller (Q-52, R-17). |
+| Transparency | Privacy policy in the app and consent text at the point of collection (English drafts since 2026-11-25: `privacy-policy.md` and `consent-text.md`, Q-62; to be approved by the PM); the export shows exactly what is stored. |
+| Data-subject rights | All exercisable in-app without manual processing (`data-inventory.md` §5) — except by a user locked out after losing the authenticator with no recovery code left, whose erasure needs a request to the controller (Q-52, R-17). Single items have limits by design: a completed achievement is read-only and cannot be deleted on its own, and a check-in is final after its day (R-ACH-07, Q-17, Q-36), so correcting or erasing one means withdrawing the consent, deleting the account or a request to the controller — for the expert (review package, question 9); how requests to the controller are handled is open (O-16). |
 | Processors | Each requires a DPA, CH/EU location, PM approval and an entry in `processors.md`. |
 | International transfers | Avoided by design (Q-01…Q-03). |
 
@@ -92,7 +92,7 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 | Who | When | Status |
 |-----|------|--------|
 | PM (controller representative) | each milestone report | ongoing |
-| Data-protection expert / DPO | before launch (M6 review package, `docs/privacy/review-package.md`: this DPIA, data inventory, threat model, processors, runbooks, test evidence; the privacy policy draft follows with O-04) | package ready 2026-11-05 |
+| Data-protection expert / DPO | before launch (M6 review package, `docs/privacy/review-package.md`: this DPIA, data inventory, threat model, processors, runbooks, test evidence; since 2026-11-25 the English drafts of the privacy policy and the consent text, Q-62) | package ready 2026-11-05, drafts added 2026-11-25 |
 | Users | consent text and privacy policy usability test with the app team | planned (app team) |
 
 ## 7. Open items
@@ -101,12 +101,14 @@ Scale: Likelihood (L) and Severity (S) 1–4; Risk = L × S (≤ 4 low, 5–8 me
 |---|------|-------|
 | 1 | Name the hosting option (O-01) and the SMTP relay operator (O-02) → complete R-9 and `processors.md` (KEK source decided: 1Password Connect, Q-02) | PM |
 | 2 | Minimum age decided (13, self-declared, Q-23); DP-expert review of R-12; product review of gambling-like mechanics for 13–15-year-olds done by the PM on 2026-10-29 (R-15, Q-32), part of the M6 review package | DP expert |
-| 3 | Consent text and version scheme (`YYYY-MM-DD`) and privacy policy text | PM / legal |
+| 3 | Consent text and version scheme (`YYYY-MM-DD`) and privacy policy text: English drafts of both since 2026-11-25 (`consent-text.md` with the version rule in §6, `privacy-policy.md`; Q-62), to be approved, then translated (O-04) | PM / legal |
 | 4 | Encrypt `target_date` (R-5) — decided by the PM: yes (Q-24) | done |
 | 5 | Controller identity and contact for the privacy policy | PM |
 | 6 | Breach-notification runbook (FADP Art. 24: notify FDPIC "as soon as possible"; GDPR Art. 33: 72 h): written in M6, `docs/runbooks/breach.md`; its legal statements and the question of an EU representative (GDPR Art. 27) for the DP expert. How to inform many users at once: decided by the PM (Q-61) and built on 2026-11-19 — the incident notice, one email per account in its language (ADR-0021, breach runbook §7) | lead engineer → DP expert |
 | 7 | Recovering an account deleted by someone who knew the password: decided by the PM on 2026-11-02 — a password reset within the 30 days reactivates it (Q-48, O-12) | done |
-| 8 | Privacy policy: describe passkeys, TOTP and recovery codes, and that losing the authenticator with no code left locks the account (R-17, Q-52) | PM / legal |
+| 8 | Privacy policy: describe passkeys, TOTP and recovery codes, and that losing the authenticator with no code left locks the account (R-17, Q-52): drafted in `privacy-policy.md` §10 (2026-11-25) | PM / legal |
+| 9 | A newer version of the consent text or of the policy cannot be recorded for an existing account: a second grant answers `409`, and withdrawing first deletes the goal content. R-13's measure — a new purpose needs a new consent version — depends on it (O-15) | PM |
+| 10 | Requests the app cannot serve — an objection, the erasure of an account that is locked out or belongs to a child under 13, the correction or erasure of a single item the app keeps final — have no procedure (O-16; review package, question 9) | PM → DP expert |
 
 ## 8. Sign-off
 

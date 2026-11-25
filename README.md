@@ -32,6 +32,8 @@ for the current milestone and [`docs/DECISIONS.md`](docs/DECISIONS.md) for archi
 | [docs/runbooks/breach.md](docs/runbooks/breach.md) | Breach-notification runbook: FDPIC and EU authorities, the people concerned (M6) |
 | [docs/runbooks/operations.md](docs/runbooks/operations.md) | Operations runbook: processes, releases, what to watch, background work, routine (M6) |
 | [docs/privacy/review-package.md](docs/privacy/review-package.md) | Review package for the data-protection expert: documents, evidence, questions (M6) |
+| [docs/privacy/privacy-policy.md](docs/privacy/privacy-policy.md) | Privacy policy: English draft for the PM and the data-protection expert, not approved (Q-62) |
+| [docs/privacy/consent-text.md](docs/privacy/consent-text.md) | Consent text for goal content: English draft with its version rule, not approved (Q-62) |
 | [docs/hosting-options.md](docs/hosting-options.md) | Hosting / KMS / email options in Switzerland and the EU |
 | [docs/plan.md](docs/plan.md) | Milestone plan and effort estimates |
 

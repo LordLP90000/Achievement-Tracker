@@ -105,8 +105,10 @@ target values and check-in notes are encrypted at rest on the server — the dev
   `two_factor_enabled`), send the app's code (or a recovery code) along with it; `401 second-factor-required` means one was missing — ask for it and
   send both again.
 - **Consent** (R-PRIV-04, Q-10): goal content needs the explicit, unticked `goal_content` consent, given in the app
-  with the consent text's version (`POST /me/consents`; text: O-04). Withdrawing it deletes **all** goal content at
-  once, completed Achievements included, and cannot be undone: confirm with the user first, then clear the cache.
+  with the consent text's version (`POST /me/consents`). The text and its version rule are in
+  `docs/privacy/consent-text.md`, an English draft until the PM approves it (O-04): ship each text with its version,
+  never one without the other. Withdrawing the consent deletes **all** goal content at once, completed Achievements
+  included, and cannot be undone: confirm with the user first, then clear the cache.
 - **Export** (R-PRIV-05, M4): `GET /me/export` after re-authentication, at most 2 per 24 hours; the JSON file holds
   all of the user's data. Hand it to the system's share sheet or document picker without keeping a copy in the app.
 - **Account deletion** (R-PRIV-06, Q-11, A-22, M4): explain before the user confirms that signing in again within 30
