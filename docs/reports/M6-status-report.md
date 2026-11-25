@@ -1,5 +1,7 @@
 # STATUS REPORT – M6 Hardening & handover – 2026-11-05
 
+*Addendum of 2026-11-25 at the end: CI is red and waits for your decision (O-14).*
+
 **Overall: AMBER.** Everything in M6 that needs no decision from you is built test-first and green on `master`:
 
 - the restore with its replay, which also re-applies what users changed since the restore point (Q-57)
@@ -110,3 +112,55 @@ New, from the runbooks, for the M6 review:
 
 **Status**: M6 is **IN PROGRESS**: the work without your decisions is done; staging and the real services wait for
 them.
+
+## Addendum – 2026-11-25
+
+Where M6 stands twenty days later. The sections above are as written on 2026-11-05.
+
+### Done since
+
+- `c5b308f` contract 0.4.8: the export lists every audit event type (Q-64)
+- `0e7c2a3` the runtime image with Debian's zlib fix. The exception Q-54 is gone, so the lines above about its expiry
+  no longer apply
+- `c6b6502` the app design package (`docs/design/`): pass 2 and the prototype are for your review
+- `7afc5b4` the incident notice (Q-61): two maintenance commands, ADR-0021 proposed, rehearsed in the e2e suite
+- `82d6519` the red CI analysed and put to you (O-14)
+- `779c79f` English drafts of the privacy policy and the consent text (Q-62), now in the review package
+- this commit: the backend follow-ups of the design review as open items with proposals (O-17 to O-19)
+
+### CI and tests
+
+- **CI is red** since the nightly run of 2026-11-21 (#170–#173), only in Trivy: two HIGH findings in the system
+  OpenSSL of the base image (`libssl3t64`), both denial-of-service bugs in OpenSSL's QUIC code that OpenSSL itself
+  rates Low. Debian has no fix yet, the newer base images carry both, and nothing in our image can reach the code:
+  Node never loads that library and cannot speak QUIC. I added no exception; that is yours to decide (O-14).
+- Every other job is green, the nightly `perf` job included: k6 and ZAP now run on CI's Linux runners.
+- While CI is red its image job runs no e2e smoke test, so I push nothing that changes the image: documents only, as
+  on 2026-11-05.
+- The code is unchanged since `7afc5b4`. Local gates (`npm run check`): 2 313 tests in 143 files, coverage 98.89 % of
+  statements and 96.84 % of branches. The last complete CI run, #169 on 2026-11-20, was green on the same code,
+  the e2e checks included.
+
+### Decisions I need from you, the most urgent first
+
+| ID | Decision | I recommend | It blocks |
+|----|----------|-------------|-----------|
+| O-14 | A Trivy exception for the two OpenSSL findings, or none | Accept both for `libssl3t64` until 2027-01-31, removed when an image with Debian's fix is adopted | A green CI; every change to the image, the security update to Node 26.13.1 included |
+| O-04 | The two drafts: approve or correct them; the controller's name, address and privacy contact; who writes the terms of use | – | The translations; the review package complete |
+| O-15 | Recording a newer version of the consent text for accounts that already agreed | An additive contract change, before launch | Changing the consent text later without deleting anyone's goals |
+| O-16 | How requests the app cannot serve are handled | The expert's answer first, then a maintenance command that deletes one account | What the policy draft promises in §8 |
+| O-17 | `Quest.reminder` and `Achievement.hide_numbers`: the shape (contract 0.4.9) | As proposed in O-17, the reminder stored encrypted | Reminders that follow the user to every device |
+| O-18 | The smaller rank-bonus scale | Each rank twice the one below: ×0.5 to ×32 | – |
+| O-19 | The email when a deletion is complete: the address is kept up to 24 hours longer | As proposed in O-19 | – |
+| ADR-0021 | The incident notice's design | Accept it as built | – |
+| – | App design: pass 2 and the prototype | – | The app team's work on those screens |
+
+Unchanged: O-01, O-02, O-03 and Q-19 (staging, the real relay and Connect server, the domain), O-08 (a native
+speaker's review of the email texts) and the tabletop exercise of the breach runbook.
+
+### Next
+
+- With O-14: the exception as you decide it, then the update to Node 26.13.1 with the matching distroless image, as
+  a step of its own.
+- With your answers: O-15, O-17, O-18 and O-19, test-first, each with its change to the contract or the requirements.
+- With the approved drafts: the German, French and Italian versions.

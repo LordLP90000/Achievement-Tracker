@@ -162,9 +162,9 @@ Pass 2 (all other screens and states) and the clickable prototype are ready for 
 
 | # | Question | Answer | Follow-up |
 |---|----------|--------|-----------|
-| 1 | Sync reminder times and "hide numbers": add `Quest.reminder` and `Achievement.hide_numbers` to the frozen contract? | **Approved** (additive). | Backend: contract change and data-inventory entry. |
-| 2 | Rank bonus scale: Diamond ×120 → +13'200 XP, Level 3 → 6 in one unlock | **Too big — scale it down.** | Backend question; the design shows whatever the API returns, so only the prototype's example numbers change. |
-| 3 | Email when account deletion is complete (HIG managing-accounts.md) | **Yes.** The retention job sends one last email, then removes the address. | Backend: retention job and data inventory (the address is kept until that email). |
+| 1 | Sync reminder times and "hide numbers": add `Quest.reminder` and `Achievement.hide_numbers` to the frozen contract? | **Approved** (additive). | Backend: contract change and data-inventory entry. Proposed shape, to be decided: requirements O-17. |
+| 2 | Rank bonus scale: Diamond ×120 → +13'200 XP, Level 3 → 6 in one unlock | **Too big — scale it down.** | Backend question; the design shows whatever the API returns, so only the prototype's example numbers change. Two scales to choose from: requirements O-18. |
+| 3 | Email when account deletion is complete (HIG managing-accounts.md) | **Yes.** The retention job sends one last email, then removes the address. | Backend: retention job and data inventory (the address is kept until that email). Proposed, with a limit of 24 hours for the address: requirements O-19. |
 | 4 | Delay sign-in further (local-first, anonymous accounts)? | **No.** The first goal stays a local draft until sign-up. | — |
 | 5 | Title case for all iOS buttons? | **No.** Sentence case in the app on both platforms; title case only on iOS system surfaces (action sheets, notification actions). | — |
 | 6 | First-person labels from the brief | **"Download data" and "Delete account"** (also "Keep account"). The consent checkbox "Store my goals…" stays first person, as consent statements usually are. | Done. |
