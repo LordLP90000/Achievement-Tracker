@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger, FastifyPluginCallback } from 'fastify';
+import { sharedAnswer, type MonotonicNow } from './shared-answer.ts';
 
 /** Resolves to true when every dependency needed to serve traffic is usable. */
 export type ReadinessProbe = () => Promise<boolean>;
@@ -6,7 +7,16 @@ export type ReadinessProbe = () => Promise<boolean>;
 export interface HealthRoutesOptions {
   readonly readiness: ReadinessProbe;
   readonly readinessTimeoutMs: number;
+  /** Tests move this clock; production reads the process's own. */
+  readonly monotonicNow?: MonotonicNow;
 }
+
+/**
+ * How long one readiness answer serves every caller. The health endpoints are outside `/v1` and its limits, and a
+ * limit would refuse the load balancer's probes: instead a flood of probes costs one database round trip and one
+ * warning a second (D-10). A probe every few seconds always gets a fresh answer.
+ */
+export const READINESS_REUSE_MS = 1000;
 
 async function isReady(probe: ReadinessProbe, timeoutMs: number, log: FastifyBaseLogger): Promise<boolean> {
   let timer: NodeJS.Timeout | undefined;
@@ -38,8 +48,14 @@ export const healthRoutes: FastifyPluginCallback<HealthRoutesOptions> = (app, op
 
   app.get('/health/live', probe, () => ({ status: 'ok' }));
 
-  app.get('/health/ready', probe, async (request, reply) => {
-    const ready = await isReady(options.readiness, options.readinessTimeoutMs, request.log);
+  const readiness = sharedAnswer(
+    () => isReady(options.readiness, options.readinessTimeoutMs, app.log),
+    READINESS_REUSE_MS,
+    options.monotonicNow,
+  );
+
+  app.get('/health/ready', probe, async (_request, reply) => {
+    const ready = await readiness();
     return reply.code(ready ? 200 : 503).send({ status: ready ? 'ok' : 'degraded' });
   });
 

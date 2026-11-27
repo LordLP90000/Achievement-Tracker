@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildTestApp } from '../helpers/app.ts';
 import { contractInject } from '../helpers/contract.ts';
 import { LogCapture } from '../helpers/log-capture.ts';
@@ -64,6 +64,63 @@ describe('health endpoints [A-18, I-15]', () => {
 
     expect(response.statusCode).toBe(503);
     expect(logs.records().some((record) => record['msg'] === 'readiness check timed out')).toBe(true);
+  });
+
+  it('asks the dependencies once for probes that arrive together [D-10]', async () => {
+    let asked = 0;
+    let release: (ready: boolean) => void = () => undefined;
+    app = await buildTestApp({
+      readiness: () => {
+        asked += 1;
+        return new Promise<boolean>((resolve) => {
+          release = resolve;
+        });
+      },
+    });
+    const server = app;
+    const probes = Array.from({ length: 25 }, () => contractInject(server, { method: 'GET', url: '/health/ready' }));
+    await vi.waitFor(() => {
+      expect(asked).toBeGreaterThan(0);
+    });
+    // Without sharing, the other 24 probes reach the database within this pause.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(asked).toBe(1);
+
+    release(true);
+
+    expect((await Promise.all(probes)).map((response) => response.statusCode)).toEqual(Array(25).fill(200));
+    expect(asked).toBe(1);
+  });
+
+  it('gives the same answer for one second, with one warning, then asks again [D-10]', async () => {
+    const logs = new LogCapture();
+    let now = 5000;
+    let asked = 0;
+    app = await buildTestApp({
+      logCapture: logs,
+      monotonicNow: () => now,
+      readiness: () => {
+        asked += 1;
+        return Promise.resolve(asked > 1);
+      },
+    });
+    const probe = { method: 'GET', url: '/health/ready' } as const;
+    const warnings = (): number => logs.records().filter((record) => record['level'] === 'warn').length;
+
+    for (const elapsed of [0, 500, 499]) {
+      now += elapsed;
+      expect((await contractInject(app, probe)).statusCode).toBe(503);
+    }
+    expect(asked).toBe(1);
+    expect(warnings()).toBe(1);
+
+    now += 1;
+    const later = await contractInject(app, probe);
+
+    expect(later.statusCode).toBe(200);
+    expect(later.body).toBe('{"status":"ok"}');
+    expect(asked).toBe(2);
+    expect(warnings()).toBe(1);
   });
 
   it('answers undocumented methods with a 404 problem', async () => {

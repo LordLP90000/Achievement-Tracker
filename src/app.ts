@@ -17,6 +17,7 @@ import { gamblesRoutes } from './modules/gambles/routes.ts';
 import type { GamblesService } from './modules/gambles/service.ts';
 import type { ConsentsService } from './modules/consents/service.ts';
 import { healthRoutes, type ReadinessProbe } from './modules/health/routes.ts';
+import type { MonotonicNow } from './modules/health/shared-answer.ts';
 import type { DeletionService } from './modules/privacy/deletion-service.ts';
 import type { ExportService } from './modules/privacy/export-service.ts';
 import { privacyRoutes } from './modules/privacy/routes.ts';
@@ -65,6 +66,8 @@ export interface AppDependencies {
   readonly logger: FastifyBaseLogger;
   readonly readiness: ReadinessProbe;
   readonly readinessTimeoutMs?: number;
+  /** For tests: the clock by which a readiness answer ages. */
+  readonly monotonicNow?: MonotonicNow;
   readonly services: AppServices;
 }
 
@@ -90,6 +93,7 @@ export function buildApp(deps: AppDependencies): FastifyInstance {
   void app.register(healthRoutes, {
     readiness: deps.readiness,
     readinessTimeoutMs: deps.readinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+    ...(deps.monotonicNow === undefined ? {} : { monotonicNow: deps.monotonicNow }),
   });
   void app.register(
     (v1, _options, done) => {

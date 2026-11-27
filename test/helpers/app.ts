@@ -17,6 +17,7 @@ export interface TestAppOptions {
   readonly logCapture?: LogCapture;
   readonly readiness?: ReadinessProbe;
   readonly readinessTimeoutMs?: number;
+  readonly monotonicNow?: () => number;
 }
 
 /** The production app plus test-only routes (`/__test/*`) that exercise body parsing and failures. */
@@ -29,6 +30,7 @@ export async function buildTestApp(options: TestAppOptions = {}): Promise<Fastif
     logger,
     readiness: options.readiness ?? (() => Promise.resolve(true)),
     ...(options.readinessTimeoutMs === undefined ? {} : { readinessTimeoutMs: options.readinessTimeoutMs }),
+    ...(options.monotonicNow === undefined ? {} : { monotonicNow: options.monotonicNow }),
     services: UNAVAILABLE_SERVICES,
   });
   app.get('/__test/ok', () => ({ ok: true }));

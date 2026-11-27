@@ -36,7 +36,9 @@ start without it; the error names a class only (`connect_http_401`, `connect_tim
 ## 3. Health and what to watch
 
 - `/health/live`: the process runs. `/health/ready`: the database answers and the KEK's wrap/unwrap self-test passed;
-  503 otherwise, with the reason in the log. Successful probes are not logged (Q-28).
+  503 otherwise, with the reason in the log. Successful probes are not logged (Q-28). The API asks the database once
+  for all probes that arrive together and gives that answer for one second (D-10): an answer is at most a second
+  old, and the warning of a failed check appears once a second, not once per probe.
 - Logs are JSON, one line per request (`method`, `route`, `status`, `duration_ms`; no addresses, tokens, bodies or
   IDs other than `request_id`, R-LOG-02). Until the host's monitoring exists (O-01), alert on these messages:
 

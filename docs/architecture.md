@@ -446,7 +446,8 @@ tests), `dependency-cruiser`, `@cyclonedx/cyclonedx-npm`,
   of an incident for every account, in its language, and records each in an `incident_notified` audit event, so a
   second run tells nobody twice. The breach runbook: `docs/runbooks/breach.md` §7.
 - Health: `/health/live` (process up), `/health/ready` (DB reachable, KEK loaded at startup and wrap/unwrap
-  self-test passed).
+  self-test passed). Both are outside `/v1` and its rate limits; one database check serves every readiness probe of
+  the same second (D-10).
 - Observability without personal data: request metrics (count, duration, status by route), job metrics, error
   counts. No third-party APM that receives bodies or identifiers.
 
