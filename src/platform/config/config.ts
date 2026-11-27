@@ -95,7 +95,8 @@ const URL_RULE = 'must be a postgres:// or postgresql:// URL';
 const PORT_RULE = 'must be an integer between 1 and 65535';
 const HOPS_RULE = 'must be an integer between 0 and 10';
 const SCALE_RULE = 'must be an integer between 1 and 1000';
-const PLACEHOLDER_FRAGMENTS = ['change', 'example', 'placeholder', 'password', 'secret'];
+/** Words of a value that was never replaced; `replace` is what docker/.env.example writes in place of each one. */
+const PLACEHOLDER_FRAGMENTS = ['change', 'example', 'placeholder', 'password', 'replace', 'secret'];
 const MIN_PRODUCTION_PASSWORD_LENGTH = 16;
 
 const blankToUndefined = (value: unknown): unknown => (value === '' ? undefined : value);

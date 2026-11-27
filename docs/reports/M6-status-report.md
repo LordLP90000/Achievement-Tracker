@@ -161,7 +161,7 @@ Then you told me that the jobs still fail:
 
 On 2026-11-27, with CI green again:
 
-- this commit: **Node 26.13.1**, a security release of 2026-11-10, in the build stages, the runtime image and
+- `1bcf2d8` **Node 26.13.1**, a security release of 2026-11-10, in the build stages, the runtime image and
   `.nvmrc`. *Next* below had it for 2026-11-29, with the distroless image of 2026-11-22. That wait was not needed:
   the 7-day rule asks for a digest that is 7 days old, and the distroless image of 2026-11-12 carries the release
   too. Against the image we ran, one file differs besides Node.js itself, and only in its mode, so the Debian

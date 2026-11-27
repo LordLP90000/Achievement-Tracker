@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   ConfigError,
@@ -21,6 +22,14 @@ const productionApiEnv = {
   WEBAUTHN_ORIGINS: 'https://questline.ch',
 };
 const ANDROID_ORIGIN = `android:apk-key-hash:${'A'.repeat(42)}w`;
+/** What `docker/.env.example` shows in place of each password: published, so never a secret. */
+const EXAMPLE_PASSWORDS = [
+  ...new Set(
+    [...readFileSync('docker/.env.example', 'utf8').matchAll(/^\w*PASSWORD\w*=(\S+)$/gm)].map(
+      (match) => match[1] ?? '',
+    ),
+  ),
+];
 
 function configErrorOf(fn: () => unknown): ConfigError {
   try {
@@ -301,6 +310,16 @@ describe('loadApiConfig', () => {
       expect(error.issues).toEqual(['DATABASE_URL_APP: password is missing or too weak for production']);
     });
 
+    it('refuses the example passwords of docker/.env.example as a database password', () => {
+      expect(EXAMPLE_PASSWORDS.length).toBeGreaterThan(0);
+      for (const example of EXAMPLE_PASSWORDS) {
+        const url = prodUrl('questline_app', example);
+        const error = configErrorOf(() => loadApiConfig({ ...productionApiEnv, DATABASE_URL_APP: url }));
+
+        expect(error.issues).toEqual(['DATABASE_URL_APP: password is missing or too weak for production']);
+      }
+    });
+
     it('evaluates a password with malformed percent-encoding as typed instead of crashing', () => {
       const url = prodUrl('questline_app', 'Xk9%E0%A4%Aqz7Lm2Vb5Nc');
 
@@ -469,6 +488,14 @@ describe('loadWorkerConfig', () => {
     expect(error.message).not.toContain('change-me');
   });
 
+  it('refuses the example passwords of docker/.env.example as the SMTP password in production [E-12]', () => {
+    for (const example of EXAMPLE_PASSWORDS) {
+      const error = configErrorOf(() => loadWorkerConfig({ ...productionEnv, ...smtpEnv, SMTP_PASSWORD: example }));
+
+      expect(error.issues).toEqual(['SMTP_PASSWORD: is too weak for production']);
+    }
+  });
+
   it('accepts a complete production configuration', () => {
     expect(loadWorkerConfig({ ...productionEnv, ...smtpEnv }).email?.smtp.host).toBe('smtp.relay.test');
   });
@@ -609,6 +636,22 @@ describe('loadBootstrapConfig', () => {
       'DB_PASSWORD_APP: must differ from the other role passwords',
       'DB_PASSWORD_WORKER: password is missing or too weak for production',
     ]);
+  });
+
+  it('refuses the example passwords of docker/.env.example as role passwords in production', () => {
+    for (const example of EXAMPLE_PASSWORDS) {
+      const error = configErrorOf(() =>
+        loadBootstrapConfig({
+          APP_ENV: 'production',
+          DATABASE_ADMIN_URL: prodUrl('admin'),
+          DB_PASSWORD_MIGRATOR: 'Mg7xQ2vLp9sRt4wZ', // gitleaks:allow — synthetic test value
+          DB_PASSWORD_APP: 'Ap3kV8nWq5zTy2xB', // gitleaks:allow — synthetic test value
+          DB_PASSWORD_WORKER: example,
+        }),
+      );
+
+      expect(error.issues).toEqual(['DB_PASSWORD_WORKER: password is missing or too weak for production']);
+    }
   });
 
   it('accepts a hardened production bootstrap', () => {

@@ -93,8 +93,12 @@ Rules enforced by lint/tests:
 
 - A single Zod schema parses `process.env` at startup; the process exits with a clear message (no secret values)
   if anything is missing or weak.
-- Secret strength checks: base64/hex decodes to ≥ 32 bytes, not all identical bytes, not one of the documented
-  example values, not equal to another secret.
+- Secret strength checks. A key is base64 or base64url of 32 bytes for a KEK and of 32 to 64 bytes for the
+  blind-index and rate-limit keys, not one repeated byte, and different from the other keys. A production password
+  (the database roles, the SMTP relay) has 16 characters or more, more than one distinct character, is not the user
+  name, and holds none of the words of a value that was never replaced: `change`, `example`, `placeholder`,
+  `password`, `replace`, `secret`. So the example values of `docker/.env.example` are refused; a test reads that
+  file.
 - `APP_ENV=production` additionally refuses `KEK_SOURCE=env` (the KEK must come from 1Password Connect, R-ENC-05),
   `LOG_LEVEL=debug|trace`, missing `TRUST_PROXY_HOPS`, any `DATABASE_URL` without `sslmode=verify-full`, any
   SMTP setting without TLS, and a missing `WEBAUTHN_RP_ID` or `WEBAUTHN_ORIGINS` or a reserved or local RP ID
