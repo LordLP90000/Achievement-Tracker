@@ -235,6 +235,12 @@ describe('container smoke test', () => {
     await expect(inApi('npm', '--version')).rejects.toThrow();
   });
 
+  it('runs the Node.js release that .nvmrc pins for the toolchain and for CI [T-10, ADR-0017]', async () => {
+    const { stdout } = await inApiNode('process.stdout.write(process.version)');
+
+    expect(stdout).toBe(`v${readFileSync('.nvmrc', 'utf8').trim()}`);
+  });
+
   it('is the distroless Node.js image without its system OpenSSL, zstd and zlib: nothing else missing, added or changed [E-06, ADR-0017]', async () => {
     await run('docker', ['pull', '--quiet', DISTROLESS_IMAGE]);
     const listed = async (image: string) => {

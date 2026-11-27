@@ -118,7 +118,8 @@ them.
 ## Addendum – 2026-11-25
 
 Where M6 stands twenty days later. The sections above are as written on 2026-11-05. Updated on 2026-11-27 with the
-CI runs of `1e19d32`, which are green; everything else is as written on 2026-11-25.
+CI runs of `1e19d32`, which are green, and with the update to Node 26.13.1 made that day; everything else is as
+written on 2026-11-25.
 
 ### Done since
 
@@ -157,6 +158,15 @@ Then you told me that the jobs still fail:
   base image: its system OpenSSL, and the zstd and zlib that only that OpenSSL needs. Node.js brings its own and
   loads none of them. The image is now built without the three, and the build fails if anything that stays needs
   them (ADR-0017, an amendment proposed for your approval; O-14). No exception was added
+
+On 2026-11-27, with CI green again:
+
+- this commit: **Node 26.13.1**, a security release of 2026-11-10, in the build stages, the runtime image and
+  `.nvmrc`. *Next* below had it for 2026-11-29, with the distroless image of 2026-11-22. That wait was not needed:
+  the 7-day rule asks for a digest that is 7 days old, and the distroless image of 2026-11-12 carries the release
+  too. Against the image we ran, one file differs besides Node.js itself, and only in its mode, so the Debian
+  packages are the ones CI has scanned every night. Two new checks fail when `.nvmrc`, the build stages and the
+  runtime do not name the same release
 
 ### CI and tests
 
@@ -232,9 +242,8 @@ speaker's review of the email texts) and the tabletop exercise of the breach run
 
 ### Next
 
-- From 2026-11-29: the update to Node 26.13.1, a security release, with the distroless image of 2026-11-22, as a
-  step of its own. Only the 7-day rule holds it until then, no finding any more: built on that image today, ours
-  passes Trivy.
+- From 2026-11-29 and from 2026-12-02: the distroless images of 2026-11-22 (Debian 13.8) and of 2026-11-25 (with
+  Debian's zstd fix), each when it is 7 days old, as routine steps. Neither brings a new Node.js.
 - With your decision on how M6 ends: either the final M6 report for your review and a plan for M7 with its effort,
   or the staging tasks as soon as O-01 is decided.
 - With your answers: O-20 and O-21 first, then O-15, O-17, O-18 and O-19, test-first, each with its change to the

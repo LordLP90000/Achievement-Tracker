@@ -1,8 +1,8 @@
 # Questline API + worker image (one image, different commands). Build context: repository root.
 # Build stages run on Debian 13 (glibc) like the runtime, so native add-ons (sodium-native, M2) match it.
-ARG BUILD_IMAGE=node:26.13.0-trixie-slim@sha256:e4db4c914bf8ad241bd24804fc25d272d89bad97e68cdc8a1414862790a02c39
+ARG BUILD_IMAGE=node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc
 # Distroless: Node.js only — no shell, no coreutils, no package manager (threat E-06). The entrypoint is node.
-ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs26-debian13:nonroot@sha256:33c86a63859efc2ebd88ea0a355863582ec6f1220d048de62baffb2584e709b3
+ARG RUNTIME_IMAGE=gcr.io/distroless/nodejs26-debian13:nonroot@sha256:1d736cf8b5716c07a245301f92717143215d248fd55771ee1936ef4b3302e531
 
 FROM ${BUILD_IMAGE} AS build
 WORKDIR /build

@@ -393,7 +393,9 @@ Format: Context → Decision → Consequences → Tests that enforce it.
 - **Consequences:** No shell for debugging inside containers (deliberate); base updates are digest bumps verified by
   the strict Trivy gate (0 HIGH/CRITICAL incl. unfixed at adoption). Native add-ons must ship glibc builds.
 - **Tests:** `test/e2e/smoke.test.ts` (uid ≠ 0, read-only root, no shell, no package manager, no secrets in logs,
-  production refusal; for the amendment: the image's file system and settings against the distroless image's),
+  production refusal, the Node.js release of `.nvmrc`; for the amendment: the image's file system and settings
+  against the distroless image's), `test/supply-chain/node-version.test.ts` (the build stages on the release of
+  `.nvmrc` and on the runtime's Debian release, both base images pinned by digest),
   `test/scripts/remove-image-packages.test.ts` (the amendment's build step); CI Trivy gate.
 - **Amendment (2026-11-25, proposed for the M6 review):** the runtime is the pinned distroless image **without three
   of its 15 Debian packages**: the system OpenSSL (`libssl3t64`) and the zstd and zlib that only it needs
